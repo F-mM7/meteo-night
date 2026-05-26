@@ -31,3 +31,9 @@ lerna-debug.log*
 .env
 .env.local
 .env.*.local
+
+# AI training artifacts
+ai/data/*
+ai/models/*
+!ai/data/.gitkeep
+!ai/models/.gitkeep
