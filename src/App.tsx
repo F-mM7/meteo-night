@@ -184,6 +184,7 @@ export default function App() {
               isCurrent={state.currentPlayerIndex === opponents[1].id}
               isYou={false}
               size="sm"
+              stackDirection="up"
             />
           )}
         </section>
@@ -196,6 +197,7 @@ export default function App() {
               isYou={false}
               size="sm"
               orientation="vertical"
+              stackDirection="left"
             />
           )}
         </section>
@@ -220,6 +222,7 @@ export default function App() {
               isYou={false}
               size="sm"
               orientation="vertical"
+              stackDirection="right"
             />
           )}
         </section>

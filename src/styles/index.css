@@ -327,17 +327,11 @@ h1, h2, h3 {
 
 .slot-stack {
   position: relative;
-  width: 72px;
 }
-
-.slot-stack-sm { width: 48px; }
-.slot-stack-md { width: 72px; }
-.slot-stack-lg { width: 96px; }
 
 .slot-stack-card {
   position: absolute;
-  left: 0;
-  transition: top 0.18s ease-out, transform 0.18s ease-out;
+  transition: top 0.18s ease-out, bottom 0.18s ease-out, left 0.18s ease-out, right 0.18s ease-out;
 }
 
 .slot-stack-top .card {

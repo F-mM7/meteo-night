@@ -1,6 +1,6 @@
 import type { Player } from '../game/types';
 import { CardView } from './CardView';
-import { SlotView } from './SlotView';
+import { SlotView, type StackDirection } from './SlotView';
 
 interface Props {
   player: Player;
@@ -8,6 +8,7 @@ interface Props {
   isYou: boolean;
   size?: 'sm' | 'md' | 'lg';
   orientation?: 'horizontal' | 'vertical';
+  stackDirection?: StackDirection;
   interactiveSlotIndices?: number[];
   highlightedSlotIndices?: number[];
   onSlotClick?: (slotIndex: number) => void;
@@ -19,6 +20,7 @@ export function PlayerBoardView({
   isYou,
   size = 'md',
   orientation = 'horizontal',
+  stackDirection = 'down',
   interactiveSlotIndices,
   highlightedSlotIndices,
   onSlotClick,
@@ -42,6 +44,7 @@ export function PlayerBoardView({
             slot={slot}
             index={idx}
             size={size}
+            direction={stackDirection}
             interactive={interactiveSlotIndices?.includes(idx) ?? false}
             highlighted={highlightedSlotIndices?.includes(idx) ?? false}
             onClick={() => onSlotClick?.(idx)}
