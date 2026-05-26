@@ -13,12 +13,21 @@ function describePhase(state: GameState, isYourTurn: boolean): string {
     const w = state.players.find((p) => p.id === state.winnerId);
     return `ゲーム終了！ 勝者: ${w?.name ?? '不明'}`;
   }
+  if (state.phase === 'awaitingGiftPlacement') {
+    const batch = state.turn.pendingGiftBatches[0];
+    if (batch && batch.recipientId === 0) {
+      if (batch.cards.length > 1) {
+        return '贈られたカードから1枚を選び、配置するスロットを指定してください';
+      }
+      return '贈られたカードを置くスロットを選んでください';
+    }
+    const recipient = batch ? state.players[batch.recipientId]?.name : '';
+    return `${recipient} が贈られたカードを配置中...`;
+  }
   if (!isYourTurn) {
     return `${cur.name} の手番（思考中...）`;
   }
   switch (state.phase) {
-    case 'awaitingPlacePendingGifts':
-      return '贈られたカードを配置するスロットを選んでください';
     case 'awaitingDraw':
       return '場のセット または 山札を選んでください';
     case 'awaitingPlaceDrawn':

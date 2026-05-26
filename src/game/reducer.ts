@@ -1,4 +1,4 @@
-import type { Action, GameState, LogEntry, Player } from './types';
+import type { Action, GameState, GiftAssignment, GiftBatch, LogEntry, Player } from './types';
 import { setupGame } from './setup';
 import { totalScoreForTurn } from './scoring';
 import {
@@ -42,6 +42,15 @@ function appendSystemLog(state: GameState, message: string, emphasize = false): 
   return { ...state, log: [...state.log, entry].slice(-80) };
 }
 
+function appendPlayerLog(state: GameState, playerName: string, message: string): GameState {
+  const entry: LogEntry = {
+    turn: state.turnNumber,
+    playerName,
+    message,
+  };
+  return { ...state, log: [...state.log, entry].slice(-80) };
+}
+
 function updatePlayer(state: GameState, playerId: number, fn: (p: Player) => Player): GameState {
   return {
     ...state,
@@ -70,17 +79,20 @@ function resolveChainStep(state: GameState): GameState {
       true
     );
   }
+  // 連鎖発火後の追加アクションが両方とも実行不可なら、強制スキップして得点処理へ進む
+  // （ルール上「引いて配置」も「取り除き」も成立しないケース＝山札も捨札もボードも空）
+  const updatedPlayer = next.players[player.id];
+  const canDraw = next.deck.length > 0 || next.discardPile.length > 0;
+  const canDiscard = updatedPlayer.board.slots.some((s) => s.stack.length > 0);
+  if (!canDraw && !canDiscard) {
+    next = appendSystemLog(next, '追加アクション不可（山札・ボードともに空のため自動スキップ）', false);
+    return finalizeTurnAfterCombos(next);
+  }
   next = { ...next, phase: 'awaitingAdditionalActionChoice' };
   return next;
 }
 
 function tryTransitionAfterPlacement(state: GameState): GameState {
-  const player = getCurrentPlayer(state);
-
-  if (player.pendingGifts.length > 0) {
-    return { ...state, phase: 'awaitingPlacePendingGifts' };
-  }
-
   if (state.turn.pendingDraw.length > 0) {
     return { ...state, phase: 'awaitingPlaceDrawn' };
   }
@@ -130,7 +142,7 @@ function finalizeTurnAfterCombos(state: GameState): GameState {
 }
 
 function endTurn(state: GameState): GameState {
-  let next = state;
+  let next = refillField(state);
 
   if (shouldEndGame(next)) {
     const winnerId = computeWinner(next);
@@ -153,39 +165,14 @@ function endTurn(state: GameState): GameState {
       combosThisTurn: [],
       giftQueue: [],
       hasDrawn: false,
+      pendingGiftBatches: [],
     },
+    phase: 'awaitingDraw',
   };
 
   const player = getCurrentPlayer(next);
   next = appendSystemLog(next, `${player.name} のターン開始`);
-
-  if (player.pendingGifts.length > 0) {
-    next = { ...next, phase: 'awaitingPlacePendingGifts' };
-  } else {
-    next = { ...next, phase: 'awaitingDraw' };
-  }
   return next;
-}
-
-function handlePlacePendingGift(
-  state: GameState,
-  cardId: string,
-  slotIndex: number
-): GameState {
-  if (state.phase !== 'awaitingPlacePendingGifts') return state;
-  const player = getCurrentPlayer(state);
-  const card = player.pendingGifts.find((c) => c.id === cardId);
-  if (!card) return state;
-  const remaining = player.pendingGifts.filter((c) => c.id !== cardId);
-  let next = updatePlayer(state, player.id, (p) => ({
-    ...p,
-    pendingGifts: remaining,
-    board: placeCardOnSlot(p.board, card, slotIndex),
-  }));
-  next = appendLog(next, `贈られた ${COLOR_LABEL[card.color]} をスロット${slotIndex + 1}に配置`);
-
-  next = { ...next, phase: 'resolvingCombos' };
-  return resolveChainStep(next);
 }
 
 function handleDrawFromField(state: GameState, pairIndex: 0 | 1): GameState {
@@ -199,7 +186,6 @@ function handleDrawFromField(state: GameState, pairIndex: 0 | 1): GameState {
     field: newField,
     turn: { ...state.turn, pendingDraw: [pair[0], pair[1]], hasDrawn: true },
   };
-  next = refillField(next);
   next = appendLog(
     next,
     `場から ${COLOR_LABEL[pair[0].color]}/${COLOR_LABEL[pair[1].color]} を取得`
@@ -303,39 +289,107 @@ function handleDiscardTop(state: GameState, slotIndex: number): GameState {
   return resolveChainStep(next);
 }
 
-function handleGiveCard(
+function validateAssignments(
   state: GameState,
-  comboIndex: number,
-  cardId: string,
-  targetPlayerId: number
-): GameState {
+  assignments: GiftAssignment[]
+): { valid: boolean; givenCardIds: Set<string> } {
+  const queue = state.turn.giftQueue;
+  const givenCardIds = new Set<string>();
+
+  if (assignments.length !== queue.length) {
+    return { valid: false, givenCardIds };
+  }
+  const seenCombos = new Set<number>();
+  for (const a of assignments) {
+    if (seenCombos.has(a.comboIndex)) return { valid: false, givenCardIds };
+    seenCombos.add(a.comboIndex);
+    const combo = queue[a.comboIndex];
+    if (!combo) return { valid: false, givenCardIds };
+    const card = combo.cards.find((c) => c.id === a.cardId);
+    if (!card) return { valid: false, givenCardIds };
+    if (a.targetPlayerId === state.currentPlayerIndex) return { valid: false, givenCardIds };
+    if (!state.players[a.targetPlayerId]) return { valid: false, givenCardIds };
+    givenCardIds.add(a.cardId);
+  }
+  return { valid: true, givenCardIds };
+}
+
+function handleConfirmGifts(state: GameState, assignments: GiftAssignment[]): GameState {
   if (state.phase !== 'awaitingGiftSelection') return state;
   const queue = state.turn.giftQueue;
-  if (comboIndex < 0 || comboIndex >= queue.length) return state;
-  const combo = queue[comboIndex];
-  const card = combo.cards.find((c) => c.id === cardId);
+  if (queue.length === 0) return endTurn(state);
+
+  const { valid, givenCardIds } = validateAssignments(state, assignments);
+  if (!valid) return state;
+
+  const batchMap = new Map<number, GiftBatch>();
+  for (const a of assignments) {
+    const combo = queue[a.comboIndex];
+    const card = combo.cards.find((c) => c.id === a.cardId)!;
+    const existing = batchMap.get(a.targetPlayerId);
+    if (existing) {
+      existing.cards.push(card);
+    } else {
+      batchMap.set(a.targetPlayerId, { recipientId: a.targetPlayerId, cards: [card] });
+    }
+  }
+
+  const allCards = queue.flatMap((c) => c.cards);
+  const discardCards = allCards.filter((c) => !givenCardIds.has(c.id));
+  const batches = Array.from(batchMap.values());
+
+  let next: GameState = {
+    ...state,
+    discardPile: [...state.discardPile, ...discardCards],
+    turn: { ...state.turn, giftQueue: [], pendingGiftBatches: batches },
+  };
+
+  const giver = getCurrentPlayer(next);
+  for (const batch of batches) {
+    const target = next.players[batch.recipientId];
+    const colors = batch.cards.map((c) => COLOR_LABEL[c.color]).join('・');
+    next = appendLog(next, `${giver.name} → ${target.name}: ${colors} (${batch.cards.length}枚)`, true);
+  }
+
+  if (batches.length === 0) {
+    return endTurn(next);
+  }
+  return { ...next, phase: 'awaitingGiftPlacement' };
+}
+
+function handlePlaceGift(state: GameState, cardId: string, slotIndex: number): GameState {
+  if (state.phase !== 'awaitingGiftPlacement') return state;
+  const batches = state.turn.pendingGiftBatches;
+  if (batches.length === 0) return endTurn(state);
+
+  const currentBatch = batches[0];
+  const card = currentBatch.cards.find((c) => c.id === cardId);
   if (!card) return state;
-  if (targetPlayerId === state.currentPlayerIndex) return state;
 
-  const remainingOfCombo = combo.cards.filter((c) => c.id !== cardId);
-  const newQueue = queue.filter((_, i) => i !== comboIndex);
-
-  let next = updatePlayer(state, targetPlayerId, (p) => ({
+  const recipient = state.players[currentBatch.recipientId];
+  let next = updatePlayer(state, currentBatch.recipientId, (p) => ({
     ...p,
-    pendingGifts: [...p.pendingGifts, card],
+    board: placeCardOnSlot(p.board, card, slotIndex),
   }));
-  next = appendLog(
+  next = appendPlayerLog(
     next,
-    `コンボ${comboIndex + 1} の ${COLOR_LABEL[card.color]} を ${next.players[targetPlayerId].name} へ`
+    recipient.name,
+    `贈られた ${COLOR_LABEL[card.color]} をスロット${slotIndex + 1}に配置`
   );
+
+  const remainingCards = currentBatch.cards.filter((c) => c.id !== cardId);
+  const newBatches: GiftBatch[] = [];
+  if (remainingCards.length > 0) {
+    newBatches.push({ ...currentBatch, cards: remainingCards });
+  }
+  newBatches.push(...batches.slice(1));
 
   next = {
     ...next,
-    discardPile: [...next.discardPile, ...remainingOfCombo],
-    turn: { ...next.turn, giftQueue: newQueue },
+    turn: { ...next.turn, pendingGiftBatches: newBatches },
   };
 
-  if (newQueue.length === 0) {
+  if (newBatches.length === 0) {
     return endTurn(next);
   }
   return next;
@@ -345,8 +399,6 @@ export function reducer(state: GameState, action: Action): GameState {
   switch (action.type) {
     case 'NEW_GAME':
       return setupGame(action.options);
-    case 'PLACE_PENDING_GIFT':
-      return handlePlacePendingGift(state, action.cardId, action.slotIndex);
     case 'DRAW_FROM_FIELD':
       return handleDrawFromField(state, action.pairIndex);
     case 'DRAW_FROM_DECK':
@@ -361,8 +413,10 @@ export function reducer(state: GameState, action: Action): GameState {
       return handlePlaceAdditionalDraw(state, action.slotIndex);
     case 'DISCARD_TOP':
       return handleDiscardTop(state, action.slotIndex);
-    case 'GIVE_CARD':
-      return handleGiveCard(state, action.comboIndex, action.cardId, action.targetPlayerId);
+    case 'CONFIRM_GIFTS':
+      return handleConfirmGifts(state, action.assignments);
+    case 'PLACE_GIFT':
+      return handlePlaceGift(state, action.cardId, action.slotIndex);
     default:
       return state;
   }

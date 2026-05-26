@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { Action, ComboRecord, GameState } from '../game/types';
+import type { Action, GameState, GiftAssignment } from '../game/types';
 import { CardView } from './CardView';
 
 interface Props {
@@ -16,77 +16,82 @@ const COLOR_LABEL: Record<string, string> = {
 };
 
 export function GiftModal({ state, dispatch }: Props) {
-  const player = state.players[state.currentPlayerIndex];
   const queue = state.turn.giftQueue;
-  const current: ComboRecord | undefined = queue[0];
-  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
-
+  const giverId = state.currentPlayerIndex;
   const otherPlayers = useMemo(
-    () => state.players.filter((p) => p.id !== player.id),
-    [state.players, player.id]
+    () => state.players.filter((p) => p.id !== giverId),
+    [state.players, giverId]
   );
 
+  const [targets, setTargets] = useState<(number | null)[]>(() => queue.map(() => null));
+
   useEffect(() => {
-    setSelectedCardId(null);
-  }, [queue.length]);
+    setTargets(queue.map(() => null));
+  }, [queue]);
 
-  if (!current) return null;
+  if (queue.length === 0) return null;
 
-  const cardToGive = selectedCardId
-    ? current.cards.find((c) => c.id === selectedCardId)
-    : current.cards[0];
+  const updateTarget = (idx: number, targetPlayerId: number) => {
+    setTargets((prev) => prev.map((t, i) => (i === idx ? targetPlayerId : t)));
+  };
 
-  const totalCombos = state.turn.combosThisTurn.length;
-  const currentIndex = totalCombos - queue.length + 1;
+  const allReady = targets.every((t) => t !== null);
+
+  const handleConfirm = () => {
+    if (!allReady) return;
+    const assignments: GiftAssignment[] = queue.map((combo, i) => ({
+      comboIndex: i,
+      cardId: combo.cards[0].id,
+      targetPlayerId: targets[i]!,
+    }));
+    dispatch({ type: 'CONFIRM_GIFTS', assignments });
+  };
 
   return (
-    <div className="gift-bar" role="region" aria-label="星のかけらを渡す">
-      <div className="gift-bar-info">
+    <div className="gift-bar" role="region" aria-label="星のかけらをまとめて渡す">
+      <div className="gift-bar-header">
         <h2>連鎖完了 - 星のかけらを渡す</h2>
         <p className="gift-bar-sub">
-          コンボ {currentIndex} / {totalCombos}（{COLOR_LABEL[current.color]}・{current.cards.length}枚残）から1枚を選び、渡す相手を指定
+          各コンボのカードを渡す相手を指定してください。
         </p>
       </div>
-      <div className="gift-bar-cards">
-        <span className="gift-bar-label">渡すカード</span>
-        <div className="combo-cards">
-          {current.cards.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              className={`combo-card-btn${cardToGive?.id === c.id ? ' selected' : ''}`}
-              onClick={() => setSelectedCardId(c.id)}
-              aria-label={`${COLOR_LABEL[c.color]}を選択`}
-            >
-              <CardView card={c} size="sm" />
-            </button>
-          ))}
-        </div>
+      <div className="gift-bar-rows">
+        {queue.map((combo, idx) => {
+          const card = combo.cards[0];
+          return (
+            <div key={idx} className="gift-bar-row">
+              <div className="gift-bar-row-cards">
+                <CardView card={card} />
+                <span className="gift-bar-row-label">
+                  コンボ{idx + 1}（{COLOR_LABEL[combo.color]}）
+                </span>
+              </div>
+              <div className="gift-bar-row-targets">
+                {otherPlayers.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={`btn btn-target btn-target-sm${targets[idx] === p.id ? ' selected' : ''}`}
+                    onClick={() => updateTarget(idx, p.id)}
+                  >
+                    {p.name}
+                    <span className="btn-sub">{p.score}点</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
-      <div className="gift-bar-targets">
-        <span className="gift-bar-label">渡す相手</span>
-        <div className="modal-targets">
-          {otherPlayers.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className="btn btn-target"
-              onClick={() => {
-                if (!cardToGive) return;
-                dispatch({
-                  type: 'GIVE_CARD',
-                  comboIndex: 0,
-                  cardId: cardToGive.id,
-                  targetPlayerId: p.id,
-                });
-                setSelectedCardId(null);
-              }}
-            >
-              {p.name}
-              <span className="btn-sub">{p.score}点</span>
-            </button>
-          ))}
-        </div>
+      <div className="gift-bar-confirm">
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={!allReady}
+          onClick={handleConfirm}
+        >
+          まとめて渡す
+        </button>
       </div>
     </div>
   );

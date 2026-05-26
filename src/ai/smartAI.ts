@@ -1,4 +1,4 @@
-import type { Action, GameState, Player } from '../game/types';
+import type { Action, GameState, GiftAssignment, Player } from '../game/types';
 import { reducer } from '../game/reducer';
 import { mulberry32, shuffle } from '../game/rng';
 import { evaluateState, topColorCounts } from './evaluator';
@@ -8,20 +8,38 @@ interface ScoredAction {
   score: number;
 }
 
+/**
+ * 状態とプレイヤー ID から決定論的に seed を生成する。
+ * 同じ状態に再到達した場合でも常に同じ seed が出るが、
+ * 通常の進行では log.length / turnNumber が変わるため挙動は変動する。
+ */
+function stateBaseSeed(state: GameState, playerId: number): number {
+  const a = state.rngSeed >>> 0;
+  const b = Math.imul(state.turnNumber + 1, 0x9e3779b1);
+  const c = Math.imul(playerId + 1, 0x85ebca6b);
+  const d = Math.imul(state.log.length + 1, 0xc2b2ae35);
+  return (a ^ b ^ c ^ d) | 0;
+}
+
 function enumerateActions(state: GameState, playerId: number): Action[] {
   const player = state.players[playerId];
   const slotIdxs = player.board.slots.map((_, i) => i);
 
-  switch (state.phase) {
-    case 'awaitingPlacePendingGifts': {
-      const card = player.pendingGifts[0];
-      if (!card) return [];
-      return slotIdxs.map((slotIndex) => ({
-        type: 'PLACE_PENDING_GIFT' as const,
-        cardId: card.id,
-        slotIndex,
-      }));
+  if (state.phase === 'awaitingGiftPlacement') {
+    const batch = state.turn.pendingGiftBatches[0];
+    if (!batch || batch.recipientId !== playerId) return [];
+    const acts: Action[] = [];
+    for (const card of batch.cards) {
+      for (const slotIndex of slotIdxs) {
+        acts.push({ type: 'PLACE_GIFT', cardId: card.id, slotIndex });
+      }
     }
+    return acts;
+  }
+
+  if (state.currentPlayerIndex !== playerId) return [];
+
+  switch (state.phase) {
     case 'awaitingDraw': {
       const acts: Action[] = [];
       if (state.field[0]) acts.push({ type: 'DRAW_FROM_FIELD', pairIndex: 0 });
@@ -40,11 +58,14 @@ function enumerateActions(state: GameState, playerId: number): Action[] {
         slotIndex,
       }));
     }
-    case 'awaitingAdditionalActionChoice':
-      return [
-        { type: 'CHOOSE_ADDITIONAL_DRAW' },
-        { type: 'CHOOSE_ADDITIONAL_DISCARD' },
-      ];
+    case 'awaitingAdditionalActionChoice': {
+      const acts: Action[] = [];
+      const canDraw = state.deck.length > 0 || state.discardPile.length > 0;
+      const canDiscard = player.board.slots.some((s) => s.stack.length > 0);
+      if (canDraw) acts.push({ type: 'CHOOSE_ADDITIONAL_DRAW' });
+      if (canDiscard) acts.push({ type: 'CHOOSE_ADDITIONAL_DISCARD' });
+      return acts;
+    }
     case 'awaitingPlaceAdditionalDraw':
       return slotIdxs.map((slotIndex) => ({
         type: 'PLACE_ADDITIONAL_DRAW' as const,
@@ -57,69 +78,46 @@ function enumerateActions(state: GameState, playerId: number): Action[] {
           type: 'DISCARD_TOP' as const,
           slotIndex,
         }));
-    case 'awaitingGiftSelection': {
-      const combo = state.turn.giftQueue[0];
-      if (!combo) return [];
-      const acts: Action[] = [];
-      for (const c of combo.cards) {
-        for (const p of state.players) {
-          if (p.id === playerId) continue;
-          acts.push({
-            type: 'GIVE_CARD',
-            comboIndex: 0,
-            cardId: c.id,
-            targetPlayerId: p.id,
-          });
-        }
-      }
-      return acts;
-    }
     default:
       return [];
   }
 }
 
-function pickGiftTargetHeuristic(state: GameState, playerId: number): Action | null {
-  const combo = state.turn.giftQueue[0];
-  if (!combo) return null;
+function buildGiftAssignmentsHeuristic(state: GameState, playerId: number): GiftAssignment[] {
+  const queue = state.turn.giftQueue;
   const opponents = state.players.filter((p) => p.id !== playerId);
-  const opponentMostThreat = opponents.reduce<Player>((max, cur) =>
-    cur.score > max.score ? cur : max
-  , opponents[0]);
-
-  let chosenCard = combo.cards[0];
-  for (const c of combo.cards) {
-    const counts = topColorCounts(opponentMostThreat);
-    const cnt = counts.get(c.color) ?? 0;
-    const bestCounts = topColorCounts(opponentMostThreat);
-    const bestCnt = bestCounts.get(chosenCard.color) ?? 0;
-    if (cnt < bestCnt) chosenCard = c;
-  }
-
-  let targetId = opponentMostThreat.id;
-  for (const op of opponents) {
-    const counts = topColorCounts(op);
-    if ((counts.get(chosenCard.color) ?? 0) === 0 && op.score < opponentMostThreat.score) {
-      targetId = op.id;
+  return queue.map((combo, comboIndex) => {
+    const opponentTopThreat = opponents.reduce<Player>(
+      (max, cur) => (cur.score > max.score ? cur : max),
+      opponents[0]
+    );
+    let chosenCard = combo.cards[0];
+    for (const c of combo.cards) {
+      const cnt = topColorCounts(opponentTopThreat).get(c.color) ?? 0;
+      const bestCnt = topColorCounts(opponentTopThreat).get(chosenCard.color) ?? 0;
+      if (cnt < bestCnt) chosenCard = c;
     }
-  }
-  return {
-    type: 'GIVE_CARD',
-    comboIndex: 0,
-    cardId: chosenCard.id,
-    targetPlayerId: targetId,
-  };
+    let targetId = opponentTopThreat.id;
+    for (const op of opponents) {
+      const counts = topColorCounts(op);
+      if ((counts.get(chosenCard.color) ?? 0) === 0 && op.score < opponentTopThreat.score) {
+        targetId = op.id;
+      }
+    }
+    return { comboIndex, cardId: chosenCard.id, targetPlayerId: targetId };
+  });
 }
 
 function evaluateUnknownDraw(
   state: GameState,
   action: Action,
-  playerId: number
+  playerId: number,
+  baseSeed: number
 ): number {
   const samples = 4;
   let total = 0;
   for (let i = 0; i < samples; i++) {
-    const rand = mulberry32((Date.now() + i) | 0);
+    const rand = mulberry32((baseSeed + Math.imul(i + 1, 0x9e3779b1)) | 0);
     const shuffled = shuffle(state.deck, rand);
     const reshuffled: GameState = { ...state, deck: shuffled };
     const next = reducer(reshuffled, action);
@@ -128,13 +126,23 @@ function evaluateUnknownDraw(
   return total / samples;
 }
 
-export function decideAction(state: GameState, playerId: number): Action | null {
-  if (state.currentPlayerIndex !== playerId) return null;
+export function decideAction(
+  state: GameState,
+  playerId: number,
+  seed?: number
+): Action | null {
+  const baseSeed = (seed ?? stateBaseSeed(state, playerId)) | 0;
 
   if (state.phase === 'awaitingGiftSelection') {
-    const heuristic = pickGiftTargetHeuristic(state, playerId);
-    if (heuristic) return heuristic;
+    if (state.currentPlayerIndex !== playerId) return null;
+    const assignments = buildGiftAssignmentsHeuristic(state, playerId);
+    return { type: 'CONFIRM_GIFTS', assignments };
   }
+
+  const isGiftPlacementActor =
+    state.phase === 'awaitingGiftPlacement' &&
+    state.turn.pendingGiftBatches[0]?.recipientId === playerId;
+  if (!isGiftPlacementActor && state.currentPlayerIndex !== playerId) return null;
 
   const actions = enumerateActions(state, playerId);
   if (actions.length === 0) return null;
@@ -143,7 +151,7 @@ export function decideAction(state: GameState, playerId: number): Action | null 
     let score = -Infinity;
     try {
       if (action.type === 'DRAW_FROM_DECK' || action.type === 'CHOOSE_ADDITIONAL_DRAW') {
-        score = evaluateUnknownDraw(state, action, playerId);
+        score = evaluateUnknownDraw(state, action, playerId, baseSeed);
       } else {
         const nextState = reducer(state, action);
         score = evaluateState(nextState, playerId);
@@ -159,6 +167,7 @@ export function decideAction(state: GameState, playerId: number): Action | null 
 
   const topScore = top.score;
   const tied = scored.filter((s) => s.score >= topScore - 0.5);
-  const picked = tied[Math.floor(Math.random() * tied.length)] ?? top;
+  const tieRand = mulberry32((baseSeed ^ 0x9e3779b9) | 0);
+  const picked = tied[Math.floor(tieRand() * tied.length)] ?? top;
   return picked.action;
 }

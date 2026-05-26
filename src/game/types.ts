@@ -20,13 +20,11 @@ export interface Player {
   isCPU: boolean;
   board: PlayerBoard;
   score: number;
-  pendingGifts: Card[];
 }
 
 export type FieldPair = [Card, Card] | null;
 
 export type Phase =
-  | 'awaitingPlacePendingGifts'
   | 'awaitingDraw'
   | 'awaitingPlaceDrawn'
   | 'resolvingCombos'
@@ -34,6 +32,7 @@ export type Phase =
   | 'awaitingPlaceAdditionalDraw'
   | 'awaitingAdditionalDiscard'
   | 'awaitingGiftSelection'
+  | 'awaitingGiftPlacement'
   | 'turnEnd'
   | 'gameOver';
 
@@ -43,12 +42,24 @@ export interface ComboRecord {
   basePoints: number;
 }
 
+export interface GiftBatch {
+  recipientId: number;
+  cards: Card[];
+}
+
+export interface GiftAssignment {
+  comboIndex: number;
+  cardId: string;
+  targetPlayerId: number;
+}
+
 export interface TurnState {
   pendingDraw: Card[];
   pendingAdditionalDraw: Card | null;
   combosThisTurn: ComboRecord[];
   giftQueue: ComboRecord[];
   hasDrawn: boolean;
+  pendingGiftBatches: GiftBatch[];
 }
 
 export interface LogEntry {
@@ -86,7 +97,6 @@ export interface SetupOptions {
 
 export type Action =
   | { type: 'NEW_GAME'; options?: SetupOptions }
-  | { type: 'PLACE_PENDING_GIFT'; cardId: string; slotIndex: number }
   | { type: 'DRAW_FROM_FIELD'; pairIndex: 0 | 1 }
   | { type: 'DRAW_FROM_DECK' }
   | { type: 'PLACE_DRAWN'; cardId: string; slotIndex: number }
@@ -94,4 +104,5 @@ export type Action =
   | { type: 'CHOOSE_ADDITIONAL_DISCARD' }
   | { type: 'PLACE_ADDITIONAL_DRAW'; slotIndex: number }
   | { type: 'DISCARD_TOP'; slotIndex: number }
-  | { type: 'GIVE_CARD'; comboIndex: number; cardId: string; targetPlayerId: number };
+  | { type: 'CONFIRM_GIFTS'; assignments: GiftAssignment[] }
+  | { type: 'PLACE_GIFT'; cardId: string; slotIndex: number };

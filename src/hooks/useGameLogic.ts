@@ -26,6 +26,13 @@ function delayFor(state: GameState, speed: CpuSpeed): number {
   return profile.base;
 }
 
+export function currentActorId(state: GameState): number {
+  if (state.phase === 'awaitingGiftPlacement' && state.turn.pendingGiftBatches.length > 0) {
+    return state.turn.pendingGiftBatches[0].recipientId;
+  }
+  return state.currentPlayerIndex;
+}
+
 export function useGameLogic(initOptions?: SetupOptions) {
   const [state, dispatch] = useReducer(
     reducer,
@@ -42,10 +49,12 @@ export function useGameLogic(initOptions?: SetupOptions) {
       timerRef.current = null;
     }
     if (state.phase === 'gameOver') return;
-    const cur = state.players[state.currentPlayerIndex];
-    const shouldAIDrive = cur?.isCPU || autoPilot;
+    const actorId = currentActorId(state);
+    const actor = state.players[actorId];
+    if (!actor) return;
+    const shouldAIDrive = actor.isCPU || autoPilot;
     if (!shouldAIDrive) return;
-    const action = decideAction(state, cur.id);
+    const action = decideAction(state, actorId);
     if (!action) return;
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null;
@@ -64,8 +73,9 @@ export function useGameLogic(initOptions?: SetupOptions) {
   };
 
   const userDispatch = (action: Action) => {
-    const cur = state.players[state.currentPlayerIndex];
-    if ((cur?.isCPU || autoPilot) && action.type !== 'NEW_GAME') return;
+    const actorId = currentActorId(state);
+    const actor = state.players[actorId];
+    if ((actor?.isCPU || autoPilot) && action.type !== 'NEW_GAME') return;
     dispatch(action);
   };
 

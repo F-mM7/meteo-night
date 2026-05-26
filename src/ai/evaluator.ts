@@ -52,7 +52,6 @@ function threatScore(player: Player): number {
     else if (count === 2) score += 12;
   }
   score += sig.chainSeeds * 4;
-  score += player.pendingGifts.length * -2;
   return score;
 }
 

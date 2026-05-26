@@ -10,7 +10,7 @@ import { COLORS } from './types';
 import { mulberry32, shuffle } from './rng';
 
 const DEFAULT_SLOTS = 5;
-const DEFAULT_CARDS_PER_COLOR = 12;
+const DEFAULT_CARDS_PER_COLOR = 20;
 
 function makeBoard(slots: number): PlayerBoard {
   return {
@@ -25,7 +25,6 @@ function makePlayer(id: number, name: string, isCPU: boolean, slots: number): Pl
     isCPU,
     board: makeBoard(slots),
     score: 0,
-    pendingGifts: [],
   };
 }
 
@@ -67,7 +66,7 @@ function drawPair(deck: Card[]): { pair: FieldPair; remaining: Card[] } {
 }
 
 export function setupGame(options: SetupOptions = {}): GameState {
-  const playerNames = options.playerNames ?? ['あなた', 'CPU-1', 'CPU-2', 'CPU-3'];
+  const playerNames = options.playerNames ?? ['PLAYER', 'CPU-1', 'CPU-2', 'CPU-3'];
   const cpuFlags = options.cpuFlags ?? [false, true, true, true];
   const slots = options.slotsPerPlayer ?? DEFAULT_SLOTS;
   const cardsPerColor = options.cardsPerColor ?? DEFAULT_CARDS_PER_COLOR;
@@ -89,10 +88,12 @@ export function setupGame(options: SetupOptions = {}): GameState {
   const { pair: pair1, remaining: r2 } = drawPair(r1);
   deck = r2;
 
+  const startPlayerIndex = Math.floor(rand() * players.length);
+
   return {
     players,
-    currentPlayerIndex: 0,
-    startPlayerIndex: 0,
+    currentPlayerIndex: startPlayerIndex,
+    startPlayerIndex,
     deck,
     discardPile: [],
     field: [pair0, pair1],
@@ -103,6 +104,7 @@ export function setupGame(options: SetupOptions = {}): GameState {
       combosThisTurn: [],
       giftQueue: [],
       hasDrawn: false,
+      pendingGiftBatches: [],
     },
     turnNumber: 1,
     endTriggered: false,
@@ -113,6 +115,12 @@ export function setupGame(options: SetupOptions = {}): GameState {
         turn: 0,
         playerName: 'システム',
         message: 'ゲーム開始',
+        emphasize: true,
+      },
+      {
+        turn: 0,
+        playerName: 'システム',
+        message: `スタートプレイヤー: ${players[startPlayerIndex].name}`,
         emphasize: true,
       },
     ],
