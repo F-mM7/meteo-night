@@ -1,5 +1,6 @@
+import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import type { Slot } from '../game/types';
+import type { Card, Slot } from '../game/types';
 import { CardView } from './CardView';
 
 export type StackDirection = 'down' | 'up' | 'left' | 'right';
@@ -7,24 +8,24 @@ export type StackDirection = 'down' | 'up' | 'left' | 'right';
 interface Props {
   slot: Slot;
   index: number;
-  size?: 'sm' | 'md' | 'lg';
+  cardSize: number;
+  stackOffset: number;
   direction?: StackDirection;
   interactive?: boolean;
   highlighted?: boolean;
   onClick?: () => void;
 }
 
-const CARD_SIZE: Record<NonNullable<Props['size']>, number> = {
-  sm: 48,
-  md: 72,
-  lg: 96,
-};
+export const STACK_OFFSET_RATIO = 0.28;
+export const STACK_MAX_SPAN_RATIO = 3.2;
 
-const STACK_OFFSET: Record<NonNullable<Props['size']>, number> = {
-  sm: 14,
-  md: 20,
-  lg: 26,
-};
+export function computeStackOffset(cardSize: number, stackLen: number): number {
+  if (stackLen <= 1) return cardSize * STACK_OFFSET_RATIO;
+  const baseOffset = cardSize * STACK_OFFSET_RATIO;
+  const maxSpan = cardSize * STACK_MAX_SPAN_RATIO;
+  const maxOffset = (maxSpan - cardSize) / (stackLen - 1);
+  return Math.min(baseOffset, maxOffset);
+}
 
 function cardPositionStyle(direction: StackDirection, i: number, offset: number): CSSProperties {
   switch (direction) {
@@ -39,10 +40,18 @@ function cardPositionStyle(direction: StackDirection, i: number, offset: number)
   }
 }
 
+interface FadingCard {
+  card: Card;
+  fromIdx: number;
+}
+
+const FADE_DURATION_MS = 700;
+
 export function SlotView({
   slot,
   index,
-  size = 'md',
+  cardSize,
+  stackOffset,
   direction = 'down',
   interactive,
   highlighted,
@@ -50,18 +59,38 @@ export function SlotView({
 }: Props) {
   const stack = slot.stack;
   const top = stack[stack.length - 1];
-  const offset = STACK_OFFSET[size];
-  const cardSize = CARD_SIZE[size];
   const isHorizontal = direction === 'left' || direction === 'right';
-  const stackLen = Math.max(1, stack.length);
-  const longSide = cardSize + (stackLen - 1) * offset;
-  const stackWidth = isHorizontal ? longSide : cardSize;
-  const stackHeight = isHorizontal ? cardSize : longSide;
+  const offset = stackOffset;
+  const maxSpan = cardSize * STACK_MAX_SPAN_RATIO;
+  const stackWidth = isHorizontal ? maxSpan : cardSize;
+  const stackHeight = isHorizontal ? cardSize : maxSpan;
+
+  const [fadingCards, setFadingCards] = useState<FadingCard[]>([]);
+  const prevStackRef = useRef<Card[]>(stack);
+
+  useEffect(() => {
+    const prev = prevStackRef.current;
+    prevStackRef.current = stack;
+    const currentIds = new Set(stack.map((c) => c.id));
+    const removed = prev.filter((c) => !currentIds.has(c.id));
+    if (removed.length === 0) return;
+    const newFading: FadingCard[] = removed.map((card) => ({
+      card,
+      fromIdx: prev.indexOf(card),
+    }));
+    setFadingCards((curr) => [...curr, ...newFading]);
+    const timer = setTimeout(() => {
+      setFadingCards((curr) =>
+        curr.filter((f) => !newFading.some((nf) => nf.card.id === f.card.id))
+      );
+    }, FADE_DURATION_MS);
+    return () => clearTimeout(timer);
+  }, [stack]);
 
   return (
     <button
       type="button"
-      className={`slot slot-${size}${interactive ? ' slot-interactive' : ''}${highlighted ? ' slot-highlighted' : ''}`}
+      className={`slot${interactive ? ' slot-interactive' : ''}${highlighted ? ' slot-highlighted' : ''}`}
       onClick={interactive ? onClick : undefined}
       disabled={!interactive}
       aria-label={`スロット${index + 1}${top ? `: 最上段 ${top.color}, 計 ${stack.length} 枚` : ': 空'}`}
@@ -70,10 +99,8 @@ export function SlotView({
         className={`slot-stack slot-stack-${direction}`}
         style={{ width: `${stackWidth}px`, height: `${stackHeight}px` }}
       >
-        {stack.length === 0 ? (
-          <div className={`slot-empty card-${size}`}>
-            <span className="slot-empty-text">空</span>
-          </div>
+        {stack.length === 0 && fadingCards.length === 0 ? (
+          <div className="slot-empty" />
         ) : (
           stack.map((card, i) => {
             const isTop = i === stack.length - 1;
@@ -83,11 +110,20 @@ export function SlotView({
                 className={`slot-stack-card${isTop ? ' slot-stack-top' : ''}`}
                 style={{ ...cardPositionStyle(direction, i, offset), zIndex: i + 1 }}
               >
-                <CardView card={card} size={size} emphasized={isTop && interactive} />
+                <CardView card={card} emphasized={isTop && interactive} />
               </div>
             );
           })
         )}
+        {fadingCards.map((f) => (
+          <div
+            key={`fade-${f.card.id}`}
+            className={`slot-stack-card slot-stack-fading slot-stack-fade-${direction}`}
+            style={{ ...cardPositionStyle(direction, f.fromIdx, offset), zIndex: 50 }}
+          >
+            <CardView card={f.card} />
+          </div>
+        ))}
       </div>
     </button>
   );

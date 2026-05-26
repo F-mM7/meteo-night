@@ -4,7 +4,6 @@ import { CardView } from './CardView';
 interface Props {
   field: [FieldPair, FieldPair];
   deckSize: number;
-  discardSize: number;
   interactivePairs?: number[];
   onPairClick?: (index: 0 | 1) => void;
   onDeckClick?: () => void;
@@ -14,7 +13,6 @@ interface Props {
 export function FieldView({
   field,
   deckSize,
-  discardSize,
   interactivePairs,
   onPairClick,
   onDeckClick,
@@ -34,11 +32,10 @@ export function FieldView({
               onClick={() => onPairClick?.(idx as 0 | 1)}
               aria-label={`場のセット${idx + 1}`}
             >
-              <span className="field-pair-label">セット{idx + 1}</span>
               {pair ? (
                 <div className="field-pair-cards">
-                  <CardView card={pair[0]} size="md" />
-                  <CardView card={pair[1]} size="md" />
+                  <CardView card={pair[0]} />
+                  <CardView card={pair[1]} />
                 </div>
               ) : (
                 <div className="field-pair-empty">なし</div>
@@ -56,20 +53,11 @@ export function FieldView({
           aria-label="山札"
         >
           <div className="pile-stack">
-            <div className="card card-md card-facedown">
-              <span className="card-back-symbol">星</span>
+            <div className="card card-facedown">
+              <span className="deck-count">{deckSize}</span>
             </div>
           </div>
-          <span className="pile-label">山札 {deckSize}</span>
         </button>
-        <div className="pile pile-discard" aria-label="捨札">
-          <div className="pile-stack">
-            <div className="card card-md card-facedown card-faded">
-              <span className="card-back-symbol">×</span>
-            </div>
-          </div>
-          <span className="pile-label">捨札 {discardSize}</span>
-        </div>
       </div>
     </section>
   );

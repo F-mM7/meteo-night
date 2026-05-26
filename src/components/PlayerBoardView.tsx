@@ -1,12 +1,12 @@
 import type { Player } from '../game/types';
-import { CardView } from './CardView';
 import { SlotView, type StackDirection } from './SlotView';
 
 interface Props {
   player: Player;
   isCurrent: boolean;
   isYou: boolean;
-  size?: 'sm' | 'md' | 'lg';
+  cardSize: number;
+  stackOffset: number;
   orientation?: 'horizontal' | 'vertical';
   stackDirection?: StackDirection;
   interactiveSlotIndices?: number[];
@@ -18,7 +18,8 @@ export function PlayerBoardView({
   player,
   isCurrent,
   isYou,
-  size = 'md',
+  cardSize,
+  stackOffset,
   orientation = 'horizontal',
   stackDirection = 'down',
   interactiveSlotIndices,
@@ -28,22 +29,16 @@ export function PlayerBoardView({
   return (
     <section
       className={`player-board player-board-${orientation}${isCurrent ? ' player-current' : ''}${isYou ? ' player-you' : ''}`}
-      aria-label={`${player.name}のボード`}
+      aria-label={`${player.name}のスロット`}
     >
-      <header className="player-header">
-        <span className="player-name">
-          {isYou ? '★ ' : ''}
-          {player.name}
-        </span>
-        <span className="player-score">{player.score}点</span>
-      </header>
-      <div className={`slot-row slot-row-${size} slot-row-${orientation}`}>
+      <div className={`slot-row slot-row-${orientation}`}>
         {player.board.slots.map((slot, idx) => (
           <SlotView
             key={idx}
             slot={slot}
             index={idx}
-            size={size}
+            cardSize={cardSize}
+            stackOffset={stackOffset}
             direction={stackDirection}
             interactive={interactiveSlotIndices?.includes(idx) ?? false}
             highlighted={highlightedSlotIndices?.includes(idx) ?? false}
@@ -51,16 +46,6 @@ export function PlayerBoardView({
           />
         ))}
       </div>
-      {player.pendingGifts.length > 0 && (
-        <div className="pending-gifts">
-          <span className="pending-gifts-label">贈られた</span>
-          <div className="pending-gifts-list">
-            {player.pendingGifts.map((c) => (
-              <CardView key={c.id} card={c} size="sm" />
-            ))}
-          </div>
-        </div>
-      )}
     </section>
   );
 }
