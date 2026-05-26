@@ -15,6 +15,9 @@ dist-ssr
 *.sln
 *.sw?
 
+# TypeScript
+*.tsbuildinfo
+
 # Logs
 logs
 *.log
