@@ -140,7 +140,10 @@ export function SlotView({
         style={{ width: `${stackWidth}px`, height: `${stackHeight}px` }}
       >
         {stack.length === 0 && fadingCards.length === 0 ? (
-          <div className="slot-empty" />
+          <div
+            className="slot-empty"
+            style={cardPositionStyle(direction, 0, offset)}
+          />
         ) : (
           stack.map((card, i) => {
             const isTop = i === stack.length - 1;

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useGameLogic, currentActorId, isHumanInteractive } from './hooks/useGameLogic';
 import { useBoardLayout } from './hooks/useBoardLayout';
 import { usePlacementSelection } from './hooks/usePlacementSelection';
@@ -8,6 +8,8 @@ import { ActionPanel } from './components/ActionPanel';
 import { LogPanel } from './components/LogPanel';
 import { AppHeader } from './components/AppHeader';
 import { HandZone } from './components/HandZone';
+import { GiftBar } from './components/GiftBar';
+import type { GiftAssignment } from './game/types';
 import {
   placeableCards,
   interactiveSlotsForActor,
@@ -76,8 +78,42 @@ export default function App() {
     cardsToPlace.length > 1 &&
     (state.phase === 'awaitingPlaceDrawn' || state.phase === 'awaitingGiftPlacement');
 
-  const showGiftModal =
+  const showGiftBar =
     state.currentPlayerIndex === you && state.phase === 'awaitingGiftSelection' && !autoPilot;
+
+  const giftQueue = state.turn.giftQueue;
+  const [giftTargets, setGiftTargets] = useState<(number | null)[]>([]);
+  useEffect(() => {
+    if (showGiftBar) {
+      setGiftTargets(giftQueue.map(() => null));
+    } else {
+      setGiftTargets([]);
+    }
+  }, [showGiftBar, giftQueue]);
+
+  const allGiftTargetsReady =
+    showGiftBar && giftTargets.length === giftQueue.length && giftTargets.every((t) => t !== null);
+
+  const handleConfirmGifts = () => {
+    if (!allGiftTargetsReady) return;
+    const assignments: GiftAssignment[] = giftQueue.map((combo, i) => ({
+      comboIndex: i,
+      cardId: combo.cards[0].id,
+      targetPlayerId: giftTargets[i]!,
+    }));
+    dispatch({ type: 'CONFIRM_GIFTS', assignments });
+  };
+
+  const giftConfirmSlot = showGiftBar ? (
+    <button
+      type="button"
+      className="btn btn-primary"
+      disabled={!allGiftTargetsReady}
+      onClick={handleConfirmGifts}
+    >
+      決定
+    </button>
+  ) : null;
 
   const { cardSize, layout, stackOffset, cssVars } = useBoardLayout(state);
 
@@ -177,19 +213,20 @@ export default function App() {
             isYourTurn={isYourTurn}
             youId={you}
             dispatch={dispatch}
-            onStartNewGame={() => startNewGame()}
+            rightSlot={giftConfirmSlot}
           />
-          <div className="hand-zone">
-            <HandZone
-              state={state}
-              dispatch={dispatch}
-              cardsToPlace={cardsToPlace}
-              selectedCard={selectedCard}
-              onSelectCard={setSelectedCardId}
-              handSelectable={handSelectable}
-              showGiftModal={showGiftModal}
-            />
-          </div>
+          {showGiftBar ? (
+            <GiftBar state={state} targets={giftTargets} setTargets={setGiftTargets} />
+          ) : (
+            <div className="hand-zone">
+              <HandZone
+                cardsToPlace={cardsToPlace}
+                selectedCard={selectedCard}
+                onSelectCard={setSelectedCardId}
+                handSelectable={handSelectable}
+              />
+            </div>
+          )}
         </aside>
         {logVisible && (
           <aside className="log-area">

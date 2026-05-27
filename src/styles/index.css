@@ -102,22 +102,72 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   color: transparent;
 }
 
-.header-controls {
+.header-menu-wrap {
+  position: relative;
   margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 14px;
 }
 
-.header-control {
+.hamburger-btn {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-dim);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.hamburger-btn:hover,
+.hamburger-btn[aria-expanded='true'] {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  border-color: var(--accent-strong);
+}
+
+.hamburger-icon {
+  display: block;
+  width: 16px;
+  height: 12px;
+  background:
+    linear-gradient(currentColor, currentColor) top / 100% 2px no-repeat,
+    linear-gradient(currentColor, currentColor) center / 100% 2px no-repeat,
+    linear-gradient(currentColor, currentColor) bottom / 100% 2px no-repeat;
+}
+
+.header-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 220px;
+  padding: 10px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 10;
+}
+
+.header-menu-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 10px;
   font-size: 12px;
   color: var(--text-dim);
 }
 
-.header-control-label { letter-spacing: 0.08em; }
+.header-menu-label { letter-spacing: 0.08em; }
+
+.header-menu-toggle { cursor: pointer; }
+.header-menu-toggle input { accent-color: var(--accent-strong); }
 
 .stepper {
   display: inline-flex;
@@ -196,9 +246,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   margin: 0;
 }
 
-.autopilot-toggle { cursor: pointer; }
-.autopilot-toggle input { accent-color: var(--accent-strong); }
-
 /* ---------- main layout ---------- */
 .app-main {
   position: relative;
@@ -206,7 +253,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   flex: 1;
   min-height: 0;
   gap: 4px;
-  padding: 4px;
+  padding: 8px;
   overflow: hidden;
   display: grid;
 }
@@ -288,7 +335,8 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-height: 0;
+  /* 状態によらず常に同じ高さを確保し、伸び縮みさせない。 */
+  height: var(--action-height);
   background: linear-gradient(180deg, rgba(35, 47, 108, 0.55), rgba(14, 21, 56, 0.6));
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -645,6 +693,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 .slot-empty {
+  position: absolute;
   width: var(--card-size);
   height: var(--card-size);
   border: 1px dashed rgba(255, 255, 255, 0.15);
@@ -803,11 +852,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 .field-pair-empty {
   width: calc(var(--card-size) * 2 + 8px);
   height: var(--card-size);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-mute);
-  font-size: 12px;
   border: 1px dashed rgba(255, 255, 255, 0.15);
   border-radius: var(--radius-sm);
 }
@@ -852,7 +896,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   font-size: 13px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
 }
 
@@ -876,13 +919,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   gap: 10px;
   flex-shrink: 0;
   flex-wrap: wrap;
-}
-
-.your-hand h3 {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: var(--text-dim);
-  margin: 0;
 }
 
 .hand-cards {
@@ -1015,25 +1051,18 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 /* ---------- gift bar (action-area inline) ---------- */
-/* 全体は左右2列: 左に配布コンポーネントの横並び、右に決定ボタン。 */
+/* 配布コンポーネントを横並びで表示する独立行。決定ボタンは action-message 側に置く。 */
 .gift-bar {
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  gap: 8px;
-}
-
-.gift-bar-rows {
-  flex: 1;
   display: flex;
   flex-direction: row;
   gap: 6px;
   min-width: 0;
 }
 
-/* 各配布コンポーネントは上下2段: 上がカード、下が受領者選択肢。 */
+/* 各配布コンポーネントは上下2段: 上がカード、下が受領者選択肢。
+   デフォルトで 5 個ピッタリ並ぶ固定幅。4 個以下は左揃え、6 個以上は縮んで収まる。 */
 .gift-bar-row {
-  flex: 1 1 0;
+  flex: 0 1 calc((100% - 4 * 6px) / 5);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1075,13 +1104,4 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   border-color: var(--accent-strong);
   background: rgba(255, 210, 77, 0.14);
   color: var(--accent);
-}
-
-.gift-bar-confirm {
-  display: flex;
-  align-items: stretch;
-}
-
-.gift-bar-confirm .btn {
-  height: 100%;
 }

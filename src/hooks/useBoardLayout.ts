@@ -9,7 +9,6 @@ export interface BoardDims {
   seatLong: number;
   centerSize: number;
   cardSize: number;
-  actionHeight: number;
   layout: 'vertical' | 'horizontal';
 }
 
@@ -20,7 +19,10 @@ export interface BoardLayout extends BoardDims {
 
 const HEADER_HEIGHT = 36;
 const MIN_LOG_WIDTH = 260;
-const PADDING = 2;
+// app-main の周囲 padding（CSS の .app-main { padding } と揃える）
+const APP_PADDING = 8;
+// app-main grid 内の gap（board と action / log の間）
+const APP_GAP = 4;
 const MAX_BOARD = 1400;
 // 盤面構成 (cardSize 単位):
 //   board = seatShort(3.2) + center(5.4) + seatShort(3.2) = 11.8
@@ -47,15 +49,24 @@ function actionHeightFromBoard(boardSize: number): number {
   return Math.max(MIN_ACTION_HEIGHT, ACTION_BASE_HEIGHT + cardSize * ACTION_CARD_RATIO);
 }
 
-// 縦の制約から最大 boardSize を求める:
-//   board + action(board) + PADDING = availableH
-//   board + (BASE + board/RATIO * ACTION_RATIO) + PADDING = availableH
-//   board * (1 + ACTION_RATIO/RATIO) = availableH - BASE - PADDING
+// 縦の制約から最大 boardSize を求める。
+// actionHeight は `max(MIN_ACTION_HEIGHT, BASE + cardSize * ACTION_RATIO)` の2分岐。
+//   case1 (cardSize 大): board + (BASE + board/RATIO * ACTION_RATIO) + APP_GAP = availableH
+//                        → board = (availableH - BASE - APP_GAP) * RATIO / (RATIO + ACTION_RATIO)
+//   case2 (cardSize 小): board + MIN_ACTION_HEIGHT + APP_GAP = availableH
+//                        → board = availableH - MIN_ACTION_HEIGHT - APP_GAP
+// case1 解の cardSize で actionHeight が MIN 以上なら case1、そうでないなら case2 を採用。
 function solveBoardByHeight(availableH: number): number {
-  return Math.floor(
-    ((availableH - ACTION_BASE_HEIGHT - PADDING) * BOARD_TOTAL_RATIO) /
+  const case1 = Math.floor(
+    ((availableH - ACTION_BASE_HEIGHT - APP_GAP) * BOARD_TOTAL_RATIO) /
       (BOARD_TOTAL_RATIO + ACTION_CARD_RATIO)
   );
+  const case1CardSize = case1 / BOARD_TOTAL_RATIO;
+  const case1Action = ACTION_BASE_HEIGHT + case1CardSize * ACTION_CARD_RATIO;
+  if (case1Action >= MIN_ACTION_HEIGHT) {
+    return case1;
+  }
+  return availableH - MIN_ACTION_HEIGHT - APP_GAP;
 }
 
 function calcDims(): BoardDims {
@@ -65,28 +76,23 @@ function calcDims(): BoardDims {
     return {
       boardSize: bs,
       ...sizes,
-      actionHeight: actionHeightFromBoard(bs),
       layout: 'vertical',
     };
   }
   const w = window.innerWidth;
   const h = window.innerHeight;
 
-  const availableW = w - PADDING * 2;
-  const availableH = h - HEADER_HEIGHT - PADDING * 2;
+  const availableW = w - APP_PADDING * 2;
+  const availableH = h - HEADER_HEIGHT - APP_PADDING * 2;
   const layout: 'vertical' | 'horizontal' = w >= h ? 'horizontal' : 'vertical';
 
   const boardByH = solveBoardByHeight(availableH);
-  const boardByW = layout === 'horizontal' ? availableW - MIN_LOG_WIDTH - PADDING : availableW;
+  const boardByW = layout === 'horizontal' ? availableW - MIN_LOG_WIDTH - APP_GAP : availableW;
 
   const boardLimit = Math.min(boardByH, boardByW);
   const boardSize = Math.min(MAX_BOARD, Math.max(280, boardLimit));
-  const actionHeight = Math.max(
-    actionHeightFromBoard(boardSize),
-    availableH - boardSize - PADDING
-  );
   const sizes = deriveSizes(boardSize);
-  return { boardSize, ...sizes, actionHeight, layout };
+  return { boardSize, ...sizes, layout };
 }
 
 function computeGlobalMaxStack(state: GameState): number {
@@ -120,14 +126,17 @@ export function useBoardLayout(state: GameState): BoardLayout {
   const globalMaxStack = useMemo(() => computeGlobalMaxStack(state), [state.players]);
   const stackOffset = computeStackOffset(dims.cardSize, globalMaxStack);
 
+  // action-area は中身に応じた理論最大高さで固定する（画面サイズに依らず一定）。
+  const actionAreaHeight = actionHeightFromBoard(dims.boardSize);
   const cssVars: CSSProperties = useMemo(
     () => ({
       '--card-size': `${dims.cardSize}px`,
       '--board-size': `${dims.boardSize}px`,
       '--seat-short': `${dims.seatShort}px`,
       '--gap': `${Math.max(4, Math.floor(dims.cardSize / 10))}px`,
+      '--action-height': `${actionAreaHeight}px`,
     }) as CSSProperties,
-    [dims.cardSize, dims.boardSize, dims.seatShort]
+    [dims.cardSize, dims.boardSize, dims.seatShort, actionAreaHeight]
   );
 
   return { ...dims, stackOffset, cssVars };

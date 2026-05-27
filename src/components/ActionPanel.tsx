@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { Action, GameState } from '../game/types';
 
 interface Props {
@@ -5,7 +6,7 @@ interface Props {
   isYourTurn: boolean;
   youId: number;
   dispatch: (action: Action) => void;
-  onStartNewGame: () => void;
+  rightSlot?: ReactNode;
 }
 
 function describePhase(state: GameState, isYourTurn: boolean, youId: number): string {
@@ -50,7 +51,13 @@ function describePhase(state: GameState, isYourTurn: boolean, youId: number): st
   }
 }
 
-export function ActionPanel({ state, isYourTurn, youId, dispatch, onStartNewGame }: Props) {
+export function ActionPanel({
+  state,
+  isYourTurn,
+  youId,
+  dispatch,
+  rightSlot,
+}: Props) {
   const message = describePhase(state, isYourTurn, youId);
   // 山札と捨札が両方空のときはドロー不可（補充元が無いため）。
   const canDrawAdditional = state.deck.length > 0 || state.discardPile.length > 0;
@@ -58,8 +65,9 @@ export function ActionPanel({ state, isYourTurn, youId, dispatch, onStartNewGame
   return (
     <section className="action-panel" aria-label="操作パネル">
       <div className="action-message">
-        <span className="action-message-text">{message}</span>
         {state.endTriggered && <span className="badge badge-warning">最終ラウンド</span>}
+        <span className="action-message-text">{message}</span>
+        {rightSlot}
       </div>
       <div className="action-buttons">
         {state.phase === 'awaitingAdditionalActionChoice' && isYourTurn && (
@@ -80,11 +88,6 @@ export function ActionPanel({ state, isYourTurn, youId, dispatch, onStartNewGame
               スロット最上段を1枚捨札
             </button>
           </>
-        )}
-        {state.phase === 'gameOver' && (
-          <button type="button" className="btn btn-primary" onClick={onStartNewGame}>
-            新しいゲームを始める
-          </button>
         )}
       </div>
     </section>

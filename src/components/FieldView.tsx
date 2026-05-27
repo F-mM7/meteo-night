@@ -34,7 +34,7 @@ export function FieldView({
             <CardView card={pair[1]} />
           </div>
         ) : (
-          <div className="field-pair-empty">なし</div>
+          <div className="field-pair-empty" />
         )}
       </button>
     );
