@@ -27,7 +27,7 @@ function describePhase(state: GameState, isYourTurn: boolean, youId: number): st
     return `${recipient} が贈られたカードを配置中...`;
   }
   if (!isYourTurn) {
-    return `${cur.name} の手番（思考中...）`;
+    return `${cur.name} の手番`;
   }
   switch (state.phase) {
     case 'awaitingDraw':
