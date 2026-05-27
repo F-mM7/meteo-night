@@ -91,16 +91,58 @@ NN 価値出力を「各プレイヤー視点の rank-based value」4 次元に�
 
 ---
 
-### Gen-3-K7: K6 + 容量中規模（96×3、~35K params）+ 1200 games（実行中）
-- 設定: `--hidden-units 96 --hidden-layers 3`、 warm-up 200 games + AZ 1000 games × batch=16
-- 予想時間 ~35-40 分
-- 出力 `ai/models/az-v6/`、ベンチ続報
+### Gen-3-K7: K6 + 容量中規模 (az-v6) と 5000 games 大規模学習 (az-v7)
 
-### メモ・観察
-- **az-v4 (容量増のみ)**: 学習量不足で underfit、 勝率 0%
-- **az-v5 (K6 のみ)**: avgScore と未終了率に効果、 勝率は中庸
-- 容量と学習量のバランスが鍵
-- ブラウザ反映できる水準（Gen-3-F の 89.5% を超える）には依然遠い
+#### az-v6 (K6 + 容量 96×3 = 35K params + 1200 games)
+- 勝率 **6%** (3/50)、avgScore 3.08、未終了 10%
+- K6 + 容量増の組み合わせは効果薄（学習量不足が原因）
+
+#### az-v7 (K6 + 容量 18K + 5000 games AlphaZero, batch=16, az-v5-warm から)
+- 学習時間 **105 分** (25 iter × 200 games × batch=16)
+- loss 推移: 1.95 (start) → 1.66-1.74 (収束気味)
+- 勝率 **8%** (4/50)、 CI 3.2-18.8%（過去最高）
+- avgScore **5.38**（過去最高、 +1.26 vs az-v5）
+- 期待順位 **3.72**（過去最高）
+
+#### 学習量スケーリング観察（K6 共通、容量 18K）
+
+| Gen | games | vs smart | avgScore | 改善幅 |
+|---|---|---|---|---|
+| az-v2 | 400 | 2% | 1.98 | – |
+| az-v3 | 1400 | 6% | 3.12 | +4pt |
+| az-v5 | 1200 + K6 | 4% | 4.12 | – |
+| **az-v7** | **5000 + K6** | **8%** | **5.38** | **+2pt** |
+| Gen-3-F | – | 89.5% | 20.77 | – |
+
+学習量を増やすと勝率が線形的に増えるが、 ペースは緩やか (+2pt/+4000games)。 Gen-3-F 到達には 100x 以上の学習が必要と推定。
+
+---
+
+### Gen-3-K8: Virtual loss でバッチ探索の効率向上（実行中: az-v8）
+
+#### 仮説
+現状の batch=16 は各 iter が独立 traverse のため、同じ leaf に集中する可能性。
+Virtual loss（探索中の path に「最下位」-1 を仮想的に加算）で exploration を促進。
+
+#### 変更点
+- `ai/scripts/nn/neuralMcts.ts`:
+  - `applyVirtualLoss(path)` / `unapplyVirtualLoss(path)` を追加
+  - selection で expand 候補が見つかったら直ちに virtual loss を apply、NN 推論後に解除して real backprop
+  - 価値スケール [-1, +1] に合わせて virtual = -1 (最下位)
+
+#### スモーク
+- 10 games × batch=16 で K7 (12.9 秒) と K8 (18 秒)、ほぼ同等の速度
+- examples 数は 1974 (K7) vs 2519 (K8) → K8 で探索範囲が広がっている可能性
+
+#### 進行中: az-v8 (az-v7 から warm-start + K8 + 5000 more games)
+- 設定: 200 games × 25 iter, batch=16, virtual loss、合計 10000 games (累積)
+- 予想時間 ~100 分
+- 完了後 vs smart x3 でベンチ → 採用判定
+
+### メモ・現状の到達点
+- **NN 系の最強モデル**: az-v7（vs smart 8%、avgScore 5.38、未終了率 10%）
+- **ブラウザ反映には依然遠い**（Gen-3-F 89.5%）
+- **学習量を増やすと確実に向上**することは確認できた（+2pt/+4000 games の線形性）
 - 既存テスト 19/19 通過、型チェック OK
 
 ---

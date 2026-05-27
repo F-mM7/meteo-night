@@ -336,6 +336,26 @@ export function decideActionNeural(
     }
   }
 
+  /**
+   * Gen-3-K8: バッチ内で同じ leaf に集中するのを防ぐため、 探索中の path に
+   * 「-1 (最下位)」を仮想的に加算する。 backprop（NN 推論）の前に必ず `unapplyVirtualLoss` で解除する。
+   */
+  function applyVirtualLoss(path: Array<{ node: NodeStats; aid: number }>): void {
+    for (const { node, aid } of path) {
+      node.total += 1;
+      node.visits[aid] += 1;
+      node.values[aid] -= 1; // 仮想的に「最下位」を一票
+    }
+  }
+
+  function unapplyVirtualLoss(path: Array<{ node: NodeStats; aid: number }>): void {
+    for (const { node, aid } of path) {
+      node.total -= 1;
+      node.visits[aid] -= 1;
+      node.values[aid] += 1;
+    }
+  }
+
   let iterDone = 0;
   while (iterDone < iterations) {
     const bsz = Math.min(batchSize, iterations - iterDone);
@@ -359,6 +379,10 @@ export function decideActionNeural(
           leafLegal: r.leafLegal,
           leafNode: r.leafNode,
         });
+        // Gen-3-K8: Virtual loss を path 上に apply して、 同じ batch 内の後続 iter が
+        // 同じ leaf に集中しないようにする（exploration 促進）。
+        // 価値は [-1, +1] の rank-based、 -1 (最下位) を仮想的に加算 = 「負け前提」。
+        applyVirtualLoss(r.path);
       } else {
         // terminal or cut: 即時 backprop（NN 不要）
         backprop(r.path, r.leafValuePerPlayer);
@@ -373,6 +397,8 @@ export function decideActionNeural(
       const { policies, values } = nnPredictBatch(model, stateVecs);
       for (let i = 0; i < expandList.length; i++) {
         const e = expandList[i];
+        // Gen-3-K8: 先程 apply した virtual loss を解除してから real backprop
+        unapplyVirtualLoss(e.path);
         // ノードがバッチ内の別 iter で既に expand 済みなら、priors を上書きしない
         if (e.leafNode.priors === null) {
           installPriors(e.leafNode, policies[i], e.leafLegal);
