@@ -156,3 +156,45 @@ export const GEN_3F_WEIGHTS: EvalWeights = {
   winnerBonus: 5211.641039704553,
   loserPenalty: 3128.971983687204,
 };
+
+/**
+ * Gen-3-J で得られた重み。**per-AI weights 構造（mcts と smart で別重み）で学習した最初の世代**。
+ *
+ * 学習条件:
+ *   - opponent: smart x3（重みは default = Gen-3-F に固定）
+ *   - games per generation: 50
+ *   - generations: 15（収束で早期終了）
+ *   - seed: 5（既存 1〜4 と非重複）
+ *   - initial sigma: 0.2
+ *   - init: GEN_3F_WEIGHTS（warm-start）
+ *
+ * Holdout 評価:
+ *   - per-AI モード（mcts のみ Gen-3-J / smart は default）: 200 局, seed=1001
+ *     → 勝率 **90.0%** (95%CI 85.1-93.4%)
+ *     → Gen-3-F (89.5%, CI 84.5-93.0%) から CI 下限 +0.6pt
+ *   - 全 AI が Gen-3-J: 同じセットアップ
+ *     → mcts 84.0% (CI 78.3-88.4%) — smart も同時に強化されて相打ち
+ *   - mcts x4 自己対戦: 各座席 25%（席バイアスなし）、avg score 16.55 (Gen-3-F 16.11 から +0.44)
+ *
+ * 採用判断: **構造（per-AI weights API）は採用**、**ブラウザの DEFAULT_WEIGHTS は Gen-3-F のまま維持**。
+ * ブラウザは全 CPU が mcts なので vs smart シナリオが発生せず、Gen-3-J の利点が出ないため。
+ */
+export const GEN_3J_WEIGHTS: EvalWeights = {
+  selfScoreMult: 117.2885886285848,
+  selfNearEnd: 0.14496430120959364,
+  reach5plus: 279.96778349722905,
+  reach4: 74.27835564758793,
+  reach3: 67.54353772533815,
+  reach2: 16.15224149641158,
+  reach1: 0.8779343208100331,
+  chainSeed: 7.266833785390641,
+  overflowPenalty: 7.351753477404254,
+  threatScoreMult: 66.30802458299044,
+  threatNearEnd: 41.980281559842254,
+  threatReach3plus: 56.34180173389534,
+  threatReach2: 18.62842682747258,
+  threatChainSeed: 2.825666281766402,
+  pendingMult: 144.67493646502837,
+  winnerBonus: 4904.049589827722,
+  loserPenalty: 3378.013077258553,
+};

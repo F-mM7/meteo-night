@@ -1,7 +1,12 @@
 import type { Action, GameState, GiftAssignment, Player } from '../game/types';
 import { stepGame } from '../game/reducer';
 import { mulberry32, shuffle } from '../game/rng';
-import { evaluateState, topColorCounts } from './evaluator';
+import { evaluateState, topColorCounts, type EvalWeights } from './evaluator';
+
+export interface SmartOptions {
+  /** 評価関数の重み。省略時は evaluator のモジュール global を使う。 */
+  weights?: EvalWeights;
+}
 
 interface ScoredAction {
   action: Action;
@@ -112,7 +117,8 @@ function evaluateUnknownDraw(
   state: GameState,
   action: Action,
   playerId: number,
-  baseSeed: number
+  baseSeed: number,
+  weights: EvalWeights | undefined
 ): number {
   const samples = 4;
   let total = 0;
@@ -121,7 +127,7 @@ function evaluateUnknownDraw(
     const shuffled = shuffle(state.deck, rand);
     const reshuffled: GameState = { ...state, deck: shuffled };
     const next = stepGame(reshuffled, action);
-    total += evaluateState(next, playerId);
+    total += evaluateState(next, playerId, weights);
   }
   return total / samples;
 }
@@ -129,9 +135,11 @@ function evaluateUnknownDraw(
 export function decideAction(
   state: GameState,
   playerId: number,
-  seed?: number
+  seed?: number,
+  options: SmartOptions = {}
 ): Action | null {
   const baseSeed = (seed ?? stateBaseSeed(state, playerId)) | 0;
+  const weights = options.weights;
 
   if (state.phase === 'awaitingGiftSelection') {
     if (state.currentPlayerIndex !== playerId) return null;
@@ -151,10 +159,10 @@ export function decideAction(
     let score = -Infinity;
     try {
       if (action.type === 'DRAW_FROM_DECK' || action.type === 'CHOOSE_ADDITIONAL_DRAW') {
-        score = evaluateUnknownDraw(state, action, playerId, baseSeed);
+        score = evaluateUnknownDraw(state, action, playerId, baseSeed, weights);
       } else {
         const nextState = stepGame(state, action);
-        score = evaluateState(nextState, playerId);
+        score = evaluateState(nextState, playerId, weights);
       }
     } catch {
       score = -Infinity;

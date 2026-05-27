@@ -60,7 +60,7 @@ npx tsx ai/scripts/bench.ts --games 200 --strategies smart,random,random,random
 | 1 | IS-MCTS（randomAI を rollout policy として利用） | **完了 (Gen-1)**：vs smart で勝率 56% |
 | 1-B | IS-MCTS の leaf 評価関数化（`evaluateState` を tanh 圧縮）| **完了 (Gen-2)**：vs smart で勝率 83.5%、1 手 4.15 ms |
 | 2 | 評価関数の重み自動チューニング（(1+1)-ES） | **完了 (Gen-3-B / Gen-3-B-2 / Gen-3-F)**：vs smart で勝率 89.5%、1 手 2.09 ms（ブラウザ反映済み） |
-| 3 | AlphaZero 風（tfjs-node-gpu で学習 → tfjs ブラウザで推論） | 未着手 |
+| 3 | AlphaZero 風（tfjs-node で学習 → tfjs ブラウザで推論） | **基盤完成 + 速度 8x (Gen-3-K1〜K4)**：visit count 方策ターゲット・ネットワーク誘導 MCTS・AlphaZero ループ・ブラウザ推論雛形・バッチ推論まで実装。400 games 学習でも vs smart 2%、 大規模学習は次イテレーション |
 | 4 | プレゼント選択の別ヘッド化 | 未着手 |
 
 ### 直近の改善候補（次イテレーション）
@@ -76,18 +76,77 @@ npx tsx ai/scripts/bench.ts --games 200 --strategies smart,random,random,random
 | ~~Gen-3-G: smart gift heuristic 改修~~ | hasNoMoreTurns で target をフィルタ | **不採用**（smart 強化が副作用、-1.5pt）|
 | ~~Gen-3-G-2: mcts 専用 gift heuristic~~ | mcts だけに hasNoMoreTurns 適用 | **不採用**（mcts simulation で gift selection を扱えない、-1pt）|
 | ~~Gen-3-H: simulation 内 gift selection を smart heuristic で自動進行~~ | shrink で gift selection を越える | **不採用**（smart 妨害的すぎてシミュ評価が悲観化、-1.5pt）|
-| Gen-3-I: simulation 内 gift selection を **中立 policy**（random）で進行 | smart heuristic の偏りを避ける | 軽量検証、Gen-3-H の派生 |
-| Gen-3-B-3: per-AI weights | mcts と smart で別 weights を使う設計 | 「mcts を強くする」直接最適化が可能に |
+| ~~Gen-3-I: simulation 内 gift selection を random で進行~~ | smart heuristic の偏りを避ける | **不採用**（-2.5pt、 3 通り全部失敗で gift 周りは MCTS 構造的限界） |
+| ~~Gen-3-J: per-AI weights 構造~~ | mcts と smart で別 weights を渡せる API へ拡張 | **構造採用**（vs smart で +0.5pt、ブラウザ DEFAULT は据置） |
+| Gen-3-K: AlphaZero 風 NN（基盤）| 方策・価値ネットの学習基盤を整備、本格学習は次セッション | 大幅強化見込み（次フェーズ） |
 | Gen-3-D: フェーズ 3 として AlphaZero 風（NN）| 方策/価値ネットの学習 | 大幅強化（実装コスト高、Python or tfjs-node-gpu） |
 
-### `mctsTuned` と `--weights` の使い方
+### `--weights` と `--mcts-weights` の使い分け
 
 ```bash
-# Gen-3-B の重みを bench 全体に適用
+# ベンチ全体（全 AI）の評価関数重みを差し替え
 npx tsx ai/scripts/bench.ts --weights ai/data/tuned-weights.json \
   --games 200 --strategies mcts,smart,smart,smart --rotate --seed 1001
 
-# mcts だけ tuned で動かす（ラッパー戦略）
+# mcts のみ別重み（Gen-3-J で追加）— smart は default 重みのまま
+npx tsx ai/scripts/bench.ts --mcts-weights ai/data/tuned-weights-gen3j.json \
+  --games 200 --strategies mcts,smart,smart,smart --rotate --seed 1001
+
+# mcts ラッパー戦略（GEN_3B_WEIGHTS 固定）
 npx tsx ai/scripts/bench.ts \
   --games 200 --strategies mctsTuned,smart,smart,smart --rotate --seed 1001
 ```
+
+### Gen-3-K（ニューラルネット）の運用
+
+#### ファイル構成
+```
+ai/scripts/nn/
+  model.ts      ネットワーク定義 (createModel / saveModel / loadModel / compileForTraining)
+  dataset.ts    自己対戦データ生成 (generateSelfPlayGame / generateDataset)
+  train.ts      学習ループ CLI
+```
+
+#### 学習実行（2 段階推奨：warm-up → AlphaZero）
+```bash
+# Phase 1: warm-up（mctsAI 自己対戦でデータ生成 → 教師あり学習）
+npx tsx ai/scripts/nn/train.ts \
+  --games 50 --iter 3 --batch 256 --epochs 3 --seed 1000 \
+  --selfplay mcts --out ai/models/az-v2-warm
+
+# Phase 2: AlphaZero ループ（学習モデルで neuralMcts 自己対戦 → 学習）
+#          Gen-3-K4 の --mcts-batch 16 で 8x 高速化
+npx tsx ai/scripts/nn/train.ts \
+  --games 200 --iter 5 --batch 256 --epochs 3 --seed 2000 \
+  --selfplay neural --init ai/models/az-v2-warm --mcts-batch 16 \
+  --out ai/models/az-v2
+```
+
+#### ベンチ
+```bash
+# 学習モデル vs smart x3 (rotate 付き)
+npx tsx ai/scripts/bench-neural.ts ai/models/az-v2 --games 50 --seed 1001 --silent --json
+```
+
+#### ファイル構成（追加）
+```
+ai/scripts/nn/
+  model.ts           ネットワーク定義 (createModel / saveModel / loadModel)
+  dataset.ts         自己対戦データ生成 (generateSelfPlayGame / generateSelfPlayGameWithModel)
+  neuralMcts.ts      ネットワーク誘導 MCTS (decideActionNeural)
+  train.ts           学習 CLI (--selfplay mcts|neural)
+ai/scripts/
+  bench-neural.ts    neural モデル vs smart x3 ベンチ
+```
+
+学習済みモデルは tfjs 標準形式 (`model.json` + `weights.bin`)。
+将来ブラウザ側で `tf.loadLayersModel('/meteo-night/models/<gen>/model.json')` で読み込み可能。
+
+#### 現状の制限（Gen-3-K5 以降で対応）
+- **学習量不足**: 400 games の AlphaZero でも vs smart 2%。Gen-3-K4 の 8x 速度向上で大規模化が現実的に
+- ~~**NN 呼び出しがボトルネック**~~ → **Gen-3-K4 で解決**（batch=16 で 8x 高速化）
+- **ブラウザ推論ラッパー** (`src/ai/neuralAI.ts`) は雛形のみ、tfjs 実 import は実用モデル完成後
+- **GPU 学習**: 現状 CPU 版 `@tensorflow/tfjs-node`、本格学習時に `@tensorflow/tfjs-node-gpu` に切り替え（CUDA セットアップ要）
+- **mean-field 仮定**: neuralMcts では path 上の全 node に leafValue を同符号で backup（多人数特化未対応）
+- **ネットワーク容量**: 18K パラメータ（隠れ 64×2 層）は小さい可能性。本格時は数十万パラメータも検討
+- **Virtual loss 未実装**: batch 推論で同一 leaf 集中を完全には防げない（実用上は seed 多様性で mitigate）

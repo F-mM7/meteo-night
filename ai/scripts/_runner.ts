@@ -4,7 +4,7 @@ import type { Action, GameState } from '../../src/game/types';
 import { decideAction as decideSmart } from '../../src/ai/smartAI';
 import { decideAction as decideRandom } from '../../src/ai/randomAI';
 import { decideAction as decideMcts } from '../../src/ai/mctsAI';
-import { setEvalWeights, DEFAULT_WEIGHTS } from '../../src/ai/evaluator';
+import type { EvalWeights } from '../../src/ai/evaluator';
 import { GEN_3B_WEIGHTS } from '../../src/ai/tunedWeights';
 
 export type StrategyName =
@@ -25,18 +25,21 @@ const decideMctsPuct: Decider = (state, playerId) =>
   decideMcts(state, playerId, undefined, { progressiveBias: true });
 
 /**
- * Gen-3-B で採用された tuned weights を、決定の前後で set/reset する mcts。
- * Note: setEvalWeights はモジュール global state を変えるため、
- * 同一ベンチ内で他の戦略にも影響しうる。`--weights` フラグでベンチ全体を
- * 統一する方が望ましい。本ラッパーは「他の戦略は default のままで、
- * mcts だけ tuned で動く」状況の再現用。
+ * Gen-3-B の tuned weights を **AI 内部に直接渡す** 形で動かす mcts。
+ * Gen-3-J 以降は global state を使わず、options.weights で渡せるので副作用なし。
  */
-const decideMctsTuned: Decider = (state, playerId) => {
-  setEvalWeights(GEN_3B_WEIGHTS);
-  const action = decideMcts(state, playerId);
-  setEvalWeights(DEFAULT_WEIGHTS);
-  return action;
-};
+const decideMctsTuned: Decider = (state, playerId) =>
+  decideMcts(state, playerId, undefined, { weights: GEN_3B_WEIGHTS });
+
+/**
+ * 任意の重みで動く mcts decider を生成するファクトリ。
+ * Gen-3-J 用：学習中の重みを動的に差し替えながらベンチを取りたいときに使う。
+ * 対戦相手の smart 等は global default 重みのまま動くので、学習中の mcts と比較できる。
+ */
+export function makeMctsWithWeights(weights: EvalWeights): Decider {
+  return (state, playerId) =>
+    decideMcts(state, playerId, undefined, { weights });
+}
 
 export const STRATEGIES: Record<StrategyName, Decider> = {
   random: decideRandom,

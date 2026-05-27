@@ -11,7 +11,8 @@
  *   4. それ以外は不採用、sigma を縮小（簡易 1/5 success rule）
  *   5. sigma が閾値以下になったら早期終了
  *
- * 注意: `setEvalWeights` でモジュール global state を変えるため、並列実行不可。
+ * Note (Gen-3-J): 学習中の weights は mcts の `options.weights` 経由で渡す。
+ *                  global state を汚さないため複数プロセス並列実行も理論上可能。
  *
  * Usage:
  *   npx tsx ai/scripts/tune-es.ts [options]
@@ -35,8 +36,6 @@ import { decideAction as decideSmart } from '../../src/ai/smartAI';
 import { decideAction as decideRandom } from '../../src/ai/randomAI';
 import {
   DEFAULT_WEIGHTS,
-  setEvalWeights,
-  resetEvalWeights,
   type EvalWeights,
 } from '../../src/ai/evaluator';
 import { mulberry32 } from '../../src/game/rng';
@@ -58,10 +57,16 @@ function currentActorId(state: GameState): number {
   return state.currentPlayerIndex;
 }
 
+/**
+ * 1 局回す。
+ * - `mctsWeights` が指定されればその重みで mcts を動かす（Gen-3-J: smart は default のまま動く）
+ * - 省略時は mcts も smart も evaluator のモジュール global 重みで動く（Gen-3-I 以前の挙動）
+ */
 function playOne(
   seed: number,
   opponentName: OpponentName,
-  maxSteps: number
+  maxSteps: number,
+  mctsWeights?: EvalWeights
 ): { mctsScore: number; mctsRank: number; finished: boolean; steps: number } {
   const opponentFn = OPPONENT_FN[opponentName];
   let state: GameState = setupGame({
@@ -72,7 +77,10 @@ function playOne(
   let steps = 0;
   while (state.phase !== 'gameOver' && steps < maxSteps) {
     const actor = currentActorId(state);
-    const action = actor === 0 ? decideMcts(state, actor) : opponentFn(state, actor);
+    const action =
+      actor === 0
+        ? decideMcts(state, actor, undefined, mctsWeights ? { weights: mctsWeights } : {})
+        : opponentFn(state, actor);
     if (!action) break;
     const before = state;
     state = stepGame(state, action);
@@ -95,6 +103,10 @@ function playOne(
   };
 }
 
+/**
+ * Gen-3-J: weights は mcts 側にのみ渡す（smart は default のまま）。
+ * `setEvalWeights` は呼ばないので、global state は学習中も汚れない。
+ */
 function fitness(
   weights: EvalWeights,
   games: number,
@@ -102,13 +114,12 @@ function fitness(
   opponent: OpponentName,
   maxSteps: number
 ): { avgScore: number; winRate: number; finishedRate: number; avgRank: number } {
-  setEvalWeights(weights);
   let scoreSum = 0;
   let wins = 0;
   let finished = 0;
   let rankSum = 0;
   for (let g = 0; g < games; g++) {
-    const r = playOne(seedBase + g, opponent, maxSteps);
+    const r = playOne(seedBase + g, opponent, maxSteps, weights);
     scoreSum += r.mctsScore;
     if (r.mctsRank === 0) wins++;
     if (r.finished) finished++;
@@ -289,7 +300,8 @@ async function main(): Promise<void> {
   console.log('best ever:', JSON.stringify(bestEverFit));
   console.log('weights:', JSON.stringify(bestEver, null, 2));
 
-  resetEvalWeights();
+  // default 重みでの再計測（学習中の bestEverFit との比較用）。
+  // global state は触らないので、mcts に DEFAULT_WEIGHTS を明示的に渡す。
   const defaultRecheck = fitness(DEFAULT_WEIGHTS, args.games, args.seed, args.opponent, args.maxSteps);
   console.log('default re-check:', JSON.stringify(defaultRecheck));
 

@@ -9,5 +9,6 @@ export {
   GEN_3B2_WEIGHTS,
   GEN_3E_WEIGHTS,
   GEN_3F_WEIGHTS,
+  GEN_3J_WEIGHTS,
   PRE_GEN_3B_WEIGHTS,
 } from './tunedWeights';

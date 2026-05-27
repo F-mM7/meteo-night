@@ -3,7 +3,7 @@ import { stepGame } from '../game/reducer';
 import { mulberry32 } from '../game/rng';
 import { decideAction as decideRandom } from './randomAI';
 import { decideAction as decideSmart } from './smartAI';
-import { evaluateState } from './evaluator';
+import { evaluateState, type EvalWeights } from './evaluator';
 import {
   ACTION_SPACE_SIZE,
   actionIdToAction,
@@ -43,6 +43,11 @@ export interface MctsOptions {
    */
   progressiveBias?: boolean;
   pbC?: number;
+  /**
+   * 評価関数の重み。省略時は evaluator のモジュール global を使う。
+   * Gen-3-J 以降は smartAI とは独立した重みで mcts を動かせる。
+   */
+  weights?: EvalWeights;
 }
 
 interface NodeStats {
@@ -126,13 +131,14 @@ function leafValueByEvaluator(
   state: GameState,
   viewerId: number,
   scale: number,
-  numPlayers: number
+  numPlayers: number,
+  weights: EvalWeights | undefined
 ): number {
   if (state.phase === 'gameOver') {
     const ranking = computeRanking(state);
     return rankToValue(ranking[viewerId], numPlayers);
   }
-  const raw = evaluateState(state, viewerId);
+  const raw = evaluateState(state, viewerId, weights);
   return Math.tanh(raw / scale);
 }
 
@@ -190,7 +196,8 @@ function computePriors(
   actor: number,
   legal: number[],
   scale: number,
-  numPlayers: number
+  numPlayers: number,
+  weights: EvalWeights | undefined
 ): Float64Array {
   const priors = new Float64Array(ACTION_SPACE_SIZE);
   for (const aid of legal) {
@@ -207,7 +214,7 @@ function computePriors(
       const ranking = computeRanking(nextState);
       priors[aid] = rankToValue(ranking[actor], numPlayers);
     } else {
-      const raw = evaluateState(nextState, actor);
+      const raw = evaluateState(nextState, actor, weights);
       priors[aid] = Math.tanh(raw / scale);
     }
   }
@@ -222,6 +229,27 @@ function createNode(actor: number): NodeStats {
     values: new Float64Array(ACTION_SPACE_SIZE),
     priors: null,
   };
+}
+
+/**
+ * MCTS の root 探索情報（学習データ生成・デバッグ用）。
+ * Gen-3-K1a で追加：方策ターゲットを `softmax(visits^(1/τ))` で作るのに使う。
+ */
+export interface MctsSearchInfo {
+  /** root の actor（行動を選ぶプレイヤー） */
+  rootActor: number;
+  /** 行動 ID 別の root 訪問回数（ACTION_SPACE_SIZE 次元） */
+  visits: Int32Array;
+  /** root の総訪問回数 */
+  totalVisits: number;
+  /** 行動 ID 別の root 平均価値（visits == 0 のものは 0） */
+  meanValues: Float32Array;
+}
+
+export interface DecideActionResult {
+  action: Action | null;
+  /** MCTS 探索を実際に行った場合のみ非 null。`awaitingGiftSelection` 等は null。 */
+  info: MctsSearchInfo | null;
 }
 
 /**
@@ -245,15 +273,31 @@ export function decideAction(
   seed?: number,
   options: MctsOptions = {}
 ): Action | null {
+  return decideActionWithInfo(state, playerId, seed, options).action;
+}
+
+/**
+ * `decideAction` と同じだが、root の探索情報（visit count 等）も返す。
+ * 学習データ生成（softmax(visits) を方策ターゲットにする）に使う。
+ *
+ * `awaitingGiftSelection` 等で smartAI に委譲する場合や、root 合法手が 1 つ以下で
+ * 探索を行わない場合は `info` が null になる。
+ */
+export function decideActionWithInfo(
+  state: GameState,
+  playerId: number,
+  seed?: number,
+  options: MctsOptions = {}
+): DecideActionResult {
   if (state.phase === 'awaitingGiftSelection') {
-    return decideSmart(state, playerId, seed);
+    return { action: decideSmart(state, playerId, seed), info: null };
   }
 
   const isGiftPlacementActor =
     state.phase === 'awaitingGiftPlacement' &&
     state.turn.pendingGiftBatches[0]?.recipientId === playerId;
   if (!isGiftPlacementActor && state.currentPlayerIndex !== playerId) {
-    return null;
+    return { action: null, info: null };
   }
 
   const iterations = options.iterations ?? DEFAULT_ITERATIONS;
@@ -265,14 +309,18 @@ export function decideAction(
   const leafEvalScale = options.leafEvalScale ?? DEFAULT_LEAF_EVAL_SCALE;
   const progressiveBias = options.progressiveBias ?? false;
   const pbC = options.pbC ?? DEFAULT_PB_C;
+  const weights = options.weights;
 
   const baseSeed = (seed ?? stateBaseSeed(state, playerId)) | 0;
 
   const rootActor = currentActorId(state);
   const rootLegal = legalActionIds(state, rootActor);
-  if (rootLegal.length === 0) return null;
+  if (rootLegal.length === 0) return { action: null, info: null };
   if (rootLegal.length === 1) {
-    return actionIdToAction(state, rootActor, rootLegal[0]);
+    return {
+      action: actionIdToAction(state, rootActor, rootLegal[0]),
+      info: null,
+    };
   }
 
   const numPlayers = state.players.length;
@@ -307,7 +355,7 @@ export function decideAction(
       let chosen: number;
       if (progressiveBias) {
         if (!node.priors) {
-          node.priors = computePriors(s, actor, legal, leafEvalScale, numPlayers);
+          node.priors = computePriors(s, actor, legal, leafEvalScale, numPlayers, weights);
         }
         chosen = puctSelect(node, legal, pbC);
         // PUCT は未訪問アクションも prior 順で扱うため、unvisited を別途 random 展開する必要はない。
@@ -354,7 +402,7 @@ export function decideAction(
       if (ranking) {
         value = rankToValue(ranking[node.actor], numPlayers);
       } else {
-        value = leafValueByEvaluator(leafState, node.actor, leafEvalScale, numPlayers);
+        value = leafValueByEvaluator(leafState, node.actor, leafEvalScale, numPlayers, weights);
       }
       node.total += 1;
       node.visits[aid] += 1;
@@ -364,7 +412,10 @@ export function decideAction(
 
   const rootNode = nodes.get(observationKey(state, playerId) + '|a:' + rootActor);
   if (!rootNode) {
-    return actionIdToAction(state, rootActor, rootLegal[0]);
+    return {
+      action: actionIdToAction(state, rootActor, rootLegal[0]),
+      info: null,
+    };
   }
   let bestAid = rootLegal[0];
   let bestVisits = -1;
@@ -379,5 +430,18 @@ export function decideAction(
       bestAid = aid;
     }
   }
-  return actionIdToAction(state, rootActor, bestAid);
+  const meanValuesOut = new Float32Array(ACTION_SPACE_SIZE);
+  for (let i = 0; i < ACTION_SPACE_SIZE; i++) {
+    const v = rootNode.visits[i];
+    meanValuesOut[i] = v > 0 ? rootNode.values[i] / v : 0;
+  }
+  return {
+    action: actionIdToAction(state, rootActor, bestAid),
+    info: {
+      rootActor,
+      visits: new Int32Array(rootNode.visits),
+      totalVisits: rootNode.total,
+      meanValues: meanValuesOut,
+    },
+  };
 }

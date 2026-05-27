@@ -145,8 +145,19 @@ function threatScore(player: Player, w: EvalWeights): number {
   return score;
 }
 
-export function evaluateState(state: GameState, playerId: number): number {
-  const w = currentWeights;
+/**
+ * 状態を評価する。
+ *
+ * @param weights 省略時はモジュール global の `currentWeights`（`setEvalWeights` で書き換え可）を使う。
+ *                明示すれば呼び出し単位で独立した重みを使えるため、
+ *                「AI ごとに別の重みで動かす」用途や「学習中に対戦相手だけ default 重みで固定」用途に使う。
+ */
+export function evaluateState(
+  state: GameState,
+  playerId: number,
+  weights?: EvalWeights
+): number {
+  const w = weights ?? currentWeights;
   const me = state.players[playerId];
   let value = selfScore(me, w);
   if (state.currentPlayerIndex === playerId) {

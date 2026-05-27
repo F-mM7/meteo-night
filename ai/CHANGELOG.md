@@ -27,6 +27,405 @@
 
 ---
 
+## Gen-3-K5 / K6: NN 容量増・mean-field 解消の試行 (個別効果は限定的、組み合わせを検証中) (2026-05-27)
+
+### Step 0: ルール変更チェック
+HEAD = 3f0158b 以降コミット無し、変化なし。
+
+### Gen-3-K5: NN 容量増（隠れ層 64×2 → 128×4、18K → 77K パラメータ）
+
+#### 仮説
+NN の表現力天井を上げる。容量 4x で複雑な戦略を学習可能に。ブラウザ配信は依然 ~200KB / gzip 60-80KB で実用範囲。
+
+#### 変更点
+- `ai/scripts/nn/train.ts`: `--hidden-units / --hidden-layers` フラグ追加
+- `ai/scripts/nn/model.ts`: 既存の `ModelOptions` をそのまま CLI から渡せるよう経由
+
+#### az-v4 ベンチ結果（1000 games + 容量 77K）
+| 指標 | 値 |
+|---|---|
+| vs smart 勝率 | **0%** (0/50) |
+| avgScore | 3.60 |
+| 期待順位 | 3.84 |
+| 1 手あたり時間 | 15.25 ms（容量増で +60%）|
+
+#### Gen-3-K5 採用判定: **不採用**
+- 学習量に対して容量が大きすぎ underfit (final loss 1.62 > az-v3 1.56)
+- 計算コストも増えるため、 学習量を 4x にしないと釣り合わない
+
+---
+
+### Gen-3-K6: mean-field 仮定の解消（NN 価値出力 1 → 4 次元）
+
+#### 仮説
+旧 neuralMcts は path 上の全 node に同じ leaf value を backup する mean-field 仮定で、多人数ゲームの利害対立を表現できなかった。
+NN 価値出力を「各プレイヤー視点の rank-based value」4 次元に拡張し、 各 node の actor 視点 value を取り出して正しく backup する。
+
+#### 変更点（破壊的、既存 az-v1〜v4 とは互換性なし）
+- `ai/scripts/nn/model.ts`:
+  - `VALUE_HEAD_SIZE = 4` を追加、 価値出力を 4 次元の tanh に変更
+  - `MeteoAzModel.valueSize` を追加
+  - モデル名を `meteo_az_v0` → `meteo_az_v1` に変更
+- `ai/scripts/nn/dataset.ts`:
+  - `LearnerExample.valueTarget`: `number` → `Float32Array(numPlayers)`
+  - generateSelfPlayGame / WithModel で各プレイヤーの rank-based value を計算してターゲットに
+- `ai/scripts/nn/neuralMcts.ts`:
+  - `NodeStats.cachedValue` → `cachedValuePerPlayer: Float32Array`
+  - `nnPredictBatch` 戻り値: `values: Float32Array` → `values: Float32Array[]`（各 sample が numPlayers 次元）
+  - `backprop` で `leafValuePerPlayer[node.actor]` を取り出して使う
+  - terminal / cut 時も `makeRankingValueVec(s)` で各プレイヤー視点ベクトルを構築
+- `ai/scripts/nn/train.ts`: `examplesToTensors` で valueSize 対応
+
+#### az-v5 ベンチ結果（1200 games + K6、容量 18K）
+| 指標 | 値 | az-v3 比 |
+|---|---|---|
+| vs smart 勝率 | **4%** (2/50) | -2pt |
+| avgScore | **4.12** | **+1.00**（過去最高）|
+| 期待順位 | 3.78 | 同等 |
+| 未終了率 | **4%** | **-6pt 改善** |
+
+#### Gen-3-K6 採用判定（単独）: **保留**
+- 勝率は az-v3 の 6% に届かないが、 avgScore と未終了率が明確に改善
+- 「ゲームを終わらせる能力」が向上 = K6 で学習信号がより正しくなった兆候
+- 単独で Gen-3-F (89.5%) を超えるには至らないが、 次の K7 (K6 + 容量増) に期待
+
+---
+
+### Gen-3-K7: K6 + 容量中規模（96×3、~35K params）+ 1200 games（実行中）
+- 設定: `--hidden-units 96 --hidden-layers 3`、 warm-up 200 games + AZ 1000 games × batch=16
+- 予想時間 ~35-40 分
+- 出力 `ai/models/az-v6/`、ベンチ続報
+
+### メモ・観察
+- **az-v4 (容量増のみ)**: 学習量不足で underfit、 勝率 0%
+- **az-v5 (K6 のみ)**: avgScore と未終了率に効果、 勝率は中庸
+- 容量と学習量のバランスが鍵
+- ブラウザ反映できる水準（Gen-3-F の 89.5% を超える）には依然遠い
+- 既存テスト 19/19 通過、型チェック OK
+
+---
+
+## Gen-3-K4: NN バッチ推論で学習を 8 倍高速化 (2026-05-27)
+
+### Step 0: ルール変更チェック
+HEAD = 3f0158b 以降コミット無し、未コミット変更は `reducer.ts` のログ表記改修（AI 影響なし）と私の Gen-3-K 関連のみ。進行可。
+
+### 仮説と設計
+Gen-3-K3 の失敗原因の主要部分が「NN 推論コスト（1 局 ~10 秒）」だったため、**バッチ推論**で高速化する:
+- `decideActionNeural` に `batchSize` オプション追加
+- N 個の独立 iter を並列に traverse（各 iter は別 determinize seed）
+- 「expansion 待ち」の leaf state を N 個ためてから **1 回の NN 推論** でまとめて評価
+- 各 path に backprop（mean-field 仮定で既存実装踏襲）
+- Virtual loss は未実装（同じ leaf 集中の懸念は seed 多様性で mitigate）
+
+### 変更点
+- `ai/scripts/nn/neuralMcts.ts`:
+  - `nnPredictBatch(model, stateVecs[])`: 複数 state を 1 つのテンソルにまとめて推論し、結果を split
+  - `NeuralMctsOptions.batchSize` 追加（デフォルト 1）
+  - `decideActionNeural` を refactor：`runSelection(iter)` 関数で 1 iter 分の traverse を独立化、N 個ためて batch predict
+- `ai/scripts/nn/dataset.ts`: `SelfPlayOptions.mctsBatchSize` 追加、`generateDatasetWithModel` に伝播
+- `ai/scripts/nn/train.ts`: `--mcts-batch <n>` フラグ追加
+
+### 速度比較（同じ az-v2 から self-play 10 games）
+
+| 設定 | 時間 | examples | 1 局あたり |
+|---|---|---|---|
+| batch=1 (baseline) | **102.6 秒** | 2039 | ~10.3 秒 |
+| batch=16 (Gen-3-K4) | **12.9 秒** | 1974 | **~1.3 秒** |
+
+**約 8 倍の高速化**（期待 3-5x を大きく超過）。
+
+理由の推定:
+- tfjs の `predict()` 呼び出しオーバーヘッドが大きく、それが 1/16 に削減された
+- TensorFlow 内部の SIMD/並列最適化がバッチ入力で効きやすい
+
+注: examples 数はほぼ同じ → 学習に使えるデータ量も同等。
+
+### 採用判定（速度面）
+**採用**。学習速度が 8x になったため、これまで数時間かかっていた本格学習が現実的な時間で回せるようになった。
+
+### Gen-3-K4 の速度を活かした大規模学習: az-v3
+- 設定: az-v2 から warm-start で **1000 games (200 × 5 iter) × batch=16**
+- 実時間 **28 分**（推定 15 分よりやや長め、 batch=16 でも完全 8x は出ない）
+- loss 推移: 1.59 → 1.61 → 1.62 → 1.61 → 1.56（warm-start のため微振動）
+
+#### az-v3 ベンチ（vs smart x3, 50 局, seed=1001, rotate）
+| 世代 | 学習 games | vs smart 勝率 | avgScore | 期待順位 | 未終了率 |
+|---|---|---|---|---|---|
+| az-v1 | 80 | 0% | 1.62 | 3.96 | 20% |
+| az-v2 | 400 | 2% | 1.98 | 3.90 | 20% |
+| **az-v3** | **1400** | **6%** (CI 2.1-16.2%) | **3.12** | **3.78** | 10% |
+| 参考: Gen-3-F | – | 89.5% | 20.77 | 1.12 | 0% |
+
+#### az-v3 単体の採用判定
+**不採用、ブラウザ反映なし**。Gen-3-F (89.5%) に対し 6% で 83pt 後退。
+
+ただし学習量を増やすと **勝率が線形的に微増**（0% → 2% → 6%、加重 +4pt/+1000games）することが観察された。
+理論的には数万 games 必要だが、batch 推論で「現実的な時間で大規模化」できることを示せたのが収穫。
+
+### メモ
+- **学習品質への影響**: batch=16 では「同一 leaf に集中する可能性」「priors 上書き競合」等の理論的懸念あり
+  - 実装は「同一ノードへの priors install は 1 回限り」「同じ iter 内なら同一 path で重複 visit OK」
+  - 強さ評価は az-v3 のベンチで確定
+- **Virtual loss 未実装**: 効率の理論最大値の 50-70% 程度しか出ない可能性
+  - 実用上は seed 多様性で十分散らされており、ベンチ結果次第で追加実装を判断
+- 既存テスト 19/19 通過、型チェック OK
+
+---
+
+## Gen-3-K1〜K3: AlphaZero ループの本格実装 (基盤完成、本格学習は要時間) (2026-05-27)
+
+### Step 0: ルール変更チェック
+HEAD = 3f0158b 以降のコミット無し。未コミット差分は `reducer.ts` のログ表記改修（AI 影響なし）と私の Gen-3-K 関連。
+
+### 仮説と方針
+Gen-3-K（基盤整備のみ）に続き、本格的な AlphaZero ループを実装する:
+- **K1a**: MCTS の visit count を方策ターゲットに（one-hot → softmax(visits^(1/τ)))
+- **K1b**: ネットワーク誘導 MCTS（NN の方策を PUCT prior、価値を leaf 評価に）
+- **K2**: AlphaZero ループ（self-play → 学習 → 新モデルで self-play）
+- **K3**: 学習モデル vs 既存 Gen-3-F のベンチ・採用判定
+
+### 変更点
+
+#### Gen-3-K1a: visit count → 方策ターゲット
+- `src/ai/mctsAI.ts`: `decideActionWithInfo()` を追加。root の `visits` と `meanValues` を返す
+  - 既存 `decideAction()` は互換性維持で動作（内部で `decideActionWithInfo` を呼んで action だけ返す）
+- `ai/scripts/nn/dataset.ts`: `visitsToPolicy(visits, tau)` で softmax 化、AlphaZero 流の方策ターゲット
+- スモーク（5 games × 2 iter）: loss 3.36 → 2.95、学習進行確認
+
+#### Gen-3-K1b: ネットワーク誘導 MCTS
+- `ai/scripts/nn/neuralMcts.ts` 新規作成:
+  - PUCT 風選択: `Q(a) + C·P(a)·√N/(1+n(a))`
+  - `P(a)`: NN の方策出力（合法手で再正規化）
+  - leaf 評価: NN の価値出力（tanh の即値）
+  - `decideActionNeural(state, playerId, model, seed?, options?)` API
+- スモーク（80 games で学習したモデルで 1 局）: finished=true、1 手 ~7 ms、動作 OK
+
+#### Gen-3-K2: AlphaZero ループ
+- `ai/scripts/nn/dataset.ts`: `generateSelfPlayGameWithModel` / `generateDatasetWithModel` を追加
+- `ai/scripts/nn/train.ts`: `--selfplay mcts|neural` と `--tau` を追加
+  - `mcts`: 既存 mctsAI で self-play（warm-up 用、NN 未学習でも可）
+  - `neural`: 学習中モデルで neuralMcts self-play（AlphaZero 改善ループ）
+
+#### Gen-3-K3: ベンチ
+- `ai/scripts/bench-neural.ts` 新規作成: 学習モデル vs smart x3 を rotate 付きで対戦
+
+### 学習結果（小規模、本セッション内）
+
+| フェーズ | 設定 | 最終 loss |
+|---|---|---|
+| Warm-up (mcts self-play) | 20 games × 2 iter | 3.11 → **2.01** |
+| AlphaZero (neural self-play) | 20 games × 2 iter | 1.82 → **1.66** |
+| 計学習 games | **80 games** | – |
+| 計学習 examples | ~17,000 | – |
+| AlphaZero 1 局あたり | ~10 秒（neuralMcts コスト）| – |
+
+### ベンチ結果（小規模学習モデル, 50 games, seed=1001, rotate）
+
+| 指標 | Gen-3-F | **az-v1 (80 games 学習)** |
+|---|---|---|
+| 勝率 | 89.5% | **0%** (0/50) |
+| 95%CI | 84.5-93.0% | 0-7.1% |
+| 1 位獲得 | 179/200 | 0/50 |
+| 平均得点 | 20.77 | **1.62** |
+| 期待順位 | 1.12 | 3.96（ほぼ常に 4 位） |
+| 未終了率 | 0% | 16% (8/50) |
+
+### 採用判定（短時間学習版 az-v1）
+**不採用、ブラウザ反映なし**
+
+### 大規模学習（az-v2）の結果
+
+**学習設定**:
+- Warm-up: 50 games × 3 iter (mcts self-play, ~6 分)
+- AlphaZero: 50 games × 5 iter (neural self-play, ~37 分)
+- 合計約 45 分、計 400 games
+
+**学習 loss 推移**:
+- Warm-up iter 3: ~2.0
+- AZ iter 1: 1.74
+- AZ iter 3: 1.59
+- AZ iter 5: **1.37**（大幅減少、学習進行は確認）
+
+**ベンチ結果（az-v2）**:
+
+| 対戦 | 勝率 | avgScore | 期待順位 | 未終了率 | 解釈 |
+|---|---|---|---|---|---|
+| vs smart x3 (50 局, seed=1001) | **2.0%** (CI 0.4-10.5%) | 1.98 | **3.9**（ほぼ常に 4 位） | 20% | 大敗 |
+| vs random x3 (50 局, seed=2001) | 36.0% (CI 24.1-49.9%) | 3.92 | 2.48 | 100% | random より少し強い (+11pt) |
+
+参考: Gen-3-F (mcts) vs smart x3 200 局 = 89.5%、 az-v2 は 87.5pt 後退。
+
+### 採用判定（最終）
+**不採用、ブラウザ反映なし。ブラウザは引き続き Gen-3-F (vs smart 89.5%) を維持。**
+
+### 失敗原因の整理
+1. **学習量が桁違いに少ない**: 400 games の AlphaZero は AlphaGo Zero（数百万 games）の 1/10000 以下
+2. **NN 容量不足**: 18K パラメータでは複雑な連鎖戦略を表現できない
+3. **NN 推論コストが大きい**: 1 局 ~10 秒で大規模化が時間的に困難（バッチ predict 未実装）
+4. **mean-field 仮定の歪み**: 多人数ゲーム特有の調整が未実装（path の各 node に同符号 leaf value を backup）
+
+### Gen-3-K 全体の評価
+- **基盤・パイプラインは完全動作**: K1a (visit count target) / K1b (neuralMcts) / K2 (AlphaZero loop) / K3 (bench)
+- **実用モデルには未到達**: 短時間学習・小容量の制約下では Gen-3-F の天井を超えられず
+- **次イテレーションに必要なもの**:
+  - **バッチ predict** 実装で 5-10x 学習速度向上（実装中規模）
+  - **NN 容量増**（隠れ 128 unit × 4 層、~10x パラメータ）
+  - **大規模学習**（数千 games の AlphaZero、数時間〜数日）
+  - **GPU 化**（`@tensorflow/tfjs-node-gpu` 切替）
+  - **mean-field 仮定の解消**（各 actor 視点の value を別途取る）
+
+### 残置物
+- `ai/scripts/nn/{model,dataset,neuralMcts,train}.ts`: AlphaZero 学習基盤の全コード
+- `ai/scripts/bench-neural.ts`: 学習モデル vs (smart|random|mcts) ベンチ
+- `src/ai/neuralAI.ts`: ブラウザ向け推論ラッパー雛形（tfjs 未 import、実用モデル完成時に有効化）
+- `ai/models/az-v2/`: 学習済みモデル（参考用、gitignore で git 管理外）
+- `ai/data/log-az-v2*.log`: 学習ログ（gitignore）
+
+---
+
+## Gen-3-K: AlphaZero 風 NN 学習基盤の整備 (基盤採用、本格学習は次セッション) (2026-05-27)
+
+### メモ・今後の改善点
+- **NN 呼び出しがボトルネック**: 1 局 ~10 秒は遅すぎ。バッチ predict（複数 leaf state をまとめて推論）で 5-10x speedup 可能
+- **未終了率 16%**: 弱いモデルだとゲームが 20 点に到達せず max-steps で打ち切られる
+- **ネットワーク容量**: 18K パラメータは小さすぎる可能性。本格学習時は 128 unit × 4 層程度（数十万パラメータ）が必要
+- **GPU 化**: 現状 CPU 版 tfjs-node、 本格学習時に GPU 版へ
+- **mean-field 仮定の修正**: neuralMcts では path 上の全 node に leafValue を同じ符号で backup。 多人数ゼロサム的な工夫（各 actor 視点の value を別途取る）が必要かも
+
+### 残置物
+- `ai/scripts/nn/neuralMcts.ts`: 新規追加（226 行）
+- `ai/scripts/bench-neural.ts`: 新規追加（200 行）
+- スモークファイルとモデルは削除済み
+- 既存テスト 19/19 通過、型チェック OK
+
+---
+
+## Gen-3-K: AlphaZero 風 NN 学習基盤の整備 (基盤採用、本格学習は次セッション) (2026-05-27)
+
+> **Note**: このエントリは Gen-3-K の基盤整備のみ記録。本格学習・ベンチ・最終判定は上の「Gen-3-K1〜K3」エントリ参照。
+
+### Step 0: ルール変更チェック
+直前 Gen-3-J から数分のため変化なし。HEAD = 3f0158b、未コミット変更は私の Gen-3-J 関連 + Gen-3-K 関連。
+
+### 仮説と方針
+手書きの評価関数（17 重み）は天井に達した（Gen-3-B → F → J で +4.5pt → +1pt → +0.5pt と逓減）。
+方策・価値ニューラルネットによる本質的突破を狙う。本セッションでは **基盤整備のみ**、本格学習は次セッション以降。
+
+### ネットワーク設計
+- 入力: `encoding.ts` の固定長ベクトル (現状 **185 次元**)
+- 隠れ層: Dense 64 unit × 2 層 (ReLU + L2=1e-4)
+- 方策ヘッド: `ACTION_SPACE_SIZE = 30` 次元 softmax
+- 価値ヘッド: tanh 1 次元（actor の rank-based value [-1, +1]）
+- 総パラメータ: **18,079**、保存サイズ約 70 KB（ブラウザ配信に最適）
+
+### 変更点
+- 依存追加: `@tensorflow/tfjs-node` v4.22.0（CPU 版、本格学習時は GPU 版に差し替え予定）
+- `ai/scripts/nn/model.ts`: ネットワーク定義
+  - `createModel(opts?)`: 新規ネットワーク作成
+  - `compileForTraining(model, lr?)`: Adam optimizer + categoricalCrossentropy/MSE
+  - `saveModel(model, dir)` / `loadModel(dir)`: tfjs 標準形式 (`model.json` + `weights.bin`)
+- `ai/scripts/nn/dataset.ts`: 自己対戦データ生成
+  - `generateSelfPlayGame({seed})`: 1 局自己対戦して `LearnerExample[]` を返す
+  - `generateDataset(seedBase, numGames)`: N 局をまとめて生成
+- `ai/scripts/nn/train.ts`: 学習ループ CLI
+  - `--games / --iter / --batch / --epochs / --lr / --seed / --out / --init` をサポート
+  - 自己対戦 → ミニバッチ学習 → モデル保存
+
+### 動作確認（スモーク）
+- 設定: 10 games × 2 iter, batch=32, epochs=2
+- iter 1: 2304 examples、訓練 1.2 秒、最終 loss 3.26
+- iter 2: 2387 examples、訓練 1.1 秒、最終 loss **2.28**（前 iter 比 -30%、学習進行を確認）
+- モデル保存・型チェック OK
+
+### 採用判定
+**基盤を採用、ブラウザ反映はなし**
+
+学習自体はまだ start 地点。ベンチでの強さ評価は未実施（現状の one-hot 方策ターゲット + 既存 MCTS データなので、特別強くはならない見込み）。
+ブラウザ向けの NN 推論ラッパーは未実装、ブラウザ動作は引き続き Gen-3-F のまま。
+
+### 次セッション以降の TODO
+1. **MCTS の visit count を方策ターゲットに**：one-hot → softmax(visit_count^τ) で本格 AlphaZero 流
+2. **ネットワーク誘導 MCTS**：mctsAI に NN を組み込み、PUCT prior と leaf value を NN 出力に
+3. **AlphaZero ループ**：train → self-play with new net → train ... の本格イテレーション
+4. **モデル比較ベンチ**：旧 net vs 新 net で勝率測定、55% 以上で新 net 採用
+5. **ブラウザ推論ラッパー**：`src/ai/neuralAI.ts` 実装、`public/models/<gen>/` に配信
+6. **GPU 化**：`@tensorflow/tfjs-node-gpu` に切り替え（CUDA セットアップ要）
+7. **損失重み調整**：tfjs の `lossWeights` 型サポート対応（カスタムロス関数 or value target 係数倍）
+
+### メモ
+- 本セッションでは Gen-3-K の「実装可能性」と「学習が回ること」が確認できた
+- 18K パラメータの小型 NN は数秒で学習可能、ブラウザ配信も 70 KB と十分実用範囲
+- 既存テスト 19/19 通過、型チェック OK
+- 並行作業中のデザイン編集との競合ゼロ（`ai/**` と `src/ai/**` のみ触っている）
+
+---
+
+## Gen-3-J: per-AI weights 設計の導入 (採用、ブラウザ DEFAULT は据置) (2026-05-27)
+
+### Step 0: ルール変更チェック
+HEAD = 3f0158b（ユーザーが私のセッション分を整理してコミット済み）。それ以降の `docs/RULES.md` / `src/game/` 変更なし、進行可。
+
+### 仮説
+これまでの評価関数の重み（17 項目）は **モジュール global で 1 セット**しか持てなかった。学習中、mcts の重みを最適化しても **対戦相手 smart も同じ重みで動く** ため、両者が同時に強化されて mcts の純粋な改善幅が見えない（Gen-3-B / B-2 / F で +4.5pt → +1pt → +0.5pt と逓減した一因）。
+
+per-AI weights 構造に拡張し、「学習中は smart を default 固定 / mcts のみ学習中の重み」で fitness 評価できるようにする。
+
+### 変更点
+- `src/ai/evaluator.ts`: `evaluateState(state, playerId, weights?)` に第 3 引数追加。未指定なら従来通り module global を使用
+- `src/ai/smartAI.ts`: `decideAction(state, pid, seed?, options?)` に `options.weights` 追加
+- `src/ai/mctsAI.ts`: `MctsOptions.weights` 追加、内部の `leafValueByEvaluator` / `computePriors` に伝播
+- `ai/scripts/_runner.ts`: `mctsTuned` を「global state 経由」から「options.weights 経由」に変更（副作用なし）、`makeMctsWithWeights(weights)` ファクトリを追加 export
+- `ai/scripts/bench.ts`: `--mcts-weights <path>` フラグ追加（mcts のみ独立した重みで動かせる）
+- `ai/scripts/tune-es.ts`: fitness を改修、`setEvalWeights` 呼び出しを廃止して `options.weights` 経由に統一
+- `src/ai/tunedWeights.ts`: `GEN_3J_WEIGHTS` を追加
+- `src/ai/index.ts`: `GEN_3J_WEIGHTS` を export
+
+### 学習結果
+- 設定: warm-start from Gen-3-F、15 世代 × 50 局、seed=5、sigma=0.2、smart は default 固定
+- best ever（学習セット, seed=5, 50局）: avgScore **21.88** / winRate **100%** / avgRank 1.00
+- default re-check: avgScore 21.48 / winRate 96%
+- 学習時間: 約 8 分
+
+### Holdout ベンチ結果
+
+**per-AI モード**（mcts のみ Gen-3-J / smart x3 は default = Gen-3-F）, 200 局, `seed=1001`, `--rotate`:
+| 指標 | Gen-3-F | **Gen-3-J** | 差分 |
+|---|---|---|---|
+| 勝率 | 89.5% | **90.0%** | +0.5pt |
+| 95%CI 下限 | 84.5% | **85.1%** | **+0.6pt** |
+| 1 位獲得 | 179 | 180 | +1 |
+| avgScore | 20.77 | 21.05 | +0.28 |
+| 1 手あたり時間 | 2.10 ms | 2.16 ms | 同等 |
+
+**ブラウザモード**（全 AI が Gen-3-J）, 200 局, `seed=1001`:
+- mcts 勝率 **84.0%** (CI 78.3-88.4%) — Gen-3-F (89.5%) から **-5.5pt 後退**
+- 理由: smart も同時に Gen-3-J で強化されて mcts と相打ち（Gen-3-J は「smart=default」前提で学習されたため）
+
+**mcts x4 自己対戦**（全員 Gen-3-J）, 50 局, `seed=3001`:
+- 各座席勝率 25.0% (CI 19.5-31.4%) — 席バイアスなし
+- avgScore 16.55（Gen-3-F の 16.11 から +0.44 微改善）
+
+### 採用判定
+**構造（per-AI weights API）は採用 + ブラウザ DEFAULT は Gen-3-F のまま維持**
+
+per-AI モードで採用基準（CI 下限が前回 84.5% を上回る）を満たす。
+ただし、**ブラウザは全 CPU が mcts のため vs smart シナリオが発生せず**、Gen-3-J 重みを反映しても mcts x4 自己対戦のバランスが微改善する程度。
+- `DEFAULT_WEIGHTS` 更新は見送り（Gen-3-F のまま）
+- `GEN_3J_WEIGHTS` は `tunedWeights.ts` に保存、将来 vs human シナリオを想定する場合などに参照
+
+### メモ・学び（重要）
+- **per-AI weights の API 改善は本質的価値**。今後の学習・評価で「学習信号の純化」が可能に
+- **Gen-3-J の重み数値そのものはブラウザに不向き**。理由はユースケースの違い:
+  - 学習ターゲット: vs smart シナリオ → smart を default に固定すると mcts は smart を圧倒する方向に重みが偏る
+  - ブラウザ実態: 全 CPU = mcts の自己対戦に近い → smart 圧倒バイアスが効かない
+- 解決策（次の方向性）:
+  - 学習ターゲットを「mcts vs mcts 自己対戦」にして「自己対戦勝率」を fitness にする → ブラウザ実態に近い学習
+  - もしくは Gen-3-K（NN 自己対戦）で根本的に「対戦相手も自分と同じ強さ」を前提に学習する
+- 既存テスト 19/19 通過、型チェック OK
+
+---
+
 ## Gen-3-I: シミュ内 gift を random で進行（不採用） (2026-05-27)
 
 ### 仮説

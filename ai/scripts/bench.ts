@@ -25,12 +25,14 @@ import { readFileSync } from 'node:fs';
 import {
   CommonArgs,
   GameResult,
+  makeMctsWithWeights,
   parseCommonArgs,
   playOneGame,
   rotateSeats,
+  STRATEGIES,
   StrategyName,
 } from './_runner';
-import { setEvalWeights } from '../../src/ai/evaluator';
+import { setEvalWeights, type EvalWeights } from '../../src/ai/evaluator';
 
 interface StratStat {
   games: number;
@@ -65,20 +67,45 @@ Options:
   --max-steps <n>         safety bound per game (default: 5000)
   --silent                suppress per-game logs
   --json                  emit JSON summary to stdout
-  --weights <path>        load EvalWeights from JSON (e.g. tune-es output)`);
+  --weights <path>        load EvalWeights from JSON for ALL AIs (global state)
+  --mcts-weights <path>   load EvalWeights from JSON for mcts ONLY (per-AI, Gen-3-J)`);
 }
 
-function loadWeightsArg(argv: string[]): string[] {
-  const idx = argv.indexOf('--weights');
-  if (idx < 0) return argv;
-  const path = argv[idx + 1];
-  if (!path) throw new Error('--weights requires a path argument');
+function loadWeightsFromFile(path: string): EvalWeights {
   const raw = readFileSync(path, 'utf-8');
   const parsed = JSON.parse(raw);
-  const weights = parsed.weights ?? parsed;
-  setEvalWeights(weights);
-  console.error(`[bench] loaded weights from ${path}`);
-  return [...argv.slice(0, idx), ...argv.slice(idx + 2)];
+  return parsed.weights ?? parsed;
+}
+
+/**
+ * `--weights <path>`: ベンチ全体（全 AI）の評価関数重みを差し替える。
+ *                     evaluator のモジュール global state を変える。
+ * `--mcts-weights <path>`: mcts 戦略のみ独立した重みで動かす。smart など他の AI は default のまま。
+ *                          Gen-3-J 以降の per-AI weights 検証用。
+ */
+function loadWeightsArg(argv: string[]): string[] {
+  let next = argv;
+
+  const widx = next.indexOf('--weights');
+  if (widx >= 0) {
+    const path = next[widx + 1];
+    if (!path) throw new Error('--weights requires a path argument');
+    setEvalWeights(loadWeightsFromFile(path));
+    console.error(`[bench] loaded weights (global) from ${path}`);
+    next = [...next.slice(0, widx), ...next.slice(widx + 2)];
+  }
+
+  const midx = next.indexOf('--mcts-weights');
+  if (midx >= 0) {
+    const path = next[midx + 1];
+    if (!path) throw new Error('--mcts-weights requires a path argument');
+    const w = loadWeightsFromFile(path);
+    STRATEGIES.mcts = makeMctsWithWeights(w);
+    console.error(`[bench] mcts strategy overridden with weights from ${path}`);
+    next = [...next.slice(0, midx), ...next.slice(midx + 2)];
+  }
+
+  return next;
 }
 
 function main(): void {
