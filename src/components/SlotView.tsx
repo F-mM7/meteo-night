@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { Card, Slot } from '../game/types';
 import { CardView } from './CardView';
+import { STACK_MAX_SPAN_RATIO } from '../hooks/boardLayout';
 
 export type StackDirection = 'down' | 'up' | 'left' | 'right';
 
@@ -23,17 +24,6 @@ interface Props {
 }
 
 type FadeReason = 'launch' | 'discard';
-
-export const STACK_OFFSET_RATIO = 0.28;
-export const STACK_MAX_SPAN_RATIO = 3.2;
-
-export function computeStackOffset(cardSize: number, stackLen: number): number {
-  if (stackLen <= 1) return cardSize * STACK_OFFSET_RATIO;
-  const baseOffset = cardSize * STACK_OFFSET_RATIO;
-  const maxSpan = cardSize * STACK_MAX_SPAN_RATIO;
-  const maxOffset = (maxSpan - cardSize) / (stackLen - 1);
-  return Math.min(baseOffset, maxOffset);
-}
 
 function cardPositionStyle(direction: StackDirection, i: number, offset: number): CSSProperties {
   switch (direction) {

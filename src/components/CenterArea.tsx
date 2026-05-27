@@ -3,6 +3,8 @@ import { FieldView } from './FieldView';
 import { PlayerHeader } from './PlayerHeader';
 import { StartPlayerMarker } from './StartPlayerMarker';
 
+type SeatPosition = 'top' | 'left' | 'right' | 'bottom';
+
 interface Props {
   field: [FieldPair, FieldPair];
   deckSize: number;
@@ -10,10 +12,10 @@ interface Props {
   onPairClick?: (index: 0 | 1) => void;
   onDeckClick?: () => void;
   canDrawFromDeck?: boolean;
-  topPlayer: Player;
-  leftPlayer: Player;
-  rightPlayer: Player;
-  bottomPlayer: Player;
+  topPlayer: Player | null;
+  leftPlayer: Player | null;
+  rightPlayer: Player | null;
+  bottomPlayer: Player | null;
   currentPlayerIndex: number;
   startPlayerIndex: number;
   youId: number;
@@ -36,22 +38,31 @@ export function CenterArea(props: Props) {
     youId,
   } = props;
 
+  const seats: Array<{ position: SeatPosition; player: Player | null }> = [
+    { position: 'top', player: topPlayer },
+    { position: 'left', player: leftPlayer },
+    { position: 'right', player: rightPlayer },
+    { position: 'bottom', player: bottomPlayer },
+  ];
+
   return (
     <div className="center-area" aria-label="盤面中央エリア">
-      <PlayerHeader
-        player={topPlayer}
-        isCurrent={currentPlayerIndex === topPlayer.id}
-        isYou={topPlayer.id === youId}
-        position="top"
-      />
-      {startPlayerIndex === topPlayer.id && <StartPlayerMarker position="top" />}
-      <PlayerHeader
-        player={leftPlayer}
-        isCurrent={currentPlayerIndex === leftPlayer.id}
-        isYou={leftPlayer.id === youId}
-        position="left"
-      />
-      {startPlayerIndex === leftPlayer.id && <StartPlayerMarker position="left" />}
+      {seats.map(({ position, player }) =>
+        player ? (
+          <PlayerHeader
+            key={position}
+            player={player}
+            isCurrent={currentPlayerIndex === player.id}
+            isYou={player.id === youId}
+            position={position}
+          />
+        ) : null
+      )}
+      {seats.map(({ position, player }) =>
+        player && startPlayerIndex === player.id ? (
+          <StartPlayerMarker key={`sp-${position}`} position={position} />
+        ) : null
+      )}
       <div className="center-area-inner">
         <FieldView
           field={field}
@@ -62,20 +73,6 @@ export function CenterArea(props: Props) {
           canDrawFromDeck={canDrawFromDeck}
         />
       </div>
-      <PlayerHeader
-        player={rightPlayer}
-        isCurrent={currentPlayerIndex === rightPlayer.id}
-        isYou={rightPlayer.id === youId}
-        position="right"
-      />
-      {startPlayerIndex === rightPlayer.id && <StartPlayerMarker position="right" />}
-      <PlayerHeader
-        player={bottomPlayer}
-        isCurrent={currentPlayerIndex === bottomPlayer.id}
-        isYou={bottomPlayer.id === youId}
-        position="bottom"
-      />
-      {startPlayerIndex === bottomPlayer.id && <StartPlayerMarker position="bottom" />}
     </div>
   );
 }

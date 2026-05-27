@@ -416,31 +416,31 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   animation-fill-mode: forwards;
 }
 
-/* 取り除き（中央から離れる方向にフェード） */
+/* 取り除き（中央から離れる方向にフェード、発光なし） */
 .slot-stack-fade-down { animation-name: card-fade-down; }
 .slot-stack-fade-up { animation-name: card-fade-up; }
 .slot-stack-fade-left { animation-name: card-fade-left; }
 .slot-stack-fade-right { animation-name: card-fade-right; }
 
 @keyframes card-fade-down {
-  0% { opacity: 1; transform: translateY(0) scale(1); filter: brightness(1); }
-  20% { opacity: 1; transform: translateY(-4px) scale(1.05); filter: brightness(1.4); }
-  100% { opacity: 0; transform: translateY(calc(var(--card-size) * 2.5)) scale(0.7); filter: brightness(2); }
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  20% { opacity: 1; transform: translateY(-4px) scale(1.05); }
+  100% { opacity: 0; transform: translateY(calc(var(--card-size) * 2.5)) scale(0.7); }
 }
 @keyframes card-fade-up {
-  0% { opacity: 1; transform: translateY(0) scale(1); filter: brightness(1); }
-  20% { opacity: 1; transform: translateY(4px) scale(1.05); filter: brightness(1.4); }
-  100% { opacity: 0; transform: translateY(calc(var(--card-size) * -2.5)) scale(0.7); filter: brightness(2); }
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  20% { opacity: 1; transform: translateY(4px) scale(1.05); }
+  100% { opacity: 0; transform: translateY(calc(var(--card-size) * -2.5)) scale(0.7); }
 }
 @keyframes card-fade-left {
-  0% { opacity: 1; transform: translateX(0) scale(1); filter: brightness(1); }
-  20% { opacity: 1; transform: translateX(4px) scale(1.05); filter: brightness(1.4); }
-  100% { opacity: 0; transform: translateX(calc(var(--card-size) * -2.5)) scale(0.7); filter: brightness(2); }
+  0% { opacity: 1; transform: translateX(0) scale(1); }
+  20% { opacity: 1; transform: translateX(4px) scale(1.05); }
+  100% { opacity: 0; transform: translateX(calc(var(--card-size) * -2.5)) scale(0.7); }
 }
 @keyframes card-fade-right {
-  0% { opacity: 1; transform: translateX(0) scale(1); filter: brightness(1); }
-  20% { opacity: 1; transform: translateX(-4px) scale(1.05); filter: brightness(1.4); }
-  100% { opacity: 0; transform: translateX(calc(var(--card-size) * 2.5)) scale(0.7); filter: brightness(2); }
+  0% { opacity: 1; transform: translateX(0) scale(1); }
+  20% { opacity: 1; transform: translateX(-4px) scale(1.05); }
+  100% { opacity: 0; transform: translateX(calc(var(--card-size) * 2.5)) scale(0.7); }
 }
 
 /* 流星魔法発動（中央方向に発光しながら吸い込まれる）
@@ -748,6 +748,15 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   color: var(--accent);
   min-height: 16px;
   font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.action-message-text {
+  flex: 1;
+  min-width: 0;
 }
 
 .action-buttons {
@@ -756,16 +765,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   gap: 6px;
   margin-bottom: 4px;
   flex-wrap: wrap;
-}
-
-.action-turn {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  font-size: 10px;
-  color: var(--text-mute);
-  border-top: 1px dashed rgba(255, 255, 255, 0.1);
-  padding-top: 4px;
 }
 
 .your-hand {
@@ -877,6 +876,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   padding: 3px 6px;
   border-radius: 4px;
   color: var(--text-dim);
+  align-items: start;
 }
 .log-entry-emphasize {
   background: rgba(255, 210, 77, 0.08);
@@ -890,25 +890,35 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.log-message {
+  white-space: pre-line;
+}
 
 /* ---------- gift bar (action-area inline) ---------- */
+/* 全体は左右2列: 左に配布コンポーネントの横並び、右に決定ボタン。 */
 .gift-bar {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 8px;
 }
 
 .gift-bar-rows {
-  display: grid;
-  gap: 4px;
-}
-
-.gift-bar-row {
+  flex: 1;
   display: flex;
   flex-direction: row;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 各配布コンポーネントは上下2段: 上がカード、下が受領者選択肢。 */
+.gift-bar-row {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 3px 8px;
+  gap: 6px;
+  padding: 6px;
   border-radius: var(--radius-sm);
   background: rgba(6, 10, 31, 0.4);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -928,8 +938,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   flex-direction: row;
   flex-wrap: nowrap;
   gap: 4px;
-  flex: 1;
-  min-width: 0;
+  width: 100%;
 }
 
 .btn-target {
@@ -948,4 +957,11 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   color: var(--accent);
 }
 
-.gift-bar-confirm { display: flex; justify-content: flex-end; }
+.gift-bar-confirm {
+  display: flex;
+  align-items: stretch;
+}
+
+.gift-bar-confirm .btn {
+  height: 100%;
+}

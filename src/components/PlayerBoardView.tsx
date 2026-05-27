@@ -1,14 +1,23 @@
 import type { Player } from '../game/types';
 import { SlotView, type StackDirection } from './SlotView';
 
+export type SeatPosition = 'top' | 'bottom' | 'left' | 'right';
+type Orientation = 'horizontal' | 'vertical';
+
+const SEAT_LAYOUT: Record<SeatPosition, { orientation: Orientation; stackDirection: StackDirection }> = {
+  top: { orientation: 'horizontal', stackDirection: 'up' },
+  bottom: { orientation: 'horizontal', stackDirection: 'down' },
+  left: { orientation: 'vertical', stackDirection: 'left' },
+  right: { orientation: 'vertical', stackDirection: 'right' },
+};
+
 interface Props {
   player: Player;
   isCurrent: boolean;
   isYou: boolean;
   cardSize: number;
   stackOffset: number;
-  orientation?: 'horizontal' | 'vertical';
-  stackDirection?: StackDirection;
+  seat: SeatPosition;
   interactiveSlotIndices?: number[];
   highlightedSlotIndices?: number[];
   onSlotClick?: (slotIndex: number) => void;
@@ -21,13 +30,13 @@ export function PlayerBoardView({
   isYou,
   cardSize,
   stackOffset,
-  orientation = 'horizontal',
-  stackDirection = 'down',
+  seat,
   interactiveSlotIndices,
   highlightedSlotIndices,
   onSlotClick,
   discardedCardIds,
 }: Props) {
+  const { orientation, stackDirection } = SEAT_LAYOUT[seat];
   return (
     <section
       className={`player-board player-board-${orientation}${isCurrent ? ' player-current' : ''}${isYou ? ' player-you' : ''}`}

@@ -3,11 +3,12 @@ import type { Action, GameState } from '../game/types';
 interface Props {
   state: GameState;
   isYourTurn: boolean;
+  youId: number;
   dispatch: (action: Action) => void;
   onStartNewGame: () => void;
 }
 
-function describePhase(state: GameState, isYourTurn: boolean): string {
+function describePhase(state: GameState, isYourTurn: boolean, youId: number): string {
   const cur = state.players[state.currentPlayerIndex];
   if (state.phase === 'gameOver') {
     const w = state.players.find((p) => p.id === state.winnerId);
@@ -15,7 +16,7 @@ function describePhase(state: GameState, isYourTurn: boolean): string {
   }
   if (state.phase === 'awaitingGiftPlacement') {
     const batch = state.turn.pendingGiftBatches[0];
-    if (batch && batch.recipientId === 0) {
+    if (batch && batch.recipientId === youId) {
       if (batch.cards.length > 1) {
         return '贈られたカードから1枚を選び、配置するスロットを指定してください';
       }
@@ -49,12 +50,17 @@ function describePhase(state: GameState, isYourTurn: boolean): string {
   }
 }
 
-export function ActionPanel({ state, isYourTurn, dispatch, onStartNewGame }: Props) {
-  const message = describePhase(state, isYourTurn);
+export function ActionPanel({ state, isYourTurn, youId, dispatch, onStartNewGame }: Props) {
+  const message = describePhase(state, isYourTurn, youId);
+  // 山札と捨札が両方空のときはドロー不可（補充元が無いため）。
+  const canDrawAdditional = state.deck.length > 0 || state.discardPile.length > 0;
 
   return (
     <section className="action-panel" aria-label="操作パネル">
-      <div className="action-message">{message}</div>
+      <div className="action-message">
+        <span className="action-message-text">{message}</span>
+        {state.endTriggered && <span className="badge badge-warning">最終ラウンド</span>}
+      </div>
       <div className="action-buttons">
         {state.phase === 'awaitingAdditionalActionChoice' && isYourTurn && (
           <>
@@ -62,6 +68,7 @@ export function ActionPanel({ state, isYourTurn, dispatch, onStartNewGame }: Pro
               type="button"
               className="btn btn-primary"
               onClick={() => dispatch({ type: 'CHOOSE_ADDITIONAL_DRAW' })}
+              disabled={!canDrawAdditional}
             >
               山札から1枚引いて配置
             </button>
@@ -79,10 +86,6 @@ export function ActionPanel({ state, isYourTurn, dispatch, onStartNewGame }: Pro
             新しいゲームを始める
           </button>
         )}
-      </div>
-      <div className="action-turn">
-        <span>ターン {state.turnNumber}</span>
-        {state.endTriggered && <span className="badge badge-warning">最終ラウンド</span>}
       </div>
     </section>
   );

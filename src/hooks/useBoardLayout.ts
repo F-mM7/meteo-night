@@ -1,4 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { CSSProperties } from 'react';
+import type { GameState } from '../game/types';
+import { computeStackOffset } from './boardLayout';
 
 export interface BoardDims {
   boardSize: number;
@@ -8,6 +11,11 @@ export interface BoardDims {
   cardSize: number;
   actionHeight: number;
   layout: 'vertical' | 'horizontal';
+}
+
+export interface BoardLayout extends BoardDims {
+  stackOffset: number;
+  cssVars: CSSProperties;
 }
 
 const HEADER_HEIGHT = 36;
@@ -34,7 +42,6 @@ function deriveSizes(boardSize: number) {
   return { cardSize, seatShort, seatLong, centerSize };
 }
 
-// 与えられた boardSize から想定されるアクション領域の必要高さを返す
 function actionHeightFromBoard(boardSize: number): number {
   const cardSize = boardSize / BOARD_TOTAL_RATIO;
   return Math.max(MIN_ACTION_HEIGHT, ACTION_BASE_HEIGHT + cardSize * ACTION_CARD_RATIO);
@@ -51,7 +58,7 @@ function solveBoardByHeight(availableH: number): number {
   );
 }
 
-function calc(): BoardDims {
+function calcDims(): BoardDims {
   if (typeof window === 'undefined') {
     const bs = 700;
     const sizes = deriveSizes(bs);
@@ -82,13 +89,46 @@ function calc(): BoardDims {
   return { boardSize, ...sizes, actionHeight, layout };
 }
 
-export function useBoardSize(): BoardDims {
-  const [dims, setDims] = useState<BoardDims>(() => calc());
+function computeGlobalMaxStack(state: GameState): number {
+  let max = 1;
+  for (const p of state.players) {
+    for (const s of p.board.slots) {
+      if (s.stack.length > max) max = s.stack.length;
+    }
+  }
+  return max;
+}
+
+/**
+ * viewport（ウィンドウサイズ）と現在のゲーム状態から、UI 描画に必要な
+ * 寸法・CSS 変数・スタックオフセットをまとめて導出するフック。
+ *
+ * - 寸法部分（`boardSize` 等）は state 非依存で、リサイズ時にのみ再計算する。
+ * - `stackOffset` は全プレイヤーのスタック最大長から導出するため、state に依存する。
+ *   2 種類の依存を 1 フックに同居させているのは、呼び出し側で
+ *   `cssVars` をまとめて作る都合と、`cardSize` を共有させるため。
+ */
+export function useBoardLayout(state: GameState): BoardLayout {
+  const [dims, setDims] = useState<BoardDims>(() => calcDims());
   useEffect(() => {
-    const update = () => setDims(calc());
+    const update = () => setDims(calcDims());
     update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
   }, []);
-  return dims;
+
+  const globalMaxStack = useMemo(() => computeGlobalMaxStack(state), [state.players]);
+  const stackOffset = computeStackOffset(dims.cardSize, globalMaxStack);
+
+  const cssVars: CSSProperties = useMemo(
+    () => ({
+      '--card-size': `${dims.cardSize}px`,
+      '--board-size': `${dims.boardSize}px`,
+      '--seat-short': `${dims.seatShort}px`,
+      '--gap': `${Math.max(4, Math.floor(dims.cardSize / 10))}px`,
+    }) as CSSProperties,
+    [dims.cardSize, dims.boardSize, dims.seatShort]
+  );
+
+  return { ...dims, stackOffset, cssVars };
 }

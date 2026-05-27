@@ -231,7 +231,9 @@ function handleChooseAdditionalDraw(state: GameState): GameState {
   if (state.phase !== 'awaitingAdditionalActionChoice') return state;
   const r = drawFromDeck(state);
   if (!r.card) {
-    return appendSystemLog(state, '山札が空のため追加ドロー不可', true);
+    // 山札・捨札ともに空でドローを成立させられない場合は state を返さない。
+    // UI 側で「引いて配置」ボタンを無効化するため、通常はここに到達しない。
+    return state;
   }
   let next: GameState = {
     ...r.state,
@@ -358,11 +360,14 @@ function handleConfirmGifts(state: GameState, assignments: GiftAssignment[]): Ga
     turn: { ...state.turn, giftQueue: [], pendingGiftBatches: manualBatches },
   };
 
-  const giver = getCurrentPlayer(next);
-  for (const batch of batches) {
-    const target = next.players[batch.recipientId];
-    const colors = batch.cards.map((c) => COLOR_LABEL[c.color]).join('・');
-    next = appendLog(next, `${giver.name} → ${target.name}: ${colors} (${batch.cards.length}枚)`, true);
+  if (batches.length > 0) {
+    const lines = ['配布 :'];
+    for (const batch of batches) {
+      const target = next.players[batch.recipientId];
+      const colors = batch.cards.map((c) => COLOR_LABEL[c.color]).join(', ');
+      lines.push(`${target.name} → ${colors}`);
+    }
+    next = appendLog(next, lines.join('\n'), true);
   }
 
   for (const batch of autoBatches) {

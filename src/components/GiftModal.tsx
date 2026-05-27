@@ -5,10 +5,9 @@ import { CardView } from './CardView';
 interface Props {
   state: GameState;
   dispatch: (action: Action) => void;
-  columns: number;
 }
 
-export function GiftModal({ state, dispatch, columns }: Props) {
+export function GiftModal({ state, dispatch }: Props) {
   const queue = state.turn.giftQueue;
   const giverId = state.currentPlayerIndex;
   const otherPlayers = useMemo(
@@ -42,10 +41,7 @@ export function GiftModal({ state, dispatch, columns }: Props) {
 
   return (
     <div className="gift-bar" role="region" aria-label="星のかけらを渡す">
-      <div
-        className="gift-bar-rows"
-        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
-      >
+      <div className="gift-bar-rows">
         {queue.map((combo, idx) => {
           const card = combo.cards[0];
           return (
