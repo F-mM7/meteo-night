@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import type { CSSProperties } from 'react';
 import type { GameState } from '../game/types';
 import { CardView } from './CardView';
 
@@ -7,6 +8,11 @@ interface Props {
   targets: (number | null)[];
   setTargets: React.Dispatch<React.SetStateAction<(number | null)[]>>;
 }
+
+// 高さを常に 2 行以内に抑えたいので、配布数 N に対して列数を
+// `max(3, ceil(N / 2))` で導出する（N≤6 は 3 列、N=7,8 は 4 列、…）。
+const GIFT_DEFAULT_COLS = 3;
+const GIFT_MAX_ROWS = 2;
 
 export function GiftBar({ state, targets, setTargets }: Props) {
   const queue = state.turn.giftQueue;
@@ -22,8 +28,11 @@ export function GiftBar({ state, targets, setTargets }: Props) {
     setTargets((prev) => prev.map((t, i) => (i === idx ? targetPlayerId : t)));
   };
 
+  const cols = Math.max(GIFT_DEFAULT_COLS, Math.ceil(queue.length / GIFT_MAX_ROWS));
+  const barStyle = { '--gift-cols': cols } as CSSProperties;
+
   return (
-    <div className="gift-bar" role="region" aria-label="星のかけらを渡す">
+    <div className="gift-bar" role="region" aria-label="星のかけらを渡す" style={barStyle}>
       {queue.map((combo, idx) => {
         const card = combo.cards[0];
         return (

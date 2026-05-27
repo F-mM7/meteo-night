@@ -1043,8 +1043,10 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 /* ---------- gift bar (action-area inline) ---------- */
 /* 配布コンポーネントを横並びで表示する独立領域。決定ボタンは action-message 側に置く。
-   3 列 × 2 行（最大 6 個）を前提に折り返す。 */
+   デフォルトは 3 列 × 2 行（最大 6 個）。7 個以上は `--gift-cols` を増やして
+   常に 2 行以内に収める（GiftBar.tsx から指定）。 */
 .gift-bar {
+  --gift-cols: 3;
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
@@ -1053,10 +1055,9 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 /* 各配布コンポーネントは上下2段: 上がカード、下が受領者選択肢。
-   デフォルトで 3 個ピッタリ並ぶ固定幅。4 個以上は 2 行目に折り返し、
-   2 個以下は左揃え、7 個以上は縮んで収まる。 */
+   幅は `--gift-cols` 等分。N≤6 は 3 列、N=7,8 は 4 列…と列数が増える。 */
 .gift-bar-row {
-  flex: 0 1 calc((100% - 2 * 6px) / 3);
+  flex: 0 1 calc((100% - (var(--gift-cols) - 1) * 6px) / var(--gift-cols));
   display: flex;
   flex-direction: column;
   align-items: center;
