@@ -29,6 +29,9 @@
   --card-size: 72px;
   --board-size: 720px;
   --gap: 8px;
+  /* 領域の単位 (--card-size) はそのままに、カード自体（と空マス）だけを
+     縮小したいときに用いる描画スケール。1.0 で領域単位と同じ大きさ。 */
+  --card-scale: 0.9;
 }
 
 * { box-sizing: border-box; }
@@ -401,6 +404,16 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 .player-board {
   padding: 2px;
 }
+/* スタックが伸びる方向のpaddingは取らないことで、スロット領域いっぱいに
+   スタックを表示できるようにし、枚数が多いときの重なりが詰まりすぎるのを避ける。 */
+.player-board-horizontal {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.player-board-vertical {
+  padding-left: 0;
+  padding-right: 0;
+}
 
 /* ---------- player header card ---------- */
 .player-header-card {
@@ -517,6 +530,11 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 .slot-stack-card {
   position: absolute;
+  width: var(--card-size);
+  height: var(--card-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: top 0.18s ease-out, bottom 0.18s ease-out, left 0.18s ease-out, right 0.18s ease-out;
 }
 
@@ -688,6 +706,14 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   position: absolute;
   width: var(--card-size);
   height: var(--card-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.slot-empty::before {
+  content: '';
+  width: calc(var(--card-size) * var(--card-scale));
+  height: calc(var(--card-size) * var(--card-scale));
   border: 1px dashed rgba(255, 255, 255, 0.15);
   border-radius: var(--radius-sm);
 }
@@ -695,13 +721,15 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 /* ---------- card ---------- */
 .card {
   position: relative;
-  width: var(--card-size);
-  height: var(--card-size);
-  border-radius: var(--radius-sm);
+  width: calc(var(--card-size) * var(--card-scale));
+  height: calc(var(--card-size) * var(--card-scale));
+  /* border の太さと角丸はカードの実寸（card-size × card-scale）に比例。
+     基準: card-size 72px × card-scale 1.0 のとき border ≈ 1px, radius ≈ 8px。 */
+  border: calc(var(--card-size) * var(--card-scale) * 0.014) solid #000;
+  border-radius: calc(var(--card-size) * var(--card-scale) * 0.11);
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid #000;
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
   user-select: none;
   overflow: hidden;
@@ -776,6 +804,11 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   position: relative;
   width: 100%;
   height: 100%;
+  /* padding 分だけ player-header / start-marker / field がスロット側から離れる。
+     box-sizing: border-box にすることで絶対配置の起点も padded edge になり、
+     pos-* / start-marker-* の数式を変えずに中央寄りへシフトできる。 */
+  padding: calc(var(--card-size) * 0.3);
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -843,6 +876,14 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 .field-pair-empty {
   width: calc(var(--card-size) * 2 + 8px);
   height: var(--card-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.field-pair-empty::before {
+  content: '';
+  width: calc((var(--card-size) * 2 + 8px) * var(--card-scale));
+  height: calc(var(--card-size) * var(--card-scale));
   border: 1px dashed rgba(255, 255, 255, 0.15);
   border-radius: var(--radius-sm);
 }
