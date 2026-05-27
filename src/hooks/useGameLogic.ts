@@ -18,6 +18,15 @@ const SPEED_PROFILES: Record<CpuSpeed, DelayProfile> = {
   verySlow: { base: 2000, think: 2800 },
 };
 
+// 配置/取り除きの直後に魔法発動を即時実行すると演出が見えないため、
+// `resolvingCombos` フェーズに入ったら少し待ってから連鎖判定を起動する。
+const COMBO_RESOLVE_DELAY: Record<CpuSpeed, number> = {
+  fast: 250,
+  normal: 500,
+  slow: 850,
+  verySlow: 1300,
+};
+
 function delayFor(state: GameState, speed: CpuSpeed): number {
   const profile = SPEED_PROFILES[speed];
   if (state.phase === 'awaitingAdditionalActionChoice' || state.phase === 'awaitingGiftSelection') {
@@ -49,6 +58,22 @@ export function useGameLogic(initOptions?: SetupOptions) {
       timerRef.current = null;
     }
     if (state.phase === 'gameOver') return;
+
+    // 配置/取り除きで `resolvingCombos` に入った場合、UI 側の演出が見えるよう
+    // 少し待ってから自動で連鎖判定を起動する。AI/操作主体に関わらず常に走らせる。
+    if (state.phase === 'resolvingCombos') {
+      timerRef.current = window.setTimeout(() => {
+        timerRef.current = null;
+        dispatch({ type: 'RESOLVE_COMBOS' });
+      }, COMBO_RESOLVE_DELAY[cpuSpeed]);
+      return () => {
+        if (timerRef.current !== null) {
+          window.clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+      };
+    }
+
     const actorId = currentActorId(state);
     const actor = state.players[actorId];
     if (!actor) return;

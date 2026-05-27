@@ -65,7 +65,6 @@ export default function App() {
     cpuSpeed,
     setCpuSpeed,
   } = useGameLogic();
-  const { boardSize, seatSize, cardSize } = useBoardSize();
   const you = 0;
   const player = state.players[you];
   const actorId = currentActorId(state);
@@ -144,6 +143,15 @@ export default function App() {
     cardsToPlace.length > 1 &&
     (state.phase === 'awaitingPlaceDrawn' || state.phase === 'awaitingGiftPlacement');
 
+  const showGiftModal =
+    state.currentPlayerIndex === you && state.phase === 'awaitingGiftSelection' && !autoPilot;
+
+  // 連鎖数が増えてもアクション領域は固定。代わりに列数を増やして常に1行に収める。
+  const giftCombosCount = state.turn.giftQueue.length;
+  const giftColumns = Math.max(1, giftCombosCount);
+
+  const { boardSize, seatShort, cardSize, layout } = useBoardSize();
+
   const globalMaxStack = useMemo(() => {
     let max = 1;
     for (const p of state.players) {
@@ -155,18 +163,20 @@ export default function App() {
   }, [state.players]);
   const stackOffset = computeStackOffset(cardSize, globalMaxStack);
 
-  const showGiftModal =
-    state.currentPlayerIndex === you && state.phase === 'awaitingGiftSelection' && !autoPilot;
+  const discardedCardIdSet = useMemo(
+    () => new Set(state.turn.discardedCardIds),
+    [state.turn.discardedCardIds]
+  );
 
   const cssVars = {
     '--card-size': `${cardSize}px`,
     '--board-size': `${boardSize}px`,
-    '--seat-size': `${seatSize}px`,
+    '--seat-short': `${seatShort}px`,
     '--gap': `${Math.max(4, Math.floor(cardSize / 10))}px`,
   } as React.CSSProperties;
 
   return (
-    <div className="app-shell" style={cssVars}>
+    <div className={`app-shell layout-${layout}`} style={cssVars}>
       <div className="bg-stars" aria-hidden />
       <header className="app-header">
         <h1 className="app-title">星を放つ夜</h1>
@@ -214,6 +224,7 @@ export default function App() {
                 cardSize={cardSize}
                 stackOffset={stackOffset}
                 stackDirection="up"
+                discardedCardIds={discardedCardIdSet}
               />
             )}
           </section>
@@ -228,6 +239,7 @@ export default function App() {
                 stackOffset={stackOffset}
                 orientation="vertical"
                 stackDirection="left"
+                discardedCardIds={discardedCardIdSet}
               />
             )}
           </section>
@@ -260,6 +272,7 @@ export default function App() {
                 stackOffset={stackOffset}
                 orientation="vertical"
                 stackDirection="right"
+                discardedCardIds={discardedCardIdSet}
               />
             )}
           </section>
@@ -275,6 +288,7 @@ export default function App() {
               interactiveSlotIndices={slotInteractivity.interactiveSlotIndices}
               highlightedSlotIndices={slotInteractivity.highlightedSlotIndices}
               onSlotClick={handleSlotClick}
+              discardedCardIds={discardedCardIdSet}
             />
           </section>
         </div>
@@ -287,9 +301,9 @@ export default function App() {
             onStartNewGame={() => startNewGame()}
           />
           <div className="hand-zone">
-            {showGiftModal ? (
-              <GiftModal state={state} dispatch={dispatch} />
-            ) : cardsToPlace.length > 0 ? (
+              {showGiftModal ? (
+                <GiftModal state={state} dispatch={dispatch} columns={giftColumns} />
+              ) : cardsToPlace.length > 0 ? (
               <div className="your-hand">
                 <h3>あなたの手元</h3>
                 <div className="hand-cards">
@@ -316,7 +330,9 @@ export default function App() {
               </div>
             ) : null}
           </div>
-          <LogPanel entries={state.log} />
+        </aside>
+        <aside className="log-area">
+          <LogPanel entries={state.log} playerCount={state.players.length} />
         </aside>
       </main>
     </div>

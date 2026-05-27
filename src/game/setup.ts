@@ -105,6 +105,7 @@ export function setupGame(options: SetupOptions = {}): GameState {
       giftQueue: [],
       hasDrawn: false,
       pendingGiftBatches: [],
+      discardedCardIds: [],
     },
     turnNumber: 1,
     endTriggered: false,

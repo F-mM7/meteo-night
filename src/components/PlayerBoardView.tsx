@@ -12,6 +12,7 @@ interface Props {
   interactiveSlotIndices?: number[];
   highlightedSlotIndices?: number[];
   onSlotClick?: (slotIndex: number) => void;
+  discardedCardIds?: ReadonlySet<string>;
 }
 
 export function PlayerBoardView({
@@ -25,6 +26,7 @@ export function PlayerBoardView({
   interactiveSlotIndices,
   highlightedSlotIndices,
   onSlotClick,
+  discardedCardIds,
 }: Props) {
   return (
     <section
@@ -43,6 +45,7 @@ export function PlayerBoardView({
             interactive={interactiveSlotIndices?.includes(idx) ?? false}
             highlighted={highlightedSlotIndices?.includes(idx) ?? false}
             onClick={() => onSlotClick?.(idx)}
+            discardedCardIds={discardedCardIds}
           />
         ))}
       </div>

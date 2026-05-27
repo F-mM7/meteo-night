@@ -145,23 +145,59 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   z-index: 1;
   flex: 1;
   min-height: 0;
-  display: flex;
-  gap: 2px;
-  padding: 2px;
+  gap: 4px;
+  padding: 4px;
   overflow: hidden;
+  display: grid;
 }
 
-.app-main {
-  flex-direction: column;
-  align-items: center;
+.layout-vertical .app-main {
+  grid-template-columns: 1fr;
+  grid-template-rows: auto auto 1fr;
+  grid-template-areas:
+    'board'
+    'action'
+    'log';
+  justify-items: center;
+}
+
+.layout-horizontal .app-main {
+  grid-template-columns: var(--board-size) 1fr;
+  grid-template-rows: var(--board-size) 1fr;
+  grid-template-areas:
+    'board log'
+    'action log';
+  justify-items: stretch;
+}
+
+.board-area {
+  grid-area: board;
+}
+.layout-vertical .action-area {
+  grid-area: action;
+  width: 100%;
+  max-width: var(--board-size);
+}
+.layout-vertical .log-area {
+  grid-area: log;
+  width: 100%;
+  max-width: var(--board-size);
+}
+.layout-horizontal .action-area {
+  grid-area: action;
+  width: var(--board-size);
+}
+.layout-horizontal .log-area {
+  grid-area: log;
+  min-width: 0;
 }
 
 .board-area {
   width: var(--board-size);
   height: var(--board-size);
   display: grid;
-  grid-template-columns: var(--seat-size) 1fr var(--seat-size);
-  grid-template-rows: var(--seat-size) 1fr var(--seat-size);
+  grid-template-columns: var(--seat-short) 1fr var(--seat-short);
+  grid-template-rows: var(--seat-short) 1fr var(--seat-short);
   grid-template-areas:
     '.       top    .'
     'left    center right'
@@ -173,14 +209,31 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 .action-area {
-  flex: 1;
-  width: 100%;
-  max-width: var(--board-size);
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-height: 0;
-  overflow: hidden;
+  background: linear-gradient(180deg, rgba(35, 47, 108, 0.55), rgba(14, 21, 56, 0.6));
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-elev);
+  padding: 6px 10px;
+}
+
+.hand-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.log-area {
+  display: flex;
+  min-height: 0;
+}
+
+.log-area .log-panel {
+  width: 100%;
+  height: 100%;
 }
 
 /* ---------- seats ---------- */
@@ -355,12 +408,15 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
 }
 
-.slot-stack-fading {
+.slot-stack-fading,
+.slot-stack-launching {
   pointer-events: none;
   animation-duration: 0.7s;
   animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
   animation-fill-mode: forwards;
 }
+
+/* 取り除き（中央から離れる方向にフェード） */
 .slot-stack-fade-down { animation-name: card-fade-down; }
 .slot-stack-fade-up { animation-name: card-fade-up; }
 .slot-stack-fade-left { animation-name: card-fade-left; }
@@ -385,6 +441,86 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   0% { opacity: 1; transform: translateX(0) scale(1); filter: brightness(1); }
   20% { opacity: 1; transform: translateX(-4px) scale(1.05); filter: brightness(1.4); }
   100% { opacity: 0; transform: translateX(calc(var(--card-size) * 2.5)) scale(0.7); filter: brightness(2); }
+}
+
+/* 流星魔法発動（中央方向に発光しながら吸い込まれる）
+   方向は「カードが消えていく向き」を示し、各座席の最上段から盤面中央へ向かう。 */
+.slot-stack-launch-down { animation-name: card-launch-down; }
+.slot-stack-launch-up { animation-name: card-launch-up; }
+.slot-stack-launch-left { animation-name: card-launch-left; }
+.slot-stack-launch-right { animation-name: card-launch-right; }
+
+/* down 席（盤面下端の自分）: 最上段から見て中央方向 = 上方向（translateY が負） */
+@keyframes card-launch-down {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+    filter: brightness(1) drop-shadow(0 0 0 rgba(255, 248, 196, 0));
+  }
+  40% {
+    opacity: 1;
+    transform: translate(0, calc(var(--card-size) * -1.6)) scale(0.7);
+    filter: brightness(2.2) drop-shadow(0 0 18px rgba(255, 248, 196, 0.95));
+  }
+  100% {
+    opacity: 0;
+    transform: translate(0, calc(var(--card-size) * -3.6)) scale(0.2);
+    filter: brightness(2.8) drop-shadow(0 0 32px rgba(255, 248, 196, 0.5));
+  }
+}
+/* up 席（盤面上端）: 中央方向 = 下方向（translateY が正） */
+@keyframes card-launch-up {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+    filter: brightness(1) drop-shadow(0 0 0 rgba(255, 248, 196, 0));
+  }
+  40% {
+    opacity: 1;
+    transform: translate(0, calc(var(--card-size) * 1.6)) scale(0.7);
+    filter: brightness(2.2) drop-shadow(0 0 18px rgba(255, 248, 196, 0.95));
+  }
+  100% {
+    opacity: 0;
+    transform: translate(0, calc(var(--card-size) * 3.6)) scale(0.2);
+    filter: brightness(2.8) drop-shadow(0 0 32px rgba(255, 248, 196, 0.5));
+  }
+}
+/* left 席（盤面左端）: 中央方向 = 右方向（translateX が正） */
+@keyframes card-launch-left {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+    filter: brightness(1) drop-shadow(0 0 0 rgba(255, 248, 196, 0));
+  }
+  40% {
+    opacity: 1;
+    transform: translate(calc(var(--card-size) * 1.6), 0) scale(0.7);
+    filter: brightness(2.2) drop-shadow(0 0 18px rgba(255, 248, 196, 0.95));
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(var(--card-size) * 3.6), 0) scale(0.2);
+    filter: brightness(2.8) drop-shadow(0 0 32px rgba(255, 248, 196, 0.5));
+  }
+}
+/* right 席（盤面右端）: 中央方向 = 左方向（translateX が負） */
+@keyframes card-launch-right {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+    filter: brightness(1) drop-shadow(0 0 0 rgba(255, 248, 196, 0));
+  }
+  40% {
+    opacity: 1;
+    transform: translate(calc(var(--card-size) * -1.6), 0) scale(0.7);
+    filter: brightness(2.2) drop-shadow(0 0 18px rgba(255, 248, 196, 0.95));
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(var(--card-size) * -3.6), 0) scale(0.2);
+    filter: brightness(2.8) drop-shadow(0 0 32px rgba(255, 248, 196, 0.5));
+  }
 }
 
 .slot-interactive {
@@ -535,17 +671,10 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 /* ---------- field ---------- */
 .field {
-  display: grid;
-  grid-template-columns: auto auto;
-  gap: var(--gap);
-  align-items: center;
-  justify-items: center;
-}
-
-.field-pairs, .field-piles {
   display: flex;
   flex-direction: column;
   gap: var(--gap);
+  align-items: center;
 }
 
 .field-pair {
@@ -610,11 +739,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 /* ---------- action area ---------- */
 .action-panel {
-  background: linear-gradient(180deg, rgba(35, 47, 108, 0.6), rgba(14, 21, 56, 0.6));
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 6px 10px;
-  box-shadow: var(--shadow-elev);
   flex-shrink: 0;
 }
 
@@ -645,15 +769,10 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 .your-hand {
-  background: linear-gradient(180deg, rgba(35, 47, 108, 0.4), rgba(6, 10, 31, 0.6));
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 6px 10px;
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: 10px;
-  box-shadow: var(--shadow-elev);
   flex-shrink: 0;
   flex-wrap: wrap;
 }
@@ -753,7 +872,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 .log-entry {
   display: grid;
-  grid-template-columns: 34px 72px 1fr;
+  grid-template-columns: 120px 1fr;
   gap: 6px;
   padding: 3px 6px;
   border-radius: 4px;
@@ -764,9 +883,8 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   color: var(--accent);
   font-weight: 600;
 }
-.log-turn { color: var(--text-mute); }
-.log-player {
-  color: var(--text);
+.log-heading {
+  color: var(--text-mute);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -777,86 +895,57 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 .gift-bar {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  background: linear-gradient(180deg, rgba(35, 47, 108, 0.5), rgba(14, 21, 56, 0.6));
-  border: 1px solid var(--accent-strong);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-elev);
-  overflow-y: auto;
-  flex-shrink: 0;
-}
-
-.hand-zone {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 0;
-}
-
-.gift-bar-header h2 {
-  font-size: 14px;
-  color: var(--accent);
-  letter-spacing: 0.04em;
-}
-
-.gift-bar-sub {
-  margin: 3px 0 0 0;
-  color: var(--text-dim);
-  font-size: 11px;
+  gap: 4px;
 }
 
 .gift-bar-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  gap: 4px;
 }
 
 .gift-bar-row {
-  display: grid;
-  grid-template-columns: 200px 1fr;
-  gap: 14px;
+  display: flex;
+  flex-direction: row;
   align-items: center;
-  padding: 6px 10px;
+  gap: 8px;
+  padding: 3px 8px;
   border-radius: var(--radius-sm);
   background: rgba(6, 10, 31, 0.4);
   border: 1px solid rgba(255, 255, 255, 0.08);
+  min-width: 0;
 }
 
-.gift-bar-row-label { font-size: 12px; color: var(--text-dim); }
-.gift-bar-row-cards { display: flex; align-items: center; gap: 10px; }
-.gift-bar-row-targets { display: flex; gap: 6px; flex-wrap: wrap; }
-
-.combo-card-btn {
-  border: 2px solid transparent;
-  background: transparent;
-  padding: 2px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: transform 0.1s, border-color 0.15s;
+.gift-bar-row .card {
+  width: 36px;
+  height: 36px;
+  border-width: 1.5px;
+  border-radius: 5px;
+  flex-shrink: 0;
 }
-.combo-card-btn:hover { transform: translateY(-2px); }
-.combo-card-btn.selected { border-color: var(--accent-strong); }
+
+.gift-bar-row-targets {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
 
 .btn-target {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 10px;
-  min-width: 90px;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 4px 6px;
+  font-size: 11px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.btn-target-sm { padding: 5px 8px; font-size: 11px; }
 .btn-target.selected {
   border-color: var(--accent-strong);
   background: rgba(255, 210, 77, 0.14);
   color: var(--accent);
 }
 
-.modal-targets { display: flex; gap: 6px; flex-wrap: wrap; }
-
 .gift-bar-confirm { display: flex; justify-content: flex-end; }
-
-@media (max-width: 860px) {
-  .gift-bar-row { grid-template-columns: 1fr; gap: 6px; }
-}

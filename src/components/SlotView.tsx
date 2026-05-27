@@ -14,7 +14,15 @@ interface Props {
   interactive?: boolean;
   highlighted?: boolean;
   onClick?: () => void;
+  /**
+   * 「取り除き（追加アクションの捨札）」由来で消えたカードのID集合。
+   * ここに含まれるカードは中央から離れる方向にフェード（現状仕様）し、
+   * 含まれないカード（流星魔法発動由来）は中央方向に発光しながら吸い込まれる。
+   */
+  discardedCardIds?: ReadonlySet<string>;
 }
+
+type FadeReason = 'launch' | 'discard';
 
 export const STACK_OFFSET_RATIO = 0.28;
 export const STACK_MAX_SPAN_RATIO = 3.2;
@@ -43,6 +51,7 @@ function cardPositionStyle(direction: StackDirection, i: number, offset: number)
 interface FadingCard {
   card: Card;
   fromIdx: number;
+  reason: FadeReason;
 }
 
 const FADE_DURATION_MS = 700;
@@ -56,6 +65,7 @@ export function SlotView({
   interactive,
   highlighted,
   onClick,
+  discardedCardIds,
 }: Props) {
   const stack = slot.stack;
   const top = stack[stack.length - 1];
@@ -77,6 +87,7 @@ export function SlotView({
     const newFading: FadingCard[] = removed.map((card) => ({
       card,
       fromIdx: prev.indexOf(card),
+      reason: discardedCardIds?.has(card.id) ? 'discard' : 'launch',
     }));
     setFadingCards((curr) => [...curr, ...newFading]);
     const timer = setTimeout(() => {
@@ -85,7 +96,7 @@ export function SlotView({
       );
     }, FADE_DURATION_MS);
     return () => clearTimeout(timer);
-  }, [stack]);
+  }, [stack, discardedCardIds]);
 
   return (
     <button
@@ -115,15 +126,21 @@ export function SlotView({
             );
           })
         )}
-        {fadingCards.map((f) => (
-          <div
-            key={`fade-${f.card.id}`}
-            className={`slot-stack-card slot-stack-fading slot-stack-fade-${direction}`}
-            style={{ ...cardPositionStyle(direction, f.fromIdx, offset), zIndex: 50 }}
-          >
-            <CardView card={f.card} />
-          </div>
-        ))}
+        {fadingCards.map((f) => {
+          const animClass =
+            f.reason === 'launch'
+              ? `slot-stack-launching slot-stack-launch-${direction}`
+              : `slot-stack-fading slot-stack-fade-${direction}`;
+          return (
+            <div
+              key={`fade-${f.card.id}`}
+              className={`slot-stack-card ${animClass}`}
+              style={{ ...cardPositionStyle(direction, f.fromIdx, offset), zIndex: 50 }}
+            >
+              <CardView card={f.card} />
+            </div>
+          );
+        })}
       </div>
     </button>
   );

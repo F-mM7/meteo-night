@@ -108,6 +108,30 @@ export function shouldEndGame(state: GameState): boolean {
   return nextPlayerIndex(state) === state.startPlayerIndex;
 }
 
+/**
+ * 最終ラウンドが確定している前提で、対象プレイヤーがこのゲームでもう自分の手番を持たないか判定する。
+ *
+ * 最終ラウンドは `endTriggerPlayerId` から `startPlayerIndex` の手前まで時計回りに1周分。
+ * - そのターン順序の外にいるプレイヤーは元々ターンが来ないので「終えた」扱い
+ * - そのターン順序の内にいて、現在進行中のプレイヤーより手前にいるプレイヤーは既にターンを終えている
+ * - 現在進行中のプレイヤー自身、および現在より後にいるプレイヤーは「まだ」
+ *
+ * `endTriggered` が立っていない通常進行中は常に false。
+ */
+export function hasNoMoreTurns(state: GameState, playerId: number): boolean {
+  if (!state.endTriggered || state.endTriggerPlayerId === null) return false;
+  const n = state.players.length;
+  if (n === 0) return false;
+  const start = state.endTriggerPlayerId;
+  const playerOffset = (playerId - start + n) % n;
+  const currentOffset = (state.currentPlayerIndex - start + n) % n;
+  const rawEnd = (state.startPlayerIndex - start + n) % n;
+  // endTrigger と startPlayer が同一プレイヤーの場合、最終ラウンドは完全な1周。
+  const endOffset = rawEnd === 0 ? n : rawEnd;
+  if (playerOffset >= endOffset) return true;
+  return playerOffset < currentOffset;
+}
+
 export function computeWinner(state: GameState): number | null {
   if (state.players.length === 0) return null;
   const sorted = [...state.players].sort((a, b) => {

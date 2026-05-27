@@ -38,6 +38,10 @@ describe('ゲーム基本フロー', () => {
     const c1 = s.turn.pendingDraw[1];
     s = reducer(s, { type: 'PLACE_DRAWN', cardId: c0.id, slotIndex: 0 });
     s = reducer(s, { type: 'PLACE_DRAWN', cardId: c1.id, slotIndex: 1 });
+    // 配置完了直後はコンボ解決待機（UI 側の演出時間を確保するため）
+    expect(s.phase).toBe('resolvingCombos');
+    // RESOLVE_COMBOS で連鎖判定を起動して次フェーズへ
+    s = reducer(s, { type: 'RESOLVE_COMBOS' });
     expect(['awaitingDraw', 'awaitingAdditionalActionChoice', 'awaitingGiftSelection']).toContain(
       s.phase
     );

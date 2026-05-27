@@ -6,6 +6,7 @@ import {
   computeWinner,
   drawFromDeck,
   getCurrentPlayer,
+  hasNoMoreTurns,
   nextPlayerIndex,
   placeCardOnSlot,
   popTopFromSlot,
@@ -38,15 +39,6 @@ function appendSystemLog(state: GameState, message: string, emphasize = false): 
     playerName: 'システム',
     message,
     emphasize,
-  };
-  return { ...state, log: [...state.log, entry].slice(-80) };
-}
-
-function appendPlayerLog(state: GameState, playerName: string, message: string): GameState {
-  const entry: LogEntry = {
-    turn: state.turnNumber,
-    playerName,
-    message,
   };
   return { ...state, log: [...state.log, entry].slice(-80) };
 }
@@ -166,6 +158,7 @@ function endTurn(state: GameState): GameState {
       giftQueue: [],
       hasDrawn: false,
       pendingGiftBatches: [],
+      discardedCardIds: [],
     },
     phase: 'awaitingDraw',
   };
@@ -221,7 +214,6 @@ function handlePlaceDrawn(state: GameState, cardId: string, slotIndex: number): 
     ...p,
     board: placeCardOnSlot(p.board, card, slotIndex),
   }));
-  next = appendLog(next, `${COLOR_LABEL[card.color]} をスロット${slotIndex + 1}に配置`);
   next = {
     ...next,
     turn: { ...next.turn, pendingDraw: remaining },
@@ -230,8 +222,9 @@ function handlePlaceDrawn(state: GameState, cardId: string, slotIndex: number): 
   if (remaining.length > 0) {
     return next;
   }
-  next = { ...next, phase: 'resolvingCombos' };
-  return resolveChainStep(next);
+  // 配置の視認時間を確保するため、ここでは resolveChainStep を呼ばない。
+  // useGameLogic が遅延後に RESOLVE_COMBOS を dispatch して連鎖判定を行う。
+  return { ...next, phase: 'resolvingCombos' };
 }
 
 function handleChooseAdditionalDraw(state: GameState): GameState {
@@ -245,7 +238,7 @@ function handleChooseAdditionalDraw(state: GameState): GameState {
     turn: { ...r.state.turn, pendingAdditionalDraw: r.card },
     phase: 'awaitingPlaceAdditionalDraw',
   };
-  next = appendLog(next, `追加アクション: 山札から ${COLOR_LABEL[r.card.color]} を引いた`);
+  next = appendLog(next, `追加アクション: ドロー→${COLOR_LABEL[r.card.color]}`);
   return next;
 }
 
@@ -265,13 +258,12 @@ function handlePlaceAdditionalDraw(state: GameState, slotIndex: number): GameSta
     ...p,
     board: placeCardOnSlot(p.board, card, slotIndex),
   }));
-  next = appendLog(next, `引いた ${COLOR_LABEL[card.color]} をスロット${slotIndex + 1}に配置`);
-  next = {
+  // 追加配置の視認時間を確保するため、ここでは resolveChainStep を呼ばない。
+  return {
     ...next,
     turn: { ...next.turn, pendingAdditionalDraw: null },
     phase: 'resolvingCombos',
   };
-  return resolveChainStep(next);
 }
 
 function handleDiscardTop(state: GameState, slotIndex: number): GameState {
@@ -279,14 +271,24 @@ function handleDiscardTop(state: GameState, slotIndex: number): GameState {
   const player = getCurrentPlayer(state);
   const result = popTopFromSlot(player.board, slotIndex);
   if (!result.card) return state;
+  const discardedCard = result.card;
   let next = updatePlayer(state, player.id, (p) => ({ ...p, board: result.board }));
   next = {
     ...next,
-    discardPile: [...next.discardPile, result.card],
+    discardPile: [...next.discardPile, discardedCard],
+    turn: {
+      ...next.turn,
+      discardedCardIds: [...next.turn.discardedCardIds, discardedCard.id],
+    },
   };
-  next = appendLog(next, `スロット${slotIndex + 1}の ${COLOR_LABEL[result.card.color]} を捨札`);
-  next = { ...next, phase: 'resolvingCombos' };
-  return resolveChainStep(next);
+  next = appendLog(next, `スロット${slotIndex + 1}の ${COLOR_LABEL[discardedCard.color]} を捨札`);
+  // 取り除きの視認時間を確保するため、ここでは resolveChainStep を呼ばない。
+  return { ...next, phase: 'resolvingCombos' };
+}
+
+function handleResolveCombos(state: GameState): GameState {
+  if (state.phase !== 'resolvingCombos') return state;
+  return resolveChainStep(state);
 }
 
 function validateAssignments(
@@ -338,10 +340,22 @@ function handleConfirmGifts(state: GameState, assignments: GiftAssignment[]): Ga
   const discardCards = allCards.filter((c) => !givenCardIds.has(c.id));
   const batches = Array.from(batchMap.values());
 
+  // 最終ラウンドが確定していて、受領者がもう自分の手番を持たない場合は
+  // 配置場所が勝敗に影響しないので、スロット1（index 0）へ自動配置する。
+  const autoBatches: GiftBatch[] = [];
+  const manualBatches: GiftBatch[] = [];
+  for (const b of batches) {
+    if (hasNoMoreTurns(state, b.recipientId)) {
+      autoBatches.push(b);
+    } else {
+      manualBatches.push(b);
+    }
+  }
+
   let next: GameState = {
     ...state,
     discardPile: [...state.discardPile, ...discardCards],
-    turn: { ...state.turn, giftQueue: [], pendingGiftBatches: batches },
+    turn: { ...state.turn, giftQueue: [], pendingGiftBatches: manualBatches },
   };
 
   const giver = getCurrentPlayer(next);
@@ -351,7 +365,16 @@ function handleConfirmGifts(state: GameState, assignments: GiftAssignment[]): Ga
     next = appendLog(next, `${giver.name} → ${target.name}: ${colors} (${batch.cards.length}枚)`, true);
   }
 
-  if (batches.length === 0) {
+  for (const batch of autoBatches) {
+    for (const card of batch.cards) {
+      next = updatePlayer(next, batch.recipientId, (p) => ({
+        ...p,
+        board: placeCardOnSlot(p.board, card, 0),
+      }));
+    }
+  }
+
+  if (manualBatches.length === 0) {
     return endTurn(next);
   }
   return { ...next, phase: 'awaitingGiftPlacement' };
@@ -366,16 +389,10 @@ function handlePlaceGift(state: GameState, cardId: string, slotIndex: number): G
   const card = currentBatch.cards.find((c) => c.id === cardId);
   if (!card) return state;
 
-  const recipient = state.players[currentBatch.recipientId];
   let next = updatePlayer(state, currentBatch.recipientId, (p) => ({
     ...p,
     board: placeCardOnSlot(p.board, card, slotIndex),
   }));
-  next = appendPlayerLog(
-    next,
-    recipient.name,
-    `贈られた ${COLOR_LABEL[card.color]} をスロット${slotIndex + 1}に配置`
-  );
 
   const remainingCards = currentBatch.cards.filter((c) => c.id !== cardId);
   const newBatches: GiftBatch[] = [];
@@ -397,8 +414,24 @@ function handlePlaceGift(state: GameState, cardId: string, slotIndex: number): G
 
 export function reducer(state: GameState, action: Action): GameState {
   switch (action.type) {
-    case 'NEW_GAME':
-      return setupGame(action.options);
+    case 'NEW_GAME': {
+      // 新規ゲーム開始時に旧ゲームの場札・スロット内カードを
+      // 「discard 由来で消えた」とマークし、UI 側で外側へフェードアウトさせる。
+      // （未マークだとデフォルトで「魔法発動 = 中央吸い込み」扱いになるため）
+      const oldCardIds: string[] = [];
+      for (const p of state.players) {
+        for (const s of p.board.slots) {
+          for (const c of s.stack) {
+            oldCardIds.push(c.id);
+          }
+        }
+      }
+      const next = setupGame(action.options);
+      return {
+        ...next,
+        turn: { ...next.turn, discardedCardIds: oldCardIds },
+      };
+    }
     case 'DRAW_FROM_FIELD':
       return handleDrawFromField(state, action.pairIndex);
     case 'DRAW_FROM_DECK':
@@ -417,6 +450,8 @@ export function reducer(state: GameState, action: Action): GameState {
       return handleConfirmGifts(state, action.assignments);
     case 'PLACE_GIFT':
       return handlePlaceGift(state, action.cardId, action.slotIndex);
+    case 'RESOLVE_COMBOS':
+      return handleResolveCombos(state);
     default:
       return state;
   }
@@ -424,4 +459,20 @@ export function reducer(state: GameState, action: Action): GameState {
 
 export function endTurnForSkip(state: GameState): GameState {
   return endTurn(state);
+}
+
+/**
+ * 配置/取り除き直後に `resolvingCombos` フェーズで一時停止する仕組みは UI 演出用。
+ * AI シミュレーション・ベンチ・テストでは即時に連鎖まで解決したいので、
+ * `reducer` 呼び出し後に `resolvingCombos` 状態に陥ったら自動で
+ * `RESOLVE_COMBOS` を続けて適用する薄いラッパーを提供する。
+ */
+export function stepGame(state: GameState, action: Action): GameState {
+  let s = reducer(state, action);
+  let safety = 0;
+  while (s.phase === 'resolvingCombos' && safety < 16) {
+    s = reducer(s, { type: 'RESOLVE_COMBOS' });
+    safety++;
+  }
+  return s;
 }

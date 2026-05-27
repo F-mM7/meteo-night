@@ -3,9 +3,20 @@ import type { LogEntry } from '../game/types';
 
 interface Props {
   entries: LogEntry[];
+  playerCount: number;
 }
 
-export function LogPanel({ entries }: Props) {
+function formatHeading(entry: LogEntry, playerCount: number): string {
+  const { turn, playerName } = entry;
+  if (turn <= 0 || playerCount <= 0) {
+    return `R0(${playerName})`;
+  }
+  const round = Math.floor((turn - 1) / playerCount) + 1;
+  const seat = ((turn - 1) % playerCount) + 1;
+  return `R${round}-${seat}(${playerName})`;
+}
+
+export function LogPanel({ entries, playerCount }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -21,8 +32,7 @@ export function LogPanel({ entries }: Props) {
             key={i}
             className={`log-entry${e.emphasize ? ' log-entry-emphasize' : ''}`}
           >
-            <span className="log-turn">T{e.turn}</span>
-            <span className="log-player">{e.playerName}</span>
+            <span className="log-heading">{formatHeading(e, playerCount)}</span>
             <span className="log-message">{e.message}</span>
           </div>
         ))}

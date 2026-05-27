@@ -60,6 +60,12 @@ export interface TurnState {
   giftQueue: ComboRecord[];
   hasDrawn: boolean;
   pendingGiftBatches: GiftBatch[];
+  /**
+   * 現在のターン中、追加アクションの「取り除き」で捨札に流したカードのID。
+   * UI のフェードアニメーションを「流星魔法発動（中央へ吸い込む）」と
+   * 「取り除き（中央から離れる）」で区別するために参照する。
+   */
+  discardedCardIds: string[];
 }
 
 export interface LogEntry {
@@ -105,4 +111,5 @@ export type Action =
   | { type: 'PLACE_ADDITIONAL_DRAW'; slotIndex: number }
   | { type: 'DISCARD_TOP'; slotIndex: number }
   | { type: 'CONFIRM_GIFTS'; assignments: GiftAssignment[] }
-  | { type: 'PLACE_GIFT'; cardId: string; slotIndex: number };
+  | { type: 'PLACE_GIFT'; cardId: string; slotIndex: number }
+  | { type: 'RESOLVE_COMBOS' };
