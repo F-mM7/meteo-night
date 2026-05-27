@@ -124,7 +124,7 @@ export default function App() {
 
   return (
     <div
-      className={`app-shell layout-${layout} ${logVisible ? 'log-shown' : 'log-hidden'}`}
+      className={`app-shell layout-${layout}${logVisible ? '' : ' log-hidden'}`}
       style={cssVars}
     >
       <div className="bg-stars" aria-hidden />

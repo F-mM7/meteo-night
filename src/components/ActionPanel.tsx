@@ -44,8 +44,6 @@ function describePhase(state: GameState, isYourTurn: boolean, youId: number): st
       return '取り除くスロットを選んでください';
     case 'awaitingGiftSelection':
       return 'カードを渡す相手を選んでください';
-    case 'turnEnd':
-      return 'ターン終了';
     default:
       return '';
   }

@@ -18,7 +18,3 @@ export function shuffle<T>(arr: T[], rand: () => number): T[] {
   }
   return a;
 }
-
-export function pickRandom<T>(arr: T[], rand: () => number): T {
-  return arr[Math.floor(rand() * arr.length)];
-}

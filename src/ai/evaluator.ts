@@ -50,7 +50,7 @@ export interface EvalWeights {
  * 評価関数のデフォルト重み。
  * Gen-3-F（warm-start 本格 ES, 18世代 × 100局, seed=3, sigma=0.15, init=Gen-3-B-2）。
  * Gen-3-E（selfNearEnd 追加）は holdout で過学習だったため、`selfNearEnd: 0` で無効化保持。
- * 過去の重みは `src/ai/tunedWeights.ts`（PRE_GEN_3B_WEIGHTS, GEN_3B_WEIGHTS, GEN_3B2_WEIGHTS, GEN_3F_WEIGHTS, GEN_3E_WEIGHTS）に保存。
+ * 過去の重みは `src/ai/tunedWeights.ts` の `GEN_3B_WEIGHTS` に保存。
  * 詳細は `ai/CHANGELOG.md` の Gen-3-* エントリ参照。
  */
 export const DEFAULT_WEIGHTS: EvalWeights = {
@@ -81,14 +81,6 @@ let currentWeights: EvalWeights = { ...DEFAULT_WEIGHTS };
 
 export function setEvalWeights(weights: Partial<EvalWeights>): void {
   currentWeights = { ...currentWeights, ...weights };
-}
-
-export function resetEvalWeights(): void {
-  currentWeights = { ...DEFAULT_WEIGHTS };
-}
-
-export function getEvalWeights(): EvalWeights {
-  return { ...currentWeights };
 }
 
 interface BoardSignal {

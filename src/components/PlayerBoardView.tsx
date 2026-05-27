@@ -17,7 +17,6 @@ interface Props {
   stackOffset: number;
   seat: SeatPosition;
   interactiveSlotIndices?: number[];
-  highlightedSlotIndices?: number[];
   onSlotClick?: (slotIndex: number) => void;
   discardedCardIds?: ReadonlySet<string>;
 }
@@ -28,7 +27,6 @@ export function PlayerBoardView({
   stackOffset,
   seat,
   interactiveSlotIndices,
-  highlightedSlotIndices,
   onSlotClick,
   discardedCardIds,
 }: Props) {
@@ -48,7 +46,6 @@ export function PlayerBoardView({
             stackOffset={stackOffset}
             direction={stackDirection}
             interactive={interactiveSlotIndices?.includes(idx) ?? false}
-            highlighted={highlightedSlotIndices?.includes(idx) ?? false}
             onClick={() => onSlotClick?.(idx)}
             discardedCardIds={discardedCardIds}
           />

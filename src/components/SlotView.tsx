@@ -13,7 +13,6 @@ interface Props {
   stackOffset: number;
   direction?: StackDirection;
   interactive?: boolean;
-  highlighted?: boolean;
   onClick?: () => void;
   /**
    * 「取り除き（追加アクションの捨札）」由来で消えたカードのID集合。
@@ -54,7 +53,6 @@ export function SlotView({
   stackOffset,
   direction = 'down',
   interactive,
-  highlighted,
   onClick,
   discardedCardIds,
 }: Props) {
@@ -130,7 +128,7 @@ export function SlotView({
   return (
     <button
       type="button"
-      className={`slot${interactive ? ' slot-interactive' : ''}${highlighted ? ' slot-highlighted' : ''}`}
+      className={`slot${interactive ? ' slot-interactive' : ''}`}
       onClick={interactive ? onClick : undefined}
       disabled={!interactive}
       aria-label={`スロット${index + 1}${top ? `: 最上段 ${top.color}, 計 ${stack.length} 枚` : ': 空'}`}

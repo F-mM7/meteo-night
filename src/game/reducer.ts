@@ -487,10 +487,6 @@ export function reducer(state: GameState, action: Action): GameState {
   }
 }
 
-export function endTurnForSkip(state: GameState): GameState {
-  return endTurn(state);
-}
-
 /**
  * 配置/取り除き直後に `resolvingCombos` フェーズで一時停止する仕組みは UI 演出用。
  * AI シミュレーション・ベンチ・テストでは即時に連鎖まで解決したいので、

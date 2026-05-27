@@ -685,12 +685,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 .slot-interactive:hover {
   filter: brightness(1.1);
 }
-.slot-highlighted .card { box-shadow: 0 0 0 2px var(--good); }
-
-@keyframes pulse-ring {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 210, 77, 0.4); }
-  50% { box-shadow: 0 0 0 6px rgba(255, 210, 77, 0); }
-}
 
 .slot-empty {
   position: absolute;
@@ -771,7 +765,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 .card-facedown .crystal-outline { stroke: rgba(255, 248, 196, 0.65); }
 .card-facedown .crystal-edge { stroke: rgba(255, 248, 196, 0.5); }
 .card-facedown .crystal-edge-inner { stroke: rgba(255, 248, 196, 0.3); }
-.card-faded { opacity: 0.4; }
 
 .card-emphasized {
   outline: 3px solid var(--accent-strong);
@@ -966,8 +959,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 .btn-secondary { background: var(--bg-elev2); }
 .btn-ghost { background: transparent; border-color: rgba(255, 255, 255, 0.18); color: var(--text-dim); }
 .btn-ghost:hover { background: rgba(255, 255, 255, 0.06); }
-
-.btn-sub { font-size: 10px; color: var(--text-mute); font-weight: 500; }
 
 .badge {
   font-size: 10px;

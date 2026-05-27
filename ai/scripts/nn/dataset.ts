@@ -13,7 +13,7 @@ import {
   type MctsSearchInfo,
 } from '../../../src/ai/mctsAI';
 import { decideAction as decideSmart } from '../../../src/ai/smartAI';
-import { ACTION_SPACE_SIZE, actionToActionId, legalActionIds } from '../../../src/ai/actionSpace';
+import { ACTION_SPACE_SIZE, actionToActionId } from '../../../src/ai/actionSpace';
 import { encodeState } from '../../../src/ai/encoding';
 import type { MeteoAzModel } from './model';
 import { decideActionNeural } from './neuralMcts';
@@ -194,9 +194,6 @@ export function generateSelfPlayGame(options: SelfPlayOptions): LearnerExample[]
 
   return examples;
 }
-
-// legalActionIds は使われなくなったが、外部スクリプトの互換性のため import は残す
-void legalActionIds;
 
 /**
  * Gen-3-K2: ネットワーク誘導 MCTS（neuralMcts）で自己対戦する。

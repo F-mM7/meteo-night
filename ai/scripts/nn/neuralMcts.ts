@@ -11,7 +11,6 @@
 import * as tf from '@tensorflow/tfjs-node';
 import type { Action, GameState } from '../../../src/game/types';
 import { stepGame } from '../../../src/game/reducer';
-import { mulberry32 } from '../../../src/game/rng';
 import { decideAction as decideSmart } from '../../../src/ai/smartAI';
 import {
   ACTION_SPACE_SIZE,
@@ -133,9 +132,7 @@ function nnPredictBatch(
 function puctSelect(
   node: NodeStats,
   legal: number[],
-  c: number,
-  numPlayers: number,
-  rootActor: number
+  c: number
 ): number {
   let bestId = legal[0];
   let bestScore = -Infinity;
@@ -154,8 +151,6 @@ function puctSelect(
       bestId = aid;
     }
   }
-  void numPlayers;
-  void rootActor;
   return bestId;
 }
 
@@ -246,10 +241,6 @@ export function decideActionNeural(
     node.priors = masked;
   }
 
-  // searchRng は将来「tie-break ランダム」「Dirichlet noise」等のために用意。
-  // 現状 PUCT は決定論的なので未使用だが、シグネチャ将来拡張用に保持。
-  void mulberry32(baseSeed);
-
   // 1 iter 分の selection を実行し、 expansion または terminal で停止する。
   // 戻り値は path と「leaf 評価方式」の指示。
   // Gen-3-K6: leafValue は numPlayers 次元（全プレイヤー視点の rank-based value）。
@@ -308,7 +299,7 @@ export function decideActionNeural(
         };
       }
 
-      const chosen = puctSelect(node, legal, puctC, numPlayers, rootActor);
+      const chosen = puctSelect(node, legal, puctC);
       const action = actionIdToAction(s, actor, chosen);
       if (!action) return { kind: 'cut', path, leafValuePerPlayer: zeroValueVec() };
       path.push({ node, aid: chosen });

@@ -52,7 +52,7 @@ export function AppHeader({
       <h1 className="app-title">星を放つ夜</h1>
       <button
         type="button"
-        className="btn btn-ghost btn-restart"
+        className="btn btn-ghost"
         onClick={onStartNewGame}
       >
         新規ゲーム

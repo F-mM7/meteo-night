@@ -1,4 +1,4 @@
-import type { Card, GameState } from '../game/types';
+import type { GameState } from '../game/types';
 import { mulberry32, shuffle } from '../game/rng';
 
 /**
@@ -72,17 +72,4 @@ export function observationKey(state: GameState, viewerId: number): string {
   }
 
   return parts.join('||');
-}
-
-/**
- * 「viewer から実際には観測できない情報」を要約したもの。
- * 現状の本ゲームのルール上、唯一の隠れ情報は山札の順序のみ。
- * （他プレイヤーのボードや捨札は公開、手札という概念は存在しない）
- */
-export interface HiddenInformation {
-  deck: Card[];
-}
-
-export function extractHiddenInformation(state: GameState): HiddenInformation {
-  return { deck: [...state.deck] };
 }

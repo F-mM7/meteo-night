@@ -6,7 +6,6 @@
  *
  * 出力フォーマットは bench.ts と互換（勝率・CI・avg score・順位分布）。
  */
-import { readFileSync } from 'node:fs';
 import { setupGame } from '../../src/game/setup';
 import { stepGame } from '../../src/game/reducer';
 import type { Action, GameState } from '../../src/game/types';
@@ -242,5 +241,3 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
-
-void readFileSync; // 将来 --weights 等で使う可能性
