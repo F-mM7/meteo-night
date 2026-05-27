@@ -18,15 +18,17 @@ export function LogPanel({ entries, playerCount }: Props) {
     <section className="log-panel" aria-label="アクションログ">
       <h3>ログ</h3>
       <div className="log-entries" ref={ref}>
-        {entries.map((e, i) => (
-          <div
-            key={i}
-            className={`log-entry${e.emphasize ? ' log-entry-emphasize' : ''}`}
-          >
-            <span className="log-heading">{formatLogHeading(e, playerCount)}</span>
-            <span className="log-message">{e.message}</span>
-          </div>
-        ))}
+        {entries.map((e, i) => {
+          const classes = ['log-entry'];
+          if (e.emphasize) classes.push('log-entry-emphasize');
+          if (e.playerName === 'システム') classes.push('log-entry-system');
+          return (
+            <div key={i} className={classes.join(' ')}>
+              <span className="log-heading">{formatLogHeading(e, playerCount)}</span>
+              <span className="log-message">{e.message}</span>
+            </div>
+          );
+        })}
       </div>
     </section>
   );

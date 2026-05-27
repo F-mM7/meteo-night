@@ -102,12 +102,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   color: transparent;
 }
 
-.app-subtitle {
-  font-size: 10px;
-  color: var(--text-mute);
-  letter-spacing: 0.18em;
-}
-
 .header-controls {
   margin-left: auto;
   display: flex;
@@ -125,15 +119,81 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 .header-control-label { letter-spacing: 0.08em; }
 
-.header-select {
+.stepper {
+  display: inline-flex;
+  align-items: stretch;
   background: var(--bg-elev);
-  color: var(--text);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  padding: 4px 8px;
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.stepper:focus-within {
+  border-color: var(--accent-strong);
+}
+
+.stepper-btn {
+  background: transparent;
+  color: var(--text-dim);
+  border: 0;
+  width: 22px;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+  user-select: none;
+}
+
+.stepper-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.stepper-btn:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.stepper-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.stepper-btn + .stepper-input {
+  border-left: 1px solid var(--line);
+}
+
+.stepper-input + .stepper-btn {
+  border-left: 1px solid var(--line);
+}
+
+.stepper-input {
+  background: transparent;
+  color: var(--text);
+  border: 0;
+  padding: 4px 4px;
   font-size: 12px;
   font-family: inherit;
-  cursor: pointer;
+  width: 52px;
+  text-align: center;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.stepper-input:focus {
+  outline: none;
+}
+
+.stepper-input::-webkit-outer-spin-button,
+.stepper-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
 }
 
 .autopilot-toggle { cursor: pointer; }
@@ -168,6 +228,22 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
     'board log'
     'action log';
   justify-items: stretch;
+}
+
+.layout-vertical.log-hidden .app-main {
+  grid-template-rows: auto auto;
+  grid-template-areas:
+    'board'
+    'action';
+}
+
+.layout-horizontal.log-hidden .app-main {
+  grid-template-columns: var(--board-size);
+  grid-template-rows: var(--board-size) 1fr;
+  grid-template-areas:
+    'board'
+    'action';
+  justify-content: center;
 }
 
 .board-area {
@@ -276,11 +352,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 /* ---------- player board ---------- */
 .player-board {
   padding: 2px;
-  transition: filter 0.2s;
-}
-
-.player-board.player-current {
-  filter: drop-shadow(0 0 8px rgba(255, 210, 77, 0.3));
 }
 
 /* ---------- player header card ---------- */
@@ -298,14 +369,13 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
 }
 
-.player-header-card.header-current {
-  border-color: var(--accent-strong);
-  background: linear-gradient(180deg, rgba(120, 90, 30, 0.45), rgba(40, 30, 10, 0.7));
-  box-shadow: 0 0 0 1px var(--accent-strong);
-}
-
 .player-header-card.header-you {
   background: linear-gradient(180deg, rgba(60, 80, 160, 0.65), rgba(20, 30, 70, 0.85));
+}
+
+.player-header-card.header-current {
+  background: linear-gradient(180deg, rgba(90, 115, 210, 0.85), rgba(40, 60, 140, 0.9));
+  border-color: rgba(150, 175, 240, 0.4);
 }
 
 .player-name {
@@ -523,6 +593,39 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   }
 }
 
+/* カード配置（外側からスロットへ滑り込む）。
+   方向は「カードが入ってくる向きの逆」を示し、座席の外側から内側へ。 */
+.slot-stack-placing {
+  animation-duration: 0.4s;
+  animation-timing-function: cubic-bezier(0.2, 0.7, 0.3, 1);
+  animation-fill-mode: backwards;
+}
+.slot-stack-place-down { animation-name: card-place-down; }
+.slot-stack-place-up { animation-name: card-place-up; }
+.slot-stack-place-left { animation-name: card-place-left; }
+.slot-stack-place-right { animation-name: card-place-right; }
+
+/* down 席（盤面下端の自分）: 外側 = 下方向、translateY 正 → 0 */
+@keyframes card-place-down {
+  0% { opacity: 0; transform: translateY(calc(var(--card-size) * 1.6)) scale(0.92); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+/* up 席（盤面上端）: 外側 = 上方向、translateY 負 → 0 */
+@keyframes card-place-up {
+  0% { opacity: 0; transform: translateY(calc(var(--card-size) * -1.6)) scale(0.92); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+/* left 席（盤面左端）: 外側 = 左方向、translateX 負 → 0 */
+@keyframes card-place-left {
+  0% { opacity: 0; transform: translateX(calc(var(--card-size) * -1.6)) scale(0.92); }
+  100% { opacity: 1; transform: translateX(0) scale(1); }
+}
+/* right 席（盤面右端）: 外側 = 右方向、translateX 正 → 0 */
+@keyframes card-place-right {
+  0% { opacity: 0; transform: translateX(calc(var(--card-size) * 1.6)) scale(0.92); }
+  100% { opacity: 1; transform: translateX(0) scale(1); }
+}
+
 .slot-interactive {
   cursor: pointer;
 }
@@ -553,7 +656,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   position: relative;
   width: var(--card-size);
   height: var(--card-size);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -686,15 +789,15 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   align-items: center;
   gap: 4px;
   cursor: default;
-  transition: transform 0.15s, border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s, background 0.15s;
 }
 
 .field-pair-interactive {
   cursor: pointer;
-  border-color: var(--accent-strong);
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 1px;
   background: rgba(255, 210, 77, 0.08);
 }
-.field-pair-interactive:hover { transform: translateY(-2px); }
 
 .field-pair-cards { display: flex; gap: 4px; }
 .field-pair-empty {
@@ -705,7 +808,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   justify-content: center;
   color: var(--text-mute);
   font-size: 12px;
-  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border: 1px dashed rgba(255, 255, 255, 0.15);
   border-radius: var(--radius-sm);
 }
 
@@ -720,8 +823,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 .pile-interactive { cursor: pointer; }
-.pile-interactive .card-facedown { outline: 2px solid var(--accent-strong); transition: transform 0.15s; }
-.pile-interactive:hover .card-facedown { transform: translateY(-2px); }
+.pile-interactive .card-facedown { outline: 2px solid var(--accent-strong); outline-offset: 1px; }
 .pile-stack { position: relative; }
 
 .deck-count {
@@ -792,7 +894,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 .hand-label {
   font-size: 11px;
-  color: var(--accent-warm);
+  color: var(--accent);
 }
 
 .hand-card-btn {
@@ -882,6 +984,24 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   background: rgba(255, 210, 77, 0.08);
   color: var(--accent);
   font-weight: 600;
+}
+.log-entry-system {
+  background: rgba(77, 201, 255, 0.07);
+  border-left: 2px solid var(--blue);
+  padding-left: 6px;
+  color: var(--text);
+  font-weight: 600;
+}
+.log-entry-system .log-heading {
+  color: var(--blue);
+}
+.log-entry-system.log-entry-emphasize {
+  background: rgba(255, 210, 77, 0.12);
+  color: var(--accent-strong);
+  border-left-color: var(--accent-strong);
+}
+.log-entry-system.log-entry-emphasize .log-heading {
+  color: var(--accent-strong);
 }
 .log-heading {
   color: var(--text-mute);

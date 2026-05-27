@@ -13,8 +13,6 @@ const SEAT_LAYOUT: Record<SeatPosition, { orientation: Orientation; stackDirecti
 
 interface Props {
   player: Player;
-  isCurrent: boolean;
-  isYou: boolean;
   cardSize: number;
   stackOffset: number;
   seat: SeatPosition;
@@ -26,8 +24,6 @@ interface Props {
 
 export function PlayerBoardView({
   player,
-  isCurrent,
-  isYou,
   cardSize,
   stackOffset,
   seat,
@@ -39,7 +35,7 @@ export function PlayerBoardView({
   const { orientation, stackDirection } = SEAT_LAYOUT[seat];
   return (
     <section
-      className={`player-board player-board-${orientation}${isCurrent ? ' player-current' : ''}${isYou ? ' player-you' : ''}`}
+      className={`player-board player-board-${orientation}`}
       aria-label={`${player.name}のスロット`}
     >
       <div className={`slot-row slot-row-${orientation}`}>

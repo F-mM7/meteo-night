@@ -5,35 +5,22 @@ import type { Action, GameState, SetupOptions } from '../game/types';
 import { decideAction } from '../ai';
 import { useTimeout } from './useTimeout';
 
-export type CpuSpeed = 'fast' | 'normal' | 'slow' | 'verySlow';
+// CPU の思考演出に挟む遅延（ミリ秒）。UI からユーザーが直接指定する。
+export type CpuSpeed = number;
 
-interface DelayProfile {
-  base: number;
-  think: number;
+export const DEFAULT_CPU_SPEED_MS = 550;
+
+// 新規ゲーム開始時、既存カードを外側フェードアウトさせるための遅延（ミリ秒）。
+// SlotView の FADE_DURATION_MS と揃える。
+const RESET_FADE_OUT_MS = 700;
+
+function normalizeDelay(speed: CpuSpeed): number {
+  if (!Number.isFinite(speed) || speed < 0) return 0;
+  return speed;
 }
 
-const SPEED_PROFILES: Record<CpuSpeed, DelayProfile> = {
-  fast: { base: 200, think: 320 },
-  normal: { base: 550, think: 800 },
-  slow: { base: 1100, think: 1500 },
-  verySlow: { base: 2000, think: 2800 },
-};
-
-// 配置/取り除きの直後に魔法発動を即時実行すると演出が見えないため、
-// `resolvingCombos` フェーズに入ったら少し待ってから連鎖判定を起動する。
-const COMBO_RESOLVE_DELAY: Record<CpuSpeed, number> = {
-  fast: 250,
-  normal: 500,
-  slow: 850,
-  verySlow: 1300,
-};
-
-function delayFor(state: GameState, speed: CpuSpeed): number {
-  const profile = SPEED_PROFILES[speed];
-  if (state.phase === 'awaitingAdditionalActionChoice' || state.phase === 'awaitingGiftSelection') {
-    return profile.think;
-  }
-  return profile.base;
+function delayFor(_state: GameState, speed: CpuSpeed): number {
+  return normalizeDelay(speed);
 }
 
 export function currentActorId(state: GameState): number {
@@ -80,8 +67,10 @@ export function useGameLogic(initOptions?: SetupOptions) {
     (opts) => setupGame(opts)
   );
   const [autoPilot, setAutoPilot] = useState(false);
-  const [cpuSpeed, setCpuSpeed] = useState<CpuSpeed>('normal');
+  const [cpuSpeed, setCpuSpeed] = useState<CpuSpeed>(DEFAULT_CPU_SPEED_MS);
+  const [logVisible, setLogVisible] = useState(false);
   const timer = useTimeout();
+  const resetTimer = useTimeout();
 
   useEffect(() => {
     if (state.phase === 'gameOver') {
@@ -92,7 +81,7 @@ export function useGameLogic(initOptions?: SetupOptions) {
     // 配置/取り除きで `resolvingCombos` に入った場合、UI 側の演出が見えるよう
     // 少し待ってから自動で連鎖判定を起動する。AI/操作主体に関わらず常に走らせる。
     if (state.phase === 'resolvingCombos') {
-      timer.set(() => dispatch({ type: 'RESOLVE_COMBOS' }), COMBO_RESOLVE_DELAY[cpuSpeed]);
+      timer.set(() => dispatch({ type: 'RESOLVE_COMBOS' }), normalizeDelay(cpuSpeed));
       return timer.clear;
     }
 
@@ -111,7 +100,12 @@ export function useGameLogic(initOptions?: SetupOptions) {
   }, [state, autoPilot, cpuSpeed, timer]);
 
   const startNewGame = (opts?: SetupOptions) => {
-    dispatch({ type: 'NEW_GAME', options: opts });
+    // 2 段階で発火：(1) 全スロットを空にして外側フェードアウト、
+    // (2) フェード完了後に実際の初期化を行い、新規カードが外側からフェードイン。
+    dispatch({ type: 'CLEAR_BOARDS_FOR_RESET' });
+    resetTimer.set(() => {
+      dispatch({ type: 'NEW_GAME', options: opts });
+    }, RESET_FADE_OUT_MS);
   };
 
   const userDispatch = (action: Action) => {
@@ -127,5 +121,7 @@ export function useGameLogic(initOptions?: SetupOptions) {
     setAutoPilot,
     cpuSpeed,
     setCpuSpeed,
+    logVisible,
+    setLogVisible,
   };
 }

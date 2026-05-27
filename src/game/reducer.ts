@@ -365,7 +365,7 @@ function handleConfirmGifts(state: GameState, assignments: GiftAssignment[]): Ga
     for (const batch of batches) {
       const target = next.players[batch.recipientId];
       const colors = batch.cards.map((c) => COLOR_LABEL[c.color]).join(', ');
-      lines.push(`${target.name} → ${colors}`);
+      lines.push(`${colors} → ${target.name}`);
     }
     next = appendLog(next, lines.join('\n'), true);
   }
@@ -435,6 +435,31 @@ export function reducer(state: GameState, action: Action): GameState {
       return {
         ...next,
         turn: { ...next.turn, discardedCardIds: oldCardIds },
+      };
+    }
+    case 'CLEAR_BOARDS_FOR_RESET': {
+      // 新規ゲーム開始の前段として、全プレイヤーのスロットを空にして
+      // 既存カードを外側フェードアウト（discard 由来扱い）させる中間状態。
+      // 後段の NEW_GAME を待つ間、AI 思考が走らないよう phase を gameOver に固定する。
+      const oldCardIds: string[] = [];
+      for (const p of state.players) {
+        for (const s of p.board.slots) {
+          for (const c of s.stack) {
+            oldCardIds.push(c.id);
+          }
+        }
+      }
+      return {
+        ...state,
+        players: state.players.map((p) => ({
+          ...p,
+          board: {
+            ...p.board,
+            slots: p.board.slots.map((s) => ({ ...s, stack: [] })),
+          },
+        })),
+        phase: 'gameOver',
+        turn: { ...state.turn, discardedCardIds: oldCardIds },
       };
     }
     case 'DRAW_FROM_FIELD':

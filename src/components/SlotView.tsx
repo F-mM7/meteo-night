@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { Card, Slot } from '../game/types';
 import { CardView } from './CardView';
@@ -45,6 +45,7 @@ interface FadingCard {
 }
 
 const FADE_DURATION_MS = 700;
+const PLACE_DURATION_MS = 400;
 
 export function SlotView({
   slot,
@@ -66,26 +67,64 @@ export function SlotView({
   const stackHeight = isHorizontal ? cardSize : maxSpan;
 
   const [fadingCards, setFadingCards] = useState<FadingCard[]>([]);
+  const [placingCardIds, setPlacingCardIds] = useState<Set<string>>(() => new Set());
   const prevStackRef = useRef<Card[]>(stack);
+  const isInitialMountRef = useRef(true);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const prev = prevStackRef.current;
     prevStackRef.current = stack;
+
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      return;
+    }
+
     const currentIds = new Set(stack.map((c) => c.id));
     const removed = prev.filter((c) => !currentIds.has(c.id));
-    if (removed.length === 0) return;
-    const newFading: FadingCard[] = removed.map((card) => ({
-      card,
-      fromIdx: prev.indexOf(card),
-      reason: discardedCardIds?.has(card.id) ? 'discard' : 'launch',
-    }));
-    setFadingCards((curr) => [...curr, ...newFading]);
-    const timer = setTimeout(() => {
-      setFadingCards((curr) =>
-        curr.filter((f) => !newFading.some((nf) => nf.card.id === f.card.id))
+    const prevIds = new Set(prev.map((c) => c.id));
+    const added = stack.filter((c) => !prevIds.has(c.id));
+
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    if (removed.length > 0) {
+      const newFading: FadingCard[] = removed.map((card) => ({
+        card,
+        fromIdx: prev.indexOf(card),
+        reason: discardedCardIds?.has(card.id) ? 'discard' : 'launch',
+      }));
+      setFadingCards((curr) => [...curr, ...newFading]);
+      timers.push(
+        setTimeout(() => {
+          setFadingCards((curr) =>
+            curr.filter((f) => !newFading.some((nf) => nf.card.id === f.card.id))
+          );
+        }, FADE_DURATION_MS)
       );
-    }, FADE_DURATION_MS);
-    return () => clearTimeout(timer);
+    }
+
+    if (added.length > 0) {
+      const addedIds = added.map((c) => c.id);
+      setPlacingCardIds((curr) => {
+        const next = new Set(curr);
+        addedIds.forEach((id) => next.add(id));
+        return next;
+      });
+      timers.push(
+        setTimeout(() => {
+          setPlacingCardIds((curr) => {
+            const next = new Set(curr);
+            addedIds.forEach((id) => next.delete(id));
+            return next;
+          });
+        }, PLACE_DURATION_MS)
+      );
+    }
+
+    if (timers.length === 0) return;
+    return () => {
+      timers.forEach((t) => clearTimeout(t));
+    };
   }, [stack, discardedCardIds]);
 
   return (
@@ -105,10 +144,14 @@ export function SlotView({
         ) : (
           stack.map((card, i) => {
             const isTop = i === stack.length - 1;
+            const isPlacing = placingCardIds.has(card.id);
+            const placingClass = isPlacing
+              ? ` slot-stack-placing slot-stack-place-${direction}`
+              : '';
             return (
               <div
                 key={card.id}
-                className={`slot-stack-card${isTop ? ' slot-stack-top' : ''}`}
+                className={`slot-stack-card${isTop ? ' slot-stack-top' : ''}${placingClass}`}
                 style={{ ...cardPositionStyle(direction, i, offset), zIndex: i + 1 }}
               >
                 <CardView card={card} emphasized={isTop && interactive} />

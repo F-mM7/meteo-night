@@ -23,6 +23,8 @@ export default function App() {
     setAutoPilot,
     cpuSpeed,
     setCpuSpeed,
+    logVisible,
+    setLogVisible,
   } = useGameLogic();
   const you = 0;
   const player = state.players[you];
@@ -85,13 +87,18 @@ export default function App() {
   );
 
   return (
-    <div className={`app-shell layout-${layout}`} style={cssVars}>
+    <div
+      className={`app-shell layout-${layout} ${logVisible ? 'log-shown' : 'log-hidden'}`}
+      style={cssVars}
+    >
       <div className="bg-stars" aria-hidden />
       <AppHeader
         cpuSpeed={cpuSpeed}
         setCpuSpeed={setCpuSpeed}
         autoPilot={autoPilot}
         setAutoPilot={setAutoPilot}
+        logVisible={logVisible}
+        setLogVisible={setLogVisible}
         onStartNewGame={() => startNewGame()}
       />
 
@@ -101,8 +108,6 @@ export default function App() {
             {seatedOpponents.top && (
               <PlayerBoardView
                 player={seatedOpponents.top}
-                isCurrent={state.currentPlayerIndex === seatedOpponents.top.id}
-                isYou={false}
                 cardSize={cardSize}
                 stackOffset={stackOffset}
                 seat="top"
@@ -115,8 +120,6 @@ export default function App() {
             {seatedOpponents.left && (
               <PlayerBoardView
                 player={seatedOpponents.left}
-                isCurrent={state.currentPlayerIndex === seatedOpponents.left.id}
-                isYou={false}
                 cardSize={cardSize}
                 stackOffset={stackOffset}
                 seat="left"
@@ -147,8 +150,6 @@ export default function App() {
             {seatedOpponents.right && (
               <PlayerBoardView
                 player={seatedOpponents.right}
-                isCurrent={state.currentPlayerIndex === seatedOpponents.right.id}
-                isYou={false}
                 cardSize={cardSize}
                 stackOffset={stackOffset}
                 seat="right"
@@ -160,8 +161,6 @@ export default function App() {
           <section className="seat seat-bottom">
             <PlayerBoardView
               player={player}
-              isCurrent={state.currentPlayerIndex === you}
-              isYou
               cardSize={cardSize}
               stackOffset={stackOffset}
               seat="bottom"
@@ -192,9 +191,11 @@ export default function App() {
             />
           </div>
         </aside>
-        <aside className="log-area">
-          <LogPanel entries={state.log} playerCount={state.players.length} />
-        </aside>
+        {logVisible && (
+          <aside className="log-area">
+            <LogPanel entries={state.log} playerCount={state.players.length} />
+          </aside>
+        )}
       </main>
     </div>
   );

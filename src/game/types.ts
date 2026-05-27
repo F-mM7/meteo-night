@@ -103,6 +103,7 @@ export interface SetupOptions {
 
 export type Action =
   | { type: 'NEW_GAME'; options?: SetupOptions }
+  | { type: 'CLEAR_BOARDS_FOR_RESET' }
   | { type: 'DRAW_FROM_FIELD'; pairIndex: 0 | 1 }
   | { type: 'DRAW_FROM_DECK' }
   | { type: 'PLACE_DRAWN'; cardId: string; slotIndex: number }
