@@ -25,12 +25,11 @@ const APP_PADDING = 8;
 const APP_GAP = 4;
 const MAX_BOARD = 1400;
 // 盤面構成 (cardSize 単位):
-//   board = seatShort + center(5.4) + seatShort
-// 席の短辺 = スタックが伸びる方向の長さ = スタック最大スパンに一致させる必要があるため、
-// `STACK_MAX_SPAN_RATIO`（boardLayout.ts）を真として共有する。
-const SEAT_SHORT_RATIO = STACK_MAX_SPAN_RATIO;
+//   board = STACK_MAX_SPAN_RATIO + SEAT_LONG_RATIO(=center) + STACK_MAX_SPAN_RATIO
+// 席の短辺はスロットスタックが伸びる方向そのもの（席内に他の比率要素はない）なので、
+// `STACK_MAX_SPAN_RATIO` をそのまま席の短辺比率として用いる。
 const SEAT_LONG_RATIO = 5.4;
-const BOARD_TOTAL_RATIO = SEAT_LONG_RATIO + SEAT_SHORT_RATIO * 2;
+const BOARD_TOTAL_RATIO = SEAT_LONG_RATIO + STACK_MAX_SPAN_RATIO * 2;
 // アクション領域に必要な高さ: ActionPanel + hand-zone + padding
 //   = base(80) + cardSize * 1.2
 //   gift-bar は 3 列 × 2 行（最大 6 個）を前提とし、2 行で約 162px。
@@ -42,7 +41,7 @@ const MIN_ACTION_HEIGHT = 220;
 
 function deriveSizes(boardSize: number) {
   const cardSize = Math.max(20, Math.floor(boardSize / BOARD_TOTAL_RATIO));
-  const seatShort = Math.floor(cardSize * SEAT_SHORT_RATIO);
+  const seatShort = Math.floor(cardSize * STACK_MAX_SPAN_RATIO);
   const seatLong = Math.floor(cardSize * SEAT_LONG_RATIO);
   const centerSize = boardSize - seatShort * 2;
   return { cardSize, seatShort, seatLong, centerSize };
