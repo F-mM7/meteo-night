@@ -155,7 +155,7 @@ export function SlotView({
                 className={`slot-stack-card${isTop ? ' slot-stack-top' : ''}${placingClass}`}
                 style={{ ...cardPositionStyle(direction, i, offset), zIndex: i + 1 }}
               >
-                <CardView card={card} emphasized={isTop && interactive} />
+                <CardView card={card} />
               </div>
             );
           })

@@ -675,10 +675,10 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 .slot-interactive {
   cursor: pointer;
 }
-.slot-interactive .slot-empty,
-.slot-interactive .slot-stack-top .card {
+.slot-interactive .slot-stack {
   outline: 2px solid var(--accent-strong);
-  outline-offset: 1px;
+  outline-offset: 4px;
+  border-radius: 6px;
 }
 .slot-interactive:hover {
   filter: brightness(1.1);
