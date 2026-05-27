@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { GameState } from '../game/types';
-import { computeStackOffset } from './boardLayout';
+import { computeStackOffset, STACK_MAX_SPAN_RATIO } from './boardLayout';
 
 export interface BoardDims {
   boardSize: number;
@@ -25,8 +25,10 @@ const APP_PADDING = 8;
 const APP_GAP = 4;
 const MAX_BOARD = 1400;
 // 盤面構成 (cardSize 単位):
-//   board = seatShort(3.2) + center(5.4) + seatShort(3.2) = 11.8
-const SEAT_SHORT_RATIO = 3.2;
+//   board = seatShort + center(5.4) + seatShort
+// 席の短辺 = スタックが伸びる方向の長さ = スタック最大スパンに一致させる必要があるため、
+// `STACK_MAX_SPAN_RATIO`（boardLayout.ts）を真として共有する。
+const SEAT_SHORT_RATIO = STACK_MAX_SPAN_RATIO;
 const SEAT_LONG_RATIO = 5.4;
 const BOARD_TOTAL_RATIO = SEAT_LONG_RATIO + SEAT_SHORT_RATIO * 2;
 // アクション領域に必要な高さ: ActionPanel + hand-zone + padding

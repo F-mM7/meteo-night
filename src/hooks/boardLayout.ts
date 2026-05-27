@@ -1,14 +1,15 @@
 /**
  * スロットのスタック描画に関する共有定数・純粋関数。
  *
- * - `STACK_OFFSET_RATIO`: 1 枚積み上がるごとの基本オフセット（カード幅比）。
  * - `STACK_MAX_SPAN_RATIO`: スタックが取れる最大の総長（カード幅比）。
- *
- * これらは `SlotView`（描画）と `useBoardLayout`（CSS 寸法導出）の双方が
- * 共有するため、コンポーネント側ではなく hook 層のニュートラルな場所に置く。
+ *   `SlotView`（描画）と `useBoardLayout`（CSS 寸法導出 = 席の短辺）の双方が共有するため、
+ *   コンポーネント側ではなく hook 層のニュートラルな場所に置く。
+ *   この値を小さくすると、席の短辺が縮んで盤面 cardSize が拡大される一方、
+ *   ベースオフセット（`STACK_OFFSET_RATIO`）で重ねられる最大枚数が減るため、
+ *   スタックが多いときの密度が増す。
  */
-export const STACK_OFFSET_RATIO = 0.28;
-export const STACK_MAX_SPAN_RATIO = 3.2;
+const STACK_OFFSET_RATIO = 0.28;
+export const STACK_MAX_SPAN_RATIO = 2.8;
 
 /**
  * スタック内枚数 `stackLen` に応じて、各カード間のオフセットを返す。
