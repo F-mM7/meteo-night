@@ -178,7 +178,6 @@ export default function App() {
               bottomPlayer={player}
               currentPlayerIndex={state.currentPlayerIndex}
               startPlayerIndex={state.startPlayerIndex}
-              youId={you}
             />
           </section>
 

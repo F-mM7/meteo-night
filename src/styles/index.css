@@ -417,13 +417,12 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
 }
 
-.player-header-card.header-you {
-  background: linear-gradient(180deg, rgba(60, 80, 160, 0.65), rgba(20, 30, 70, 0.85));
-}
-
+/* ターンプレイヤー強調。アクション選択強調（黄系 = --accent-strong）と区別するため
+   ゲームの夜空テーマに合うシアン青系を使う。 */
 .player-header-card.header-current {
-  background: linear-gradient(180deg, rgba(90, 115, 210, 0.85), rgba(40, 60, 140, 0.9));
-  border-color: rgba(150, 175, 240, 0.4);
+  background: linear-gradient(180deg, rgba(120, 145, 230, 0.95), rgba(45, 65, 155, 0.95));
+  border-color: var(--blue);
+  box-shadow: 0 0 14px rgba(77, 201, 255, 0.55), 0 2px 6px rgba(0, 0, 0, 0.5);
 }
 
 .player-name {
@@ -431,7 +430,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   font-size: calc(var(--card-size) * 0.22);
   line-height: 1.1;
 }
-.header-you .player-name { color: var(--accent-strong); }
 .player-score {
   font-weight: 700;
   font-size: calc(var(--card-size) * 0.26);

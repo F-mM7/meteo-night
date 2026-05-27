@@ -18,7 +18,6 @@ interface Props {
   bottomPlayer: Player | null;
   currentPlayerIndex: number;
   startPlayerIndex: number;
-  youId: number;
 }
 
 export function CenterArea(props: Props) {
@@ -35,7 +34,6 @@ export function CenterArea(props: Props) {
     bottomPlayer,
     currentPlayerIndex,
     startPlayerIndex,
-    youId,
   } = props;
 
   const seats: Array<{ position: SeatPosition; player: Player | null }> = [
@@ -53,7 +51,6 @@ export function CenterArea(props: Props) {
             key={position}
             player={player}
             isCurrent={currentPlayerIndex === player.id}
-            isYou={player.id === youId}
             position={position}
           />
         ) : null
