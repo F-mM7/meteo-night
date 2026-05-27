@@ -12,7 +12,16 @@ import {
 import { determinizeDeck, observationKey } from './infoSet';
 
 const DEFAULT_ITERATIONS = 400;
-const DEFAULT_UCT_C = 1.4142135;
+/**
+ * UCT1 の探索係数。
+ *
+ * Gen-3-L で grid search により最適化された値:
+ *   uctC ∈ {0.3, 0.5, 0.7, 1.0, 1.4142, 1.7, 2.0, 2.4} (100 局 vs smart x3)
+ *   uctC = 2.0 で勝率 94% / avgScore 21.11 がピーク（旧 √2 ≈ 1.4142 は 88%）。
+ *   200 局ホールドアウト ×2 seed で +2.0〜+3.5pt の改善を確認、 採用。
+ *   詳細は `ai/CHANGELOG.md` の Gen-3-L エントリ。
+ */
+const DEFAULT_UCT_C = 2.0;
 const DEFAULT_PB_C = 1.5;
 const DEFAULT_ROLLOUT_MAX_STEPS = 400;
 const DEFAULT_TREE_MAX_DEPTH = 50;

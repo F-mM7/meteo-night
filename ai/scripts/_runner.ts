@@ -3,7 +3,7 @@ import { stepGame } from '../../src/game/reducer';
 import type { Action, GameState } from '../../src/game/types';
 import { decideAction as decideSmart } from '../../src/ai/smartAI';
 import { decideAction as decideRandom } from '../../src/ai/randomAI';
-import { decideAction as decideMcts } from '../../src/ai/mctsAI';
+import { decideAction as decideMcts, type MctsOptions } from '../../src/ai/mctsAI';
 import type { EvalWeights } from '../../src/ai/evaluator';
 import { GEN_3B_WEIGHTS } from '../../src/ai/tunedWeights';
 
@@ -39,6 +39,14 @@ const decideMctsTuned: Decider = (state, playerId) =>
 export function makeMctsWithWeights(weights: EvalWeights): Decider {
   return (state, playerId) =>
     decideMcts(state, playerId, undefined, { weights });
+}
+
+/**
+ * 任意の MctsOptions（uctC / leafEvalScale / weights 等）で動く mcts decider。
+ * Gen-3-L 用：探索ハイパラの grid search で 1 ファクトリ呼びだけで切替えるためのもの。
+ */
+export function makeMctsWithOpts(opts: MctsOptions): Decider {
+  return (state, playerId) => decideMcts(state, playerId, undefined, opts);
 }
 
 export const STRATEGIES: Record<StrategyName, Decider> = {
