@@ -9,7 +9,7 @@
  *   スタックが多いときの密度が増す。
  */
 const STACK_OFFSET_RATIO = 0.28;
-export const STACK_MAX_SPAN_RATIO = 1.6;
+export const STACK_MAX_SPAN_RATIO = 2;
 
 /**
  * スタック内枚数 `stackLen` に応じて、各カード間のオフセットを返す。
