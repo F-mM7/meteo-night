@@ -48,6 +48,12 @@ interface Args {
   /** Gen-3-K5: NN 容量設定。 init が指定された場合は無視される（既存重みの shape に従う）。 */
   hiddenUnits: number;
   hiddenLayers: number;
+  /**
+   * Gen-3-K9: 学習完了後にモデルを public/ 配下にコピーするオプション。
+   * ブラウザ統合用。 例: `--copy-to-public public/models/active`
+   * 指定しない場合はコピーしない。
+   */
+  copyToPublic: string | null;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -65,6 +71,7 @@ function parseArgs(argv: string[]): Args {
     mctsBatchSize: 1,
     hiddenUnits: 64,
     hiddenLayers: 2,
+    copyToPublic: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -111,6 +118,9 @@ function parseArgs(argv: string[]): Args {
       case '--hidden-layers':
         args.hiddenLayers = Number(argv[++i]);
         break;
+      case '--copy-to-public':
+        args.copyToPublic = argv[++i];
+        break;
       case '--help':
       case '-h':
         printUsage();
@@ -143,6 +153,8 @@ Options:
                     Gen-3-K4: N>=2 で NN 推論を batch 化し 3-5x speedup
   --hidden-units <n>   隠れ層 unit 数 (default: 64, init 指定時は無視)
   --hidden-layers <n>  隠れ層数 (default: 2, init 指定時は無視)
+  --copy-to-public <dir>  学習後 model.json/weights.bin を <dir> にコピー
+                          ブラウザ統合用 (例: public/models/active)
 `);
 }
 
@@ -235,6 +247,20 @@ async function main(): Promise<void> {
   await fs.mkdir(args.out, { recursive: true });
   await saveModel(model, args.out);
   console.log(`\nsaved model to ${args.out}/`);
+
+  if (args.copyToPublic) {
+    await fs.mkdir(args.copyToPublic, { recursive: true });
+    await fs.copyFile(`${args.out}/model.json`, `${args.copyToPublic}/model.json`);
+    // tfjs は重みファイルを weights.bin（複数ある場合は group1-shard1of1.bin など）として出力する。
+    // 同ディレクトリの .bin を全部コピーする。
+    const files = await fs.readdir(args.out);
+    for (const f of files) {
+      if (f.endsWith('.bin')) {
+        await fs.copyFile(`${args.out}/${f}`, `${args.copyToPublic}/${f}`);
+      }
+    }
+    console.log(`copied model to ${args.copyToPublic}/ for browser`);
+  }
 }
 
 main().catch((e) => {

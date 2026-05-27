@@ -3,6 +3,23 @@
 各イテレーション（世代）の変更点と評価結果を追記していきます。
 最新を上、古いものを下に。
 
+---
+
+## 📌 現状最強モデル（コンテキスト復元用）
+
+| 種類 | モデル | vs smart 勝率 | ブラウザ反映 | 由来 |
+|---|---|---|---|---|
+| 手書き AI（採用版） | **Gen-3-L**（Gen-3-F + uctC を √2 → 2.0 に調整）| **92.0%** (95%CI 87.4-95.0%) | **✓ 反映済み** | `src/ai/mctsAI.ts` の `DEFAULT_UCT_C` |
+| NN AI（最強だが未到達） | **az-v7**（K6 + 5000 games AlphaZero）| 8% | – | `ai/models/az-v7/` (gitignore) |
+| 旧 NN 系 | az-v1〜v6, v8〜v10 | 0-6% | – | 不採用、 詳細は下の各 Gen-3-K* エントリ |
+
+新セッション開始時のクイックチェック:
+1. このサマリと最新 Gen エントリを読む
+2. `ai/README.md` の「現状」セクションを確認
+3. ベンチで実機確認: `npx tsx ai/scripts/bench.ts --games 50 --strategies mcts,smart,smart,smart --rotate --seed 1001 --silent --json`
+
+---
+
 フォーマット例:
 
 ```
@@ -24,6 +41,172 @@
 ### メモ
 - ...
 ```
+
+---
+
+## Gen-3-K9: ブラウザ統合の準備 (NN を反映できる状態にする、 強さは未変化) (2026-05-28)
+
+### Step 0: ルール変更チェック
+HEAD = 3f0158b 以降コミット無し、変化なし。
+
+### 背景
+NN モデル本体は az-v7 が現状最強だが vs smart 8% で Gen-3-F (89.5%) に届かないため、 ブラウザ反映は保留中。
+ただし「強いモデルが出てきた瞬間に反映できる」状態が無いと、 後でまとめて UI 側のリファクタが必要になり、 学習との並行作業を阻害する。
+そこで強さに影響を与えずに **ブラウザ統合パスを完成** させる。
+
+### 変更点
+
+#### 1. `@tensorflow/tfjs`（ブラウザ版）依存追加
+- `package.json` の `dependencies` に追加（dev ではなく本番依存）
+- main chunk には混入させない（次項の動的 import で別チャンク化）
+
+#### 2. `src/ai/neuralAI.ts` を本実装に置換
+- 旧雛形（stub）を破棄し、`ai/scripts/nn/neuralMcts.ts` のブラウザ移植版を実装
+- 機能:
+  - `loadModel(url)`: `tf.loadLayersModel` で model.json をロード（多重呼び出し安全、 失敗時は null）
+  - `isModelLoaded()` / `getLastLoadError()`: 状態確認用 API
+  - `disposeModel()`: tensor リークなくモデル破棄
+  - `decideAction(state, playerId, seed?, options?)`: 内部で NN-guided PUCT MCTS を実行
+- 価値出力は **NUM_PLAYERS 次元 (Gen-3-K6 互換)**、 旧 1 次元モデルでも fallback で動作
+- **モデル未ロード時 / ロード失敗時は自動的に mctsAI に委譲** → UI 側の崩れなし
+- 推論は逐次（バッチなし）。ブラウザでの Promise/同期コストを考えると単発のほうが単純
+
+#### 3. 動的 import 経路 `loadNeuralAI(url)` を `src/ai/index.ts` に追加
+- `await import('./neuralAI')` でロードするため、 vite が NN コードを **別 chunk** として分離
+- 呼ばない限り tfjs は build 対象外（main chunk サイズ変化なし）
+- 既存 `export { decideAction } from './mctsAI'` はそのまま → デフォルト挙動は不変
+
+#### 4. placeholder ダミーモデル
+- `ai/scripts/nn/make-dummy.ts` 新設: 未学習状態でモデル構造だけ保存
+- `public/models/dummy/` に配置（76 KB: model.json 3 KB + weights.bin 73 KB）
+- 用途: ブラウザ統合の動作確認、 バンドルサイズ計測のリファレンス
+
+#### 5. `ai/scripts/nn/train.ts --copy-to-public <dir>` オプション
+- 学習完了時に `ai/models/<name>/model.json` と `*.bin` を `public/models/<dir>/` に自動コピー
+- 例: `... --copy-to-public public/models/active` で強いモデルを一発反映可能
+
+### バンドルサイズ計測（実測）
+
+| 構成 | dist JS | gzip 後 | 備考 |
+|---|---|---|---|
+| baseline (mctsAI のみ、 現状の本番) | 239 KB | **75 KB** | 変化なし |
+| `loadNeuralAI` を起動時に強制呼び出し | 1,833 KB | 327 KB | tfjs 込みの最大ケース |
+| 動的 import のまま呼ばない (現状) | 239 KB | **75 KB** | tree-shaking 効いてる |
+
+→ 強いモデルができるまでは **ブラウザに 1 バイトの追加もなし**。 呼び出した瞬間に別 chunk として lazy load される。
+
+### 強さに対する効果
+- 既存 mcts/smart/AlphaZero 系の挙動は何も変えていない → ベンチ不要（変化ゼロ）
+- `npm test` 全 33 件パス、 `tsc -b` / `vite build` 通過
+
+### 採用判定
+**採用**（強さ非関与、 統合パスのみ整備）。
+
+### メモ
+- UI / App.tsx には触っていない。 強いモデル完成時にユーザーが UI 側で `loadNeuralAI` を呼ぶだけで切替可能
+- フォールバック設計のおかげで「モデルロード失敗 → mctsAI で続行」になるので、 配信ミスがあってもゲームは動く
+- 動的 import で別 chunk 化しているため、 初回ロード遅延ゼロ。 NN ボタンを押した時など必要時にだけ tfjs を取りに行く形に発展させやすい
+
+---
+
+## Gen-3-L: MCTS の探索係数 `uctC` の grid 最適化（採用、ブラウザ反映済み） (2026-05-28)
+
+### Step 0: ルール変更チェック
+前回 Gen-3-K8 (HEAD=3f0158b) 以降に `src/game/` で以下の変更:
+- `884ccce`: `resolvingCombos` フェーズ追加 + `stepGame` ラッパー追加 + `hasNoMoreTurns` 追加（最終ラウンド自動配置）
+- `6e62029`: `CLEAR_BOARDS_FOR_RESET` action（UI 演出用）
+- `8adb7a0` / `72eb38c`: ログ表記整理・未使用関数削除
+
+AI 側コード（`src/ai/mctsAI.ts`, `ai/scripts/_runner.ts`）は **全て `stepGame` 経由**で呼んでおり、論理的影響なし。`docs/RULES.md` は注記整理のみで内容変更なし。
+
+実機ベースライン再計測:
+- smart x4 自己対戦（200 局 rotate seed=1）: 各座席 24.875% (CI 22.0-28.0%) — 席バイアスなし、過去とほぼ一致
+- mcts (Gen-3-F default) vs smart x3（200 局 rotate seed=1001）: **90.0%** (CI 85.1-93.4%) — 過去の 89.5% から +0.5pt（誤差範囲、reducer 変更による微差）
+
+### 仮説
+- `DEFAULT_UCT_C = √2 ≈ 1.4142` は Gen-1 で導入された UCB1 標準値で、当時の random rollout 用に妥当な値だった
+- Gen-2 で leaf を `tanh(eval/1500)` ([-1, +1]) に置き換えた際も `uctC` は変更されていない
+- 現状の評価関数（Gen-3-F）は格段に質が高いため、 leaf 評価器をどう活用するかで最適 `uctC` が変わる可能性
+- 事前予想: 「評価関数が信頼できる → exploit 寄りで小さい `uctC` が良い」と仮説
+- 期待: +0.5〜1.5pt、 CI 下限が現状 85.1% を上回る
+
+### 実装
+- `ai/scripts/_runner.ts`: 任意の `MctsOptions` で動くファクトリ `makeMctsWithOpts(opts)` を追加
+- `ai/scripts/bench.ts`: `--mcts-uct <n>` / `--mcts-eval-scale <n>` フラグを追加（mcts 戦略のみ上書き、smart には影響なし）
+- `ai/scripts/grid-uct.ts`: 新規。 `uctC` を grid search で評価するスクリプト
+- 評価関数の重み（Gen-3-F）には一切触れず、 純粋に `uctC` のみ動かす
+
+### Grid Search 結果（100 局 × 8 候補, seed=1001, mcts vs smart x3, rotate）
+
+| uctC | 勝率 | 95%CI | avgScore | expRank |
+|---|---|---|---|---|
+| 0.3 | 87.0% | 79.0-92.2% | 20.67 | 1.16 |
+| 0.5 | 84.0% | 75.6-89.9% | 20.45 | 1.19 |
+| 0.7 | 88.0% | 80.2-93.0% | 20.44 | 1.14 |
+| 1.0 | 90.0% | 82.6-94.5% | 20.65 | 1.13 |
+| **1.4142 (旧 default)** | 88.0% | 80.2-93.0% | 20.39 | 1.15 |
+| 1.7 | 91.0% | 83.8-95.2% | 20.74 | 1.10 |
+| **2.0** | **94.0%** | **87.5-97.2%** | **21.11** | **1.09** |
+| 2.4 | 84.0% | 75.6-89.9% | 20.58 | 1.23 |
+
+**観察**: 仮説と逆方向の結論。 `uctC` を**大きく**（探索広げる）した方が良い。 山型分布で `uctC ≈ 2.0` がピーク、 2.4 で過剰探索により悪化。
+
+仮説の解釈再考: leaf evaluator が信頼できるとはいえ、 1 手先の `evaluateState` 評価は短期視点に偏っている。 多くの候補を試して MCTS の visit 統計で「実際に勝てる手」を選別する方が、 単純な exploit より良い結果に繋がる。
+
+### Holdout ベンチ結果
+
+**seed=1001, 200 局 rotate**（過去ベンチと同条件）:
+| 指標 | Gen-3-F (旧 default) | **Gen-3-L (uctC=2.0)** | 差分 |
+|---|---|---|---|
+| 勝率 | 90.0% | **92.0%** | **+2.0pt** |
+| 95%CI | 85.1-93.4% | **87.4-95.0%** | **CI下限 +2.3pt** |
+| 1 位獲得 | 180/200 | **184/200** | +4 |
+| avgScore | 20.63 | 20.88 | +0.25 |
+| 期待順位 | 1.115 | 1.10 | -0.015 |
+| 1 手 ms | 2.33 | 2.36 | 同等 |
+
+**別 seed=2001, 200 局 rotate**（過適合チェック）:
+| 指標 | Gen-3-F | **Gen-3-L** | 差分 |
+|---|---|---|---|
+| 勝率 | 87.0% | **90.5%** | **+3.5pt** |
+| 95%CI | 81.6-91.0% | **85.6-93.8%** | **CI下限 +4.0pt** |
+| 1 位獲得 | 174/200 | **181/200** | +7 |
+
+→ **2 つの独立 seed で CI 下限が一貫して改善**、 過適合ではない。
+
+**合計 400 局**:
+- Gen-3-F: 358/400 = 89.5%
+- Gen-3-L: **365/400 = 91.25%** (+1.75pt)
+
+**mcts(uctC=2.0) x4 自己対戦サニティ**（50 局 rotate seed=3001）:
+- 各座席 25.0% (CI 19.5-31.4%) — 席バイアスなし
+- avgScore 16.295 (Gen-3-F の 16.11 から +0.185 微改善)
+- 1 手 8.52 ms（4 体全 MCTS、 ブラウザ全 CPU 状況に近い）
+
+**再現性**: seed=1001 200 局を 2 回実行 → 完全一致 (184/200, totalSteps=53755)
+
+### 採用判定
+**採用 → ブラウザ反映済み**
+
+スキル基準を全て満たす:
+- 200 局以上で 95%CI 下限が現状最強の CI 下限を **2 seed 一貫して** 上回る
+- 1 手あたり時間が同等（ブラウザ実用範囲）
+- 自己対戦の席バイアスなし、 再現性あり
+
+### 変更点（ブラウザ反映）
+- `src/ai/mctsAI.ts`: `DEFAULT_UCT_C` を `1.4142135` → `2.0` に変更（1 行）
+- `npm run build` 成功（239.39 kB / gzip 75.43 kB、 Gen-3-F の 236 kB から +3 kB は UI 変更分）
+- vitest 33/33 通過、 型チェック OK
+
+### メモ・学び
+- **「探索ハイパラの調整」は手書き AI で初の最適化軸**。 過去は iter（量）、PUCT（方法）、 評価関数重みは試したが、 UCT 係数そのものは untuned だった
+- **仮説と逆の結果**でも採用基準を満たせば良い: 仮説（exploit 寄り）は誤りだったが、grid search が「真の最適点」を見つけてくれた
+- **改善幅 +1.75pt〜+3.5pt** は Gen-3-B〜F の改善履歴と同等。 まだ手書き AI に伸び代があることを示した
+- **次の方向性**:
+  - `leafEvalScale` (現状 1500) の grid search（同様に untuned）
+  - `iterations` (現状 400) を 600〜800 で再評価（uctC 改善で iter の活用度合いが変わる可能性）
+  - `uctC = 1.8 / 1.9 / 2.0 / 2.1 / 2.2` の細かい grid（現状 2.0 が真のピークか確認）
+- `ai/data/grid-uct-gen3L.log` に grid search 全ログ保存（gitignore 配下）
 
 ---
 

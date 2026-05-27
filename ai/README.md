@@ -1,152 +1,201 @@
-# AI 学習基盤
+# AI 学習・評価基盤
 
 このディレクトリは「星を放つ夜」CPU AI の学習・評価に関するコード/データを置く場所です。
 ブラウザバンドルには含めません（Vite は `src/` のみをエントリにします）。
 
-## ディレクトリ構成
+---
 
+## 現状（コンテキスト復元用サマリ）
+
+> 新セッション開始時は、まずこのセクションと `ai/CHANGELOG.md` の最新エントリを読めば現状把握できます。
+
+### ブラウザに反映されている CPU
+- **戦略**: mctsAI (IS-MCTS + leaf 評価関数)
+- **重み**: Gen-3-F（`src/ai/evaluator.ts` の `DEFAULT_WEIGHTS`）
+- **探索ハイパラ**: `DEFAULT_UCT_C = 2.0`（Gen-3-L、 grid search で √2 → 2.0 に調整）
+- **強さ**: vs smart x3 で勝率 **92.0%** (95%CI 87.4-95.0%、 200 局, rotate, seed=1001)
+- **1 手あたり時間**: 約 2.3 ms（CPU 計測）
+
+### 試行中の方向性
+
+| 方向 | 現状 | スキル |
+|---|---|---|
+| 手書き AI 改善（evaluator 重み / mcts ハイパラ / ヒューリスティック）| Gen-3-L で +2pt 改善（uctC 最適化）、 残伸び代は leafEvalScale 等の未調整ハイパラと iter 再評価 | `evolve-meteo-ai-handwritten` |
+| NN AI（AlphaZero 風）| 基盤・パイプライン完成（K1〜K4）、最強モデル az-v7 は vs smart 8% でブラウザ未到達 | `evolve-meteo-ai-neural` |
+
+### NN 系の最強モデル
+- **az-v7**（vs smart x3 で勝率 **8%**、avgScore 5.38、 1 手 ~8 ms）
+- 学習設定: K6 (mean-field 解消) + 5000 games AlphaZero (batch=16)
+- ブラウザ反映なし（Gen-3-F に届かないため）
+
+### GPU 環境
+- **ハードウェア**: NVIDIA RTX 4080 (16 GB VRAM)、 WSL2 経由で利用可
+- **依存関係**: CUDA 11.8 + cuDNN 8（未インストール）→ **セットアップ手順は `docs/GPU_SETUP.md`**
+- 現状の学習: CPU 版 `@tensorflow/tfjs-node` で実行（GPU 未活用）
+
+### ブラウザ統合の準備状況（Gen-3-K9）
+
+NN 学習の最強モデルが Gen-3-F に届いていないため、ブラウザ反映は保留中。
+ただし「強いモデルができたら数手で反映できる」状態に整えてある:
+
+| 構成要素 | 状態 | 場所 |
+|---|---|---|
+| `@tensorflow/tfjs`（ブラウザ版）依存 | 追加済み（dependencies） | `package.json` |
+| `src/ai/neuralAI.ts` | 実装済み（NN-guided MCTS + 自動フォールバック） | tfjs.loadLayersModel 使用 |
+| 動的 import 経路 | `loadNeuralAI(url)` を `src/ai/index.ts` から export | tfjs は別 chunk、 呼ばない限り main chunk に混入しない |
+| placeholder モデル | `public/models/dummy/` に未学習版 (76 KB) 配置済み | 動作確認用 |
+| `train.ts --copy-to-public` | 学習後の自動コピー対応 | `public/models/active/` 等にコピー可 |
+
+**バンドルサイズ計測**（実測）:
+- baseline（mctsAI のみ）: JS 239 KB / gzip 75 KB
+- tfjs を main chunk に同梱した場合: JS 1.83 MB / gzip 327 KB
+- 現状（動的 import）: baseline と同じ。 `loadNeuralAI()` 呼び出し時のみ別 chunk として lazy load
+
+**強いモデル完成後の反映手順**:
+1. `npx tsx ai/scripts/nn/train.ts ... --copy-to-public public/models/active`
+2. UI 側（`App.tsx` / `useGameLogic.ts` 等）で `loadNeuralAI(\`${import.meta.env.BASE_URL}models/active/model.json\`)` を呼び、 得た `decideAction` を mctsAI の差し替えとして使う
+3. ロード前 / 失敗時は内部で mctsAI にフォールバックするため、 UI の崩れは起きない
+
+---
+
+## 進化サイクルの始め方
+
+進化サイクルは目的に応じてスキルを使い分けます。
+
+```text
+.claude/skills/
+  evolve-meteo-ai-handwritten/SKILL.md    手書き AI（smart / mcts / evaluator）の改善
+  evolve-meteo-ai-neural/SKILL.md         NN AI（AlphaZero）の学習・改善
 ```
-ai/
-  README.md          このファイル
-  CHANGELOG.md       AI 各世代の変更と評価結果の追記場所
-  tsconfig.json      Node.js 実行用の TS 設定（型チェック専用）
-  scripts/           CLI スクリプト
-    selfplay.ts      指定戦略で N 局回し、結果を集計
-    bench.ts         複数戦略を総当たり対戦させ、勝率/順位分布を出力
-  data/              自己対戦ログ（gitignore）
-  models/            学習済みモデル（gitignore）
-```
 
-ゲームロジックそのものは `src/game/` を直接 import します（学習環境と本番環境を完全に一致させるため）。
+両スキルとも:
+- **1 イテレーション = 1 仮説**
+- **Step 0: ルール変更チェック必須**
+- 結果は `ai/CHANGELOG.md` に追記
 
-## 前提
+---
 
-```bash
-npm install
-```
-
-`tsx` が devDependency に入っていれば準備完了です。
-
-## よく使うコマンド
-
-### 自己対戦を 1 セット回す
-
-```bash
-npx tsx ai/scripts/selfplay.ts --games 20 --strategies smart,smart,smart,smart --seed 42
-```
-
-### 戦略の比較ベンチ（既定: smart 1 体 vs random 3 体）
-
-```bash
-npx tsx ai/scripts/bench.ts --games 200 --strategies smart,random,random,random
-```
-
-`--rotate` を付けると各局で席をローテーションし、席順バイアスを除去します。
-
-### JSON で結果を取得
-
-`--json` を付けると標準出力に JSON 集計だけ流れます（自動化向け）。
-
-## 進化サイクル
-
-1 イテレーションを 1 PR として回す想定です。詳細は `.claude/skills/evolve-meteo-ai/SKILL.md` を参照してください。
-各イテレーションの結果は `CHANGELOG.md` に追記してください。
-
-## ロードマップ（要点）
+## ロードマップ
 
 | フェーズ | 内容 | 状態 |
 |---|---|---|
-| 0 | 学習基盤（決定論 RNG、エンコーディング、行動空間、self-play / bench CLI） | **完了 (Gen-0)** |
-| 1 | IS-MCTS（randomAI を rollout policy として利用） | **完了 (Gen-1)**：vs smart で勝率 56% |
-| 1-B | IS-MCTS の leaf 評価関数化（`evaluateState` を tanh 圧縮）| **完了 (Gen-2)**：vs smart で勝率 83.5%、1 手 4.15 ms |
-| 2 | 評価関数の重み自動チューニング（(1+1)-ES） | **完了 (Gen-3-B / Gen-3-B-2 / Gen-3-F)**：vs smart で勝率 89.5%、1 手 2.09 ms（ブラウザ反映済み） |
-| 3 | AlphaZero 風（tfjs-node で学習 → tfjs ブラウザで推論） | **基盤完成 + 速度 8x (Gen-3-K1〜K4)**：visit count 方策ターゲット・ネットワーク誘導 MCTS・AlphaZero ループ・ブラウザ推論雛形・バッチ推論まで実装。400 games 学習でも vs smart 2%、 大規模学習は次イテレーション |
+| 0 | 学習基盤（決定論 RNG・encoding・行動空間・self-play / bench CLI） | **完了 (Gen-0)** |
+| 1 | IS-MCTS（randomAI を rollout policy として利用） | **完了 (Gen-1)**：vs smart 56% |
+| 1-B | IS-MCTS の leaf 評価関数化（`evaluateState` を tanh 圧縮）| **完了 (Gen-2)**：vs smart 83.5% |
+| 2 | 評価関数の重み自動チューニング（(1+1)-ES） | **完了 (Gen-3-B〜F)**：vs smart 89.5% |
+| 2-extra | per-AI weights 構造（mcts/smart で別重み）| **完了 (Gen-3-J)**：構造採用、 ブラウザ DEFAULT は据置 |
+| 2-L | MCTS 探索ハイパラ `uctC` の grid 最適化 | **完了 (Gen-3-L)**：vs smart 92.0% ← **ブラウザ反映済み** |
+| 3 | AlphaZero 風（tfjs-node で学習 → tfjs ブラウザで推論） | **基盤完成 (Gen-3-K1〜K4)**：パイプライン動作確認済み、 最強 az-v7 でも vs smart 8% |
+| 3-GPU | GPU 学習環境セットアップ | **準備中**（`docs/GPU_SETUP.md` 参照） |
 | 4 | プレゼント選択の別ヘッド化 | 未着手 |
 
-### 直近の改善候補（次イテレーション）
+---
 
-| 候補 | 仮説 | 期待効果 |
+## ファイル構成
+
+```
+ai/
+  README.md           このファイル
+  CHANGELOG.md        AI 各世代の変更と評価結果（最新は冒頭）
+  tsconfig.json       Node.js 実行用 TS 設定
+  scripts/
+    selfplay.ts       指定戦略で N 局回し結果集計
+    bench.ts          戦略を比較するベンチ（rotate / weights / mcts-weights 対応）
+    bench-neural.ts   NN モデル vs 既存戦略のベンチ
+    tune-es.ts        評価関数重みの (1+1)-ES チューナー
+    _runner.ts        共通の playOneGame ロジック
+    nn/
+      model.ts        NN 定義 (createModel / saveModel / loadModel)
+      dataset.ts      自己対戦データ生成 (mctsAI / neuralMcts)
+      neuralMcts.ts   NN 誘導 MCTS（PUCT + NN prior/value）
+      train.ts        AlphaZero ループ CLI (--selfplay mcts|neural)
+      _smoke-gpu.ts   GPU 動作確認用スクリプト
+  data/               自己対戦ログ・学習出力（gitignore）
+  models/             学習済みモデル（gitignore）
+```
+
+ゲームロジックは `src/game/` を直接 import します（学習環境と本番環境を完全に一致させるため）。
+
+---
+
+## よく使うコマンド
+
+### ベンチ（手書き AI 系）
+
+```bash
+# 自己対戦バランス確認
+npx tsx ai/scripts/bench.ts --games 200 --strategies smart,smart,smart,smart --rotate --seed 1 --json
+
+# 現状ブラウザ CPU の強さ確認
+npx tsx ai/scripts/bench.ts --games 200 --strategies mcts,smart,smart,smart --rotate --seed 1001 --json
+
+# JSON で得た重みを mcts のみに適用
+npx tsx ai/scripts/bench.ts --mcts-weights ai/data/tuned-weights-gen3X.json \
+  --games 200 --strategies mcts,smart,smart,smart --rotate --seed 1001 --json
+```
+
+### 評価関数重みの (1+1)-ES チューニング
+
+```bash
+npx tsx ai/scripts/tune-es.ts \
+  --gens 15 --games 50 --seed 1 --sigma 0.2 \
+  --init ai/data/tuned-weights-previous.json \
+  --out ai/data/tuned-weights-new.json
+```
+
+### NN 学習（CPU 版で動作中、GPU セットアップ後は同じコマンドで GPU 利用に切替）
+
+```bash
+# Warm-up: mctsAI 自己対戦
+npx tsx ai/scripts/nn/train.ts --games 100 --iter 2 --batch 256 --epochs 3 --seed 1000 \
+  --selfplay mcts --out ai/models/az-vN-warm
+
+# AlphaZero ループ: neuralMcts 自己対戦 + 学習
+npx tsx ai/scripts/nn/train.ts --games 200 --iter 5 --batch 256 --epochs 3 --seed 2000 \
+  --selfplay neural --init ai/models/az-vN-warm --mcts-batch 16 \
+  --out ai/models/az-vN
+```
+
+### NN モデルのベンチ
+
+```bash
+npx tsx ai/scripts/bench-neural.ts ai/models/az-vN \
+  --opponent smart --games 50 --seed 1001 --silent --json
+```
+
+---
+
+## 詳細ドキュメント
+
+- **進化サイクルの手順**: `.claude/skills/evolve-meteo-ai-handwritten/SKILL.md` / `.claude/skills/evolve-meteo-ai-neural/SKILL.md`
+- **全試行履歴と結果**: `ai/CHANGELOG.md`（最新が冒頭）
+- **GPU セットアップ手順**: `docs/GPU_SETUP.md`
+- **ゲームルール**: `docs/RULES.md`
+
+---
+
+## 試行履歴の要約（不採用も含む）
+
+採用された改善は **太字**、不採用は ~~取り消し線~~。詳細は CHANGELOG 参照。
+
+| Gen | 内容 | 結果 |
 |---|---|---|
-| ~~Gen-3-A: iterations 400 → 1000~~ | leaf eval が決定論的なので飽和済み | **不採用済み** |
-| ~~Gen-3-C: progressive bias / PUCT~~ | 短期視点 prior が悪手 | **不採用済み**（勝率 -32.5pt） |
-| ~~Gen-3-B: (1+1)-ES で evaluator 重み最適化~~ | leaf 評価の質を上げる | **採用済み**（勝率 +4.5pt、ブラウザ反映済み） |
-| ~~Gen-3-B-2: warm-start ES~~ | 別 seed で局所最適脱出 | **採用済み**（勝率 +1pt、改善幅は逓減） |
-| ~~Gen-3-E: selfNearEnd 追加 + ES~~ | 終局意識の特徴量 | **不採用**（過学習、-3.5pt） |
-| ~~Gen-3-F: 本格 warm-start ES (100局/世代)~~ | noise 削減で真の改善検出 | **採用済み**（勝率 +0.5pt、1 手 -13% 高速化） |
-| ~~Gen-3-G: smart gift heuristic 改修~~ | hasNoMoreTurns で target をフィルタ | **不採用**（smart 強化が副作用、-1.5pt）|
-| ~~Gen-3-G-2: mcts 専用 gift heuristic~~ | mcts だけに hasNoMoreTurns 適用 | **不採用**（mcts simulation で gift selection を扱えない、-1pt）|
-| ~~Gen-3-H: simulation 内 gift selection を smart heuristic で自動進行~~ | shrink で gift selection を越える | **不採用**（smart 妨害的すぎてシミュ評価が悲観化、-1.5pt）|
-| ~~Gen-3-I: simulation 内 gift selection を random で進行~~ | smart heuristic の偏りを避ける | **不採用**（-2.5pt、 3 通り全部失敗で gift 周りは MCTS 構造的限界） |
-| ~~Gen-3-J: per-AI weights 構造~~ | mcts と smart で別 weights を渡せる API へ拡張 | **構造採用**（vs smart で +0.5pt、ブラウザ DEFAULT は据置） |
-| Gen-3-K: AlphaZero 風 NN（基盤）| 方策・価値ネットの学習基盤を整備、本格学習は次セッション | 大幅強化見込み（次フェーズ） |
-| Gen-3-D: フェーズ 3 として AlphaZero 風（NN）| 方策/価値ネットの学習 | 大幅強化（実装コスト高、Python or tfjs-node-gpu） |
-
-### `--weights` と `--mcts-weights` の使い分け
-
-```bash
-# ベンチ全体（全 AI）の評価関数重みを差し替え
-npx tsx ai/scripts/bench.ts --weights ai/data/tuned-weights.json \
-  --games 200 --strategies mcts,smart,smart,smart --rotate --seed 1001
-
-# mcts のみ別重み（Gen-3-J で追加）— smart は default 重みのまま
-npx tsx ai/scripts/bench.ts --mcts-weights ai/data/tuned-weights-gen3j.json \
-  --games 200 --strategies mcts,smart,smart,smart --rotate --seed 1001
-
-# mcts ラッパー戦略（GEN_3B_WEIGHTS 固定）
-npx tsx ai/scripts/bench.ts \
-  --games 200 --strategies mctsTuned,smart,smart,smart --rotate --seed 1001
-```
-
-### Gen-3-K（ニューラルネット）の運用
-
-#### ファイル構成
-```
-ai/scripts/nn/
-  model.ts      ネットワーク定義 (createModel / saveModel / loadModel / compileForTraining)
-  dataset.ts    自己対戦データ生成 (generateSelfPlayGame / generateDataset)
-  train.ts      学習ループ CLI
-```
-
-#### 学習実行（2 段階推奨：warm-up → AlphaZero）
-```bash
-# Phase 1: warm-up（mctsAI 自己対戦でデータ生成 → 教師あり学習）
-npx tsx ai/scripts/nn/train.ts \
-  --games 50 --iter 3 --batch 256 --epochs 3 --seed 1000 \
-  --selfplay mcts --out ai/models/az-v2-warm
-
-# Phase 2: AlphaZero ループ（学習モデルで neuralMcts 自己対戦 → 学習）
-#          Gen-3-K4 の --mcts-batch 16 で 8x 高速化
-npx tsx ai/scripts/nn/train.ts \
-  --games 200 --iter 5 --batch 256 --epochs 3 --seed 2000 \
-  --selfplay neural --init ai/models/az-v2-warm --mcts-batch 16 \
-  --out ai/models/az-v2
-```
-
-#### ベンチ
-```bash
-# 学習モデル vs smart x3 (rotate 付き)
-npx tsx ai/scripts/bench-neural.ts ai/models/az-v2 --games 50 --seed 1001 --silent --json
-```
-
-#### ファイル構成（追加）
-```
-ai/scripts/nn/
-  model.ts           ネットワーク定義 (createModel / saveModel / loadModel)
-  dataset.ts         自己対戦データ生成 (generateSelfPlayGame / generateSelfPlayGameWithModel)
-  neuralMcts.ts      ネットワーク誘導 MCTS (decideActionNeural)
-  train.ts           学習 CLI (--selfplay mcts|neural)
-ai/scripts/
-  bench-neural.ts    neural モデル vs smart x3 ベンチ
-```
-
-学習済みモデルは tfjs 標準形式 (`model.json` + `weights.bin`)。
-将来ブラウザ側で `tf.loadLayersModel('/meteo-night/models/<gen>/model.json')` で読み込み可能。
-
-#### 現状の制限（Gen-3-K5 以降で対応）
-- **学習量不足**: 400 games の AlphaZero でも vs smart 2%。Gen-3-K4 の 8x 速度向上で大規模化が現実的に
-- ~~**NN 呼び出しがボトルネック**~~ → **Gen-3-K4 で解決**（batch=16 で 8x 高速化）
-- **ブラウザ推論ラッパー** (`src/ai/neuralAI.ts`) は雛形のみ、tfjs 実 import は実用モデル完成後
-- **GPU 学習**: 現状 CPU 版 `@tensorflow/tfjs-node`、本格学習時に `@tensorflow/tfjs-node-gpu` に切り替え（CUDA セットアップ要）
-- **mean-field 仮定**: neuralMcts では path 上の全 node に leafValue を同符号で backup（多人数特化未対応）
-- **ネットワーク容量**: 18K パラメータ（隠れ 64×2 層）は小さい可能性。本格時は数十万パラメータも検討
-- **Virtual loss 未実装**: batch 推論で同一 leaf 集中を完全には防げない（実用上は seed 多様性で mitigate）
+| **Gen-0** | 学習基盤構築 | 採用 |
+| **Gen-1** | IS-MCTS + random rollout | vs smart 56% |
+| **Gen-2** | leaf 評価関数化 | vs smart 83.5% ← ブラウザ反映 |
+| ~~Gen-3-A~~ | iter 400→1000 | 飽和、不採用 |
+| **Gen-3-B** | (1+1)-ES tune | vs smart 88.0% |
+| **Gen-3-B-2** | warm-start ES | vs smart 89.0% |
+| ~~Gen-3-C~~ | PUCT (progressive bias) | 短期 prior が悪手、不採用 -32.5pt |
+| ~~Gen-3-E~~ | selfNearEnd 特徴量追加 | 過学習、不採用 |
+| **Gen-3-F** | 本格 ES (100局/世代) | vs smart 89.5%、 1 手 2.10 ms ← ブラウザ反映 |
+| ~~Gen-3-G/G-2/H/I~~ | gift selection 改善 4 連敗 | 全て不採用、MCTS の構造的限界 |
+| **Gen-3-J** | per-AI weights 構造 | API 採用、 ブラウザ DEFAULT 据置 |
+| **Gen-3-K1〜K3** | AlphaZero パイプライン基盤 | コード採用、 モデル未達 |
+| **Gen-3-K4** | NN バッチ推論 (batch=16) | 学習速度 8x |
+| ~~Gen-3-K5~~ | NN 容量増 (77K params) | underfit、 不採用 |
+| ~~Gen-3-K6~~ | 多人数 value 出力 | 構造採用、 単独ではブラウザ未達 |
+| **az-v7** | K6 + 5000 games | vs smart 8%、 NN 系最強 |
+| ~~az-v8/v9~~ | virtual loss / tau 調整 | 大幅悪化、 不採用 |
+| ~~az-v10~~ | 1 から再学習 (6500 games) | 改善せず、 不採用 |
+| **Gen-3-L** | uctC grid search (√2 → 2.0) | vs smart **92.0%** (CI 87.4-95.0%) ← **ブラウザ反映、現状最強** |
