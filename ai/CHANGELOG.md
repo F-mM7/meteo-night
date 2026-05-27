@@ -134,15 +134,35 @@ Virtual loss（探索中の path に「最下位」-1 を仮想的に加算）�
 - 10 games × batch=16 で K7 (12.9 秒) と K8 (18 秒)、ほぼ同等の速度
 - examples 数は 1974 (K7) vs 2519 (K8) → K8 で探索範囲が広がっている可能性
 
-#### 進行中: az-v8 (az-v7 から warm-start + K8 + 5000 more games)
-- 設定: 200 games × 25 iter, batch=16, virtual loss、合計 10000 games (累積)
-- 予想時間 ~100 分
-- 完了後 vs smart x3 でベンチ → 採用判定
+#### az-v8 完了: virtual loss が逆効果（不採用、ロールバック）
+- 設定: 200 games × 25 iter, batch=16, **virtual loss=on**、az-v7 から warm-start
+- 学習時間 **127 分**、loss 1.95 → 1.55-1.61 と進行
+- ベンチ結果（vs smart 50局, seed=1001）:
+
+| 指標 | az-v7 (K6 + 5000g) | **az-v8 (K6 + 10000g + virtual loss)** | 判定 |
+|---|---|---|---|
+| 勝率 | 8% (4/50) | **0%** (0/50) | **大幅悪化** |
+| avgScore | 5.38 | 2.94 | -2.44 |
+| 期待順位 | 3.72 | **3.98** (ほぼ常に 4 位) | 悪化 |
+
+##### 採用判定: **不採用、ロールバック**
+
+##### 失敗原因の推定
+- virtual loss apply 中の selection で path 上のノードに「敗北前提」が積まれる
+- 同じ batch 内の他 iter が、同じ leaf を深掘りしない方向に誘導される
+- 結果として **探索の偏り**が学習データの偏りに繋がり、 方策が崩壊
+- 価値スケール [-1, +1] に対する loss -1 のスケールが過大だった可能性
+
+##### ロールバック内容
+- `NeuralMctsOptions.virtualLoss` フラグを追加（default `false`）
+- `applyVirtualLoss / unapplyVirtualLoss` のコード自体は保全
+- 将来 loss スケール調整（例: -0.3）で再評価可能
 
 ### メモ・現状の到達点
 - **NN 系の最強モデル**: az-v7（vs smart 8%、avgScore 5.38、未終了率 10%）
 - **ブラウザ反映には依然遠い**（Gen-3-F 89.5%）
 - **学習量を増やすと確実に向上**することは確認できた（+2pt/+4000 games の線形性）
+- **virtual loss は単純実装では逆効果**
 - 既存テスト 19/19 通過、型チェック OK
 
 ---

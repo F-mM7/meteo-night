@@ -35,11 +35,16 @@ export interface NeuralMctsOptions {
    * NN バッチ推論サイズ（Gen-3-K4）。
    * 1 ならば従来通り leaf ごとに 1 回 predict。
    * N (N >= 2) ならば N 個の独立 iter を並列に traverse し、まとめて 1 回 predict する。
-   * 効果: NN 呼び出し回数を 1/N に削減（推定 3-5x speedup）。
-   * 注意: virtual loss を実装していないので、同じ leaf に集中する可能性がある（mitigation:
-   *       各 iter は別 determinize seed を使うため、実質的には異なる leaf に到達することが多い）。
+   * 効果: NN 呼び出し回数を 1/N に削減（実測 ~8x speedup）。
    */
   batchSize?: number;
+  /**
+   * Gen-3-K8: Virtual loss を使うかどうか（default false）。
+   * batch 内で同じ leaf に集中するのを防ぐため探索中 path に「-1 (最下位)」を加算。
+   * しかし試行（az-v8）では vs smart 勝率が 8% → 0% に大幅悪化、 default off。
+   * 残置する理由: パラメータチューニング次第で再評価の余地があり、 機能を完全削除しない。
+   */
+  virtualLoss?: boolean;
 }
 
 export interface NeuralMctsResult {
@@ -193,6 +198,7 @@ export function decideActionNeural(
   const treeMaxDepth = options.treeMaxDepth ?? DEFAULT_TREE_MAX_DEPTH;
   const determinize = options.determinize ?? true;
   const batchSize = Math.max(1, options.batchSize ?? DEFAULT_BATCH_SIZE);
+  const useVirtualLoss = options.virtualLoss ?? false;
 
   const baseSeed = (seed ?? stateBaseSeed(state, playerId)) | 0;
 
@@ -370,10 +376,9 @@ export function decideActionNeural(
           leafLegal: r.leafLegal,
           leafNode: r.leafNode,
         });
-        // Gen-3-K8: Virtual loss を path 上に apply して、 同じ batch 内の後続 iter が
-        // 同じ leaf に集中しないようにする（exploration 促進）。
-        // 価値は [-1, +1] の rank-based、 -1 (最下位) を仮想的に加算 = 「負け前提」。
-        applyVirtualLoss(r.path);
+        // Gen-3-K8: useVirtualLoss=true のときのみ仮想 loss を apply（default off）。
+        // az-v8 検証で「学習データを偏らせて勝率を大幅悪化させる」と判明したため。
+        if (useVirtualLoss) applyVirtualLoss(r.path);
       } else {
         // terminal or cut: 即時 backprop（NN 不要）
         backprop(r.path, r.leafValuePerPlayer);
@@ -388,8 +393,8 @@ export function decideActionNeural(
       const { policies, values } = nnPredictBatch(model, stateVecs);
       for (let i = 0; i < expandList.length; i++) {
         const e = expandList[i];
-        // Gen-3-K8: 先程 apply した virtual loss を解除してから real backprop
-        unapplyVirtualLoss(e.path);
+        // Gen-3-K8: 先程 apply した virtual loss があれば解除してから real backprop
+        if (useVirtualLoss) unapplyVirtualLoss(e.path);
         // ノードがバッチ内の別 iter で既に expand 済みなら、priors を上書きしない
         if (e.leafNode.priors === null) {
           installPriors(e.leafNode, policies[i], e.leafLegal);
