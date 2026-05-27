@@ -1,5 +1,5 @@
 import type { Action, GameState } from '../game/types';
-import { reducer } from '../game/reducer';
+import { stepGame } from '../game/reducer';
 import { mulberry32 } from '../game/rng';
 import { decideAction as decideRandom } from './randomAI';
 import { decideAction as decideSmart } from './smartAI';
@@ -13,6 +13,7 @@ import { determinizeDeck, observationKey } from './infoSet';
 
 const DEFAULT_ITERATIONS = 400;
 const DEFAULT_UCT_C = 1.4142135;
+const DEFAULT_PB_C = 1.5;
 const DEFAULT_ROLLOUT_MAX_STEPS = 400;
 const DEFAULT_TREE_MAX_DEPTH = 50;
 const DEFAULT_LEAF_EVAL_SCALE = 1500;
@@ -32,6 +33,16 @@ export interface MctsOptions {
    */
   leafEval?: LeafEvalMode;
   leafEvalScale?: number;
+  /**
+   * Progressive Bias (PUCT) を有効にする。デフォルト false（Gen-3-C で不採用となったため）。
+   *   - true: 子アクションの prior を事前計算し、PUCT 風スコア Q + C·P·√N/(1+n) で選択
+   *   - false: 旧来の UCT1 (Q + C·√(lnN/n))、未訪問は random 展開
+   *
+   * Note: 機能自体は残してあるため、prior の与え方や pbC のチューニングで再挑戦可能。
+   * 直接使う場合は `decideMcts(state, pid, undefined, { progressiveBias: true, pbC: ... })`
+   */
+  progressiveBias?: boolean;
+  pbC?: number;
 }
 
 interface NodeStats {
@@ -39,6 +50,8 @@ interface NodeStats {
   total: number;
   visits: Int32Array;
   values: Float64Array;
+  /** Progressive Bias 用の prior。lazy 初期化。null なら未計算。 */
+  priors: Float64Array | null;
 }
 
 function currentActorId(state: GameState): number {
@@ -99,7 +112,7 @@ function rolloutToEnd(
     const action = rolloutPolicy(s, seed);
     if (!action) break;
     const before = s;
-    s = reducer(s, action);
+    s = stepGame(s, action);
     if (s === before) break;
   }
   return s;
@@ -145,12 +158,69 @@ function uctSelect(node: NodeStats, legal: number[], c: number): number {
   return bestId;
 }
 
+/**
+ * PUCT 風選択: Score(a) = Q(a) + C * P(a) * sqrt(N) / (1 + n(a))
+ * 未訪問アクションも prior に基づき順序付けられるため、別途 "unvisited を random 展開" のロジックは不要。
+ */
+function puctSelect(node: NodeStats, legal: number[], c: number): number {
+  let bestId = legal[0];
+  let bestScore = -Infinity;
+  const sqrtN = Math.sqrt(Math.max(1, node.total));
+  const priors = node.priors;
+  for (const aid of legal) {
+    const n = node.visits[aid];
+    const q = n > 0 ? node.values[aid] / n : 0;
+    const p = priors ? priors[aid] : 0;
+    const u = c * p * sqrtN / (1 + n);
+    const score = q + u;
+    if (score > bestScore) {
+      bestScore = score;
+      bestId = aid;
+    }
+  }
+  return bestId;
+}
+
+/**
+ * 各 legal action を一手だけ仮実行し、actor 視点の leaf 評価値を prior として格納する。
+ * ノード初回利用時に lazy で呼ぶ。
+ */
+function computePriors(
+  state: GameState,
+  actor: number,
+  legal: number[],
+  scale: number,
+  numPlayers: number
+): Float64Array {
+  const priors = new Float64Array(ACTION_SPACE_SIZE);
+  for (const aid of legal) {
+    const action = actionIdToAction(state, actor, aid);
+    if (!action) continue;
+    let nextState: GameState;
+    try {
+      nextState = stepGame(state, action);
+    } catch {
+      continue;
+    }
+    if (nextState === state) continue;
+    if (nextState.phase === 'gameOver') {
+      const ranking = computeRanking(nextState);
+      priors[aid] = rankToValue(ranking[actor], numPlayers);
+    } else {
+      const raw = evaluateState(nextState, actor);
+      priors[aid] = Math.tanh(raw / scale);
+    }
+  }
+  return priors;
+}
+
 function createNode(actor: number): NodeStats {
   return {
     actor,
     total: 0,
     visits: new Int32Array(ACTION_SPACE_SIZE),
     values: new Float64Array(ACTION_SPACE_SIZE),
+    priors: null,
   };
 }
 
@@ -193,6 +263,8 @@ export function decideAction(
   const determinize = options.determinize ?? true;
   const leafEval: LeafEvalMode = options.leafEval ?? 'evaluator';
   const leafEvalScale = options.leafEvalScale ?? DEFAULT_LEAF_EVAL_SCALE;
+  const progressiveBias = options.progressiveBias ?? false;
+  const pbC = options.pbC ?? DEFAULT_PB_C;
 
   const baseSeed = (seed ?? stateBaseSeed(state, playerId)) | 0;
 
@@ -233,15 +305,25 @@ export function decideAction(
       const node = getOrCreateNode(s, actor);
 
       let chosen: number;
-      const unvisited: number[] = [];
-      for (const aid of legal) {
-        if (node.visits[aid] === 0) unvisited.push(aid);
-      }
-      if (unvisited.length > 0) {
-        chosen = unvisited[Math.floor(searchRng() * unvisited.length)];
-        expanded = true;
+      if (progressiveBias) {
+        if (!node.priors) {
+          node.priors = computePriors(s, actor, legal, leafEvalScale, numPlayers);
+        }
+        chosen = puctSelect(node, legal, pbC);
+        // PUCT は未訪問アクションも prior 順で扱うため、unvisited を別途 random 展開する必要はない。
+        // expansion 判定は「初めてこの node.visits[chosen] が 0 だった場合」とする
+        if (node.visits[chosen] === 0) expanded = true;
       } else {
-        chosen = uctSelect(node, legal, uctC);
+        const unvisited: number[] = [];
+        for (const aid of legal) {
+          if (node.visits[aid] === 0) unvisited.push(aid);
+        }
+        if (unvisited.length > 0) {
+          chosen = unvisited[Math.floor(searchRng() * unvisited.length)];
+          expanded = true;
+        } else {
+          chosen = uctSelect(node, legal, uctC);
+        }
       }
 
       const action = actionIdToAction(s, actor, chosen);
@@ -249,10 +331,10 @@ export function decideAction(
       path.push({ node, aid: chosen });
 
       const before = s;
-      s = reducer(s, action);
+      s = stepGame(s, action);
       if (s === before) break;
 
-      if (expanded) break; // 未訪問 1 個だけ展開して rollout へ
+      if (expanded) break;
     }
 
     const leafState = s;

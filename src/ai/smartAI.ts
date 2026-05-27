@@ -1,5 +1,5 @@
 import type { Action, GameState, GiftAssignment, Player } from '../game/types';
-import { reducer } from '../game/reducer';
+import { stepGame } from '../game/reducer';
 import { mulberry32, shuffle } from '../game/rng';
 import { evaluateState, topColorCounts } from './evaluator';
 
@@ -120,7 +120,7 @@ function evaluateUnknownDraw(
     const rand = mulberry32((baseSeed + Math.imul(i + 1, 0x9e3779b1)) | 0);
     const shuffled = shuffle(state.deck, rand);
     const reshuffled: GameState = { ...state, deck: shuffled };
-    const next = reducer(reshuffled, action);
+    const next = stepGame(reshuffled, action);
     total += evaluateState(next, playerId);
   }
   return total / samples;
@@ -153,7 +153,7 @@ export function decideAction(
       if (action.type === 'DRAW_FROM_DECK' || action.type === 'CHOOSE_ADDITIONAL_DRAW') {
         score = evaluateUnknownDraw(state, action, playerId, baseSeed);
       } else {
-        const nextState = reducer(state, action);
+        const nextState = stepGame(state, action);
         score = evaluateState(nextState, playerId);
       }
     } catch {

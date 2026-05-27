@@ -21,6 +21,7 @@
  *     - 期待順位（1位=1, 2位=2, ...）
  *     - 順位分布
  */
+import { readFileSync } from 'node:fs';
 import {
   CommonArgs,
   GameResult,
@@ -29,6 +30,7 @@ import {
   rotateSeats,
   StrategyName,
 } from './_runner';
+import { setEvalWeights } from '../../src/ai/evaluator';
 
 interface StratStat {
   games: number;
@@ -57,16 +59,30 @@ function printUsage(): void {
 
 Options:
   --games <n>             games per run (default: 200)
-  --strategies <list>     4 of: random | smart | mcts | mctsRollout (default: smart,random,random,random)
+  --strategies <list>     4 of: random | smart | mcts | mctsRollout | mctsPuct | mctsTuned (default: smart,random,random,random)
   --seed <n>              base seed (default: 1)
   --rotate                rotate seats each game (removes seat bias)
   --max-steps <n>         safety bound per game (default: 5000)
   --silent                suppress per-game logs
-  --json                  emit JSON summary to stdout`);
+  --json                  emit JSON summary to stdout
+  --weights <path>        load EvalWeights from JSON (e.g. tune-es output)`);
+}
+
+function loadWeightsArg(argv: string[]): string[] {
+  const idx = argv.indexOf('--weights');
+  if (idx < 0) return argv;
+  const path = argv[idx + 1];
+  if (!path) throw new Error('--weights requires a path argument');
+  const raw = readFileSync(path, 'utf-8');
+  const parsed = JSON.parse(raw);
+  const weights = parsed.weights ?? parsed;
+  setEvalWeights(weights);
+  console.error(`[bench] loaded weights from ${path}`);
+  return [...argv.slice(0, idx), ...argv.slice(idx + 2)];
 }
 
 function main(): void {
-  const argv = process.argv.slice(2);
+  const argv = loadWeightsArg(process.argv.slice(2));
   if (argv.includes('--help') || argv.includes('-h')) {
     printUsage();
     return;

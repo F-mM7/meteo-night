@@ -59,7 +59,7 @@ npx tsx ai/scripts/bench.ts --games 200 --strategies smart,random,random,random
 | 0 | 学習基盤（決定論 RNG、エンコーディング、行動空間、self-play / bench CLI） | **完了 (Gen-0)** |
 | 1 | IS-MCTS（randomAI を rollout policy として利用） | **完了 (Gen-1)**：vs smart で勝率 56% |
 | 1-B | IS-MCTS の leaf 評価関数化（`evaluateState` を tanh 圧縮）| **完了 (Gen-2)**：vs smart で勝率 83.5%、1 手 4.15 ms |
-| 2 | 評価関数の重み自動チューニング（CMA-ES） | 未着手 |
+| 2 | 評価関数の重み自動チューニング（(1+1)-ES） | **完了 (Gen-3-B / Gen-3-B-2 / Gen-3-F)**：vs smart で勝率 89.5%、1 手 2.09 ms（ブラウザ反映済み） |
 | 3 | AlphaZero 風（tfjs-node-gpu で学習 → tfjs ブラウザで推論） | 未着手 |
 | 4 | プレゼント選択の別ヘッド化 | 未着手 |
 
@@ -67,7 +67,27 @@ npx tsx ai/scripts/bench.ts --games 200 --strategies smart,random,random,random
 
 | 候補 | 仮説 | 期待効果 |
 |---|---|---|
-| Gen-3-A: iterations を 400 → 1000 に増やす | leaf eval が高速なので探索量で押せる | vs smart 勝率の更なる上昇（限界に近いかも） |
-| Gen-3-B: CMA-ES で evaluator 重みを最適化（フェーズ 2） | leaf 評価が直接効くため重み調整の効果大 | vs smart で +α、smartAI 単体も同時強化 |
-| Gen-3-C: progressive bias（事前知識を UCT に組み込む） | 訪問初期に evaluator の値を bias として加える | サンプル効率向上、収束高速化 |
+| ~~Gen-3-A: iterations 400 → 1000~~ | leaf eval が決定論的なので飽和済み | **不採用済み** |
+| ~~Gen-3-C: progressive bias / PUCT~~ | 短期視点 prior が悪手 | **不採用済み**（勝率 -32.5pt） |
+| ~~Gen-3-B: (1+1)-ES で evaluator 重み最適化~~ | leaf 評価の質を上げる | **採用済み**（勝率 +4.5pt、ブラウザ反映済み） |
+| ~~Gen-3-B-2: warm-start ES~~ | 別 seed で局所最適脱出 | **採用済み**（勝率 +1pt、改善幅は逓減） |
+| ~~Gen-3-E: selfNearEnd 追加 + ES~~ | 終局意識の特徴量 | **不採用**（過学習、-3.5pt） |
+| ~~Gen-3-F: 本格 warm-start ES (100局/世代)~~ | noise 削減で真の改善検出 | **採用済み**（勝率 +0.5pt、1 手 -13% 高速化） |
+| ~~Gen-3-G: smart gift heuristic 改修~~ | hasNoMoreTurns で target をフィルタ | **不採用**（smart 強化が副作用、-1.5pt）|
+| ~~Gen-3-G-2: mcts 専用 gift heuristic~~ | mcts だけに hasNoMoreTurns 適用 | **不採用**（mcts simulation で gift selection を扱えない、-1pt）|
+| ~~Gen-3-H: simulation 内 gift selection を smart heuristic で自動進行~~ | shrink で gift selection を越える | **不採用**（smart 妨害的すぎてシミュ評価が悲観化、-1.5pt）|
+| Gen-3-I: simulation 内 gift selection を **中立 policy**（random）で進行 | smart heuristic の偏りを避ける | 軽量検証、Gen-3-H の派生 |
+| Gen-3-B-3: per-AI weights | mcts と smart で別 weights を使う設計 | 「mcts を強くする」直接最適化が可能に |
 | Gen-3-D: フェーズ 3 として AlphaZero 風（NN）| 方策/価値ネットの学習 | 大幅強化（実装コスト高、Python or tfjs-node-gpu） |
+
+### `mctsTuned` と `--weights` の使い方
+
+```bash
+# Gen-3-B の重みを bench 全体に適用
+npx tsx ai/scripts/bench.ts --weights ai/data/tuned-weights.json \
+  --games 200 --strategies mcts,smart,smart,smart --rotate --seed 1001
+
+# mcts だけ tuned で動かす（ラッパー戦略）
+npx tsx ai/scripts/bench.ts \
+  --games 200 --strategies mctsTuned,smart,smart,smart --rotate --seed 1001
+```

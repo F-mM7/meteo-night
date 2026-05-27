@@ -1,22 +1,50 @@
 import { setupGame } from '../../src/game/setup';
-import { reducer } from '../../src/game/reducer';
+import { stepGame } from '../../src/game/reducer';
 import type { Action, GameState } from '../../src/game/types';
 import { decideAction as decideSmart } from '../../src/ai/smartAI';
 import { decideAction as decideRandom } from '../../src/ai/randomAI';
 import { decideAction as decideMcts } from '../../src/ai/mctsAI';
+import { setEvalWeights, DEFAULT_WEIGHTS } from '../../src/ai/evaluator';
+import { GEN_3B_WEIGHTS } from '../../src/ai/tunedWeights';
 
-export type StrategyName = 'random' | 'smart' | 'mcts' | 'mctsRollout';
+export type StrategyName =
+  | 'random'
+  | 'smart'
+  | 'mcts'
+  | 'mctsRollout'
+  | 'mctsPuct'
+  | 'mctsTuned';
 
 export type Decider = (state: GameState, playerId: number) => Action | null;
 
 const decideMctsRollout: Decider = (state, playerId) =>
   decideMcts(state, playerId, undefined, { leafEval: 'rollout', iterations: 100 });
 
+// Gen-3-C で不採用となった PUCT 版（progressive bias）。比較・再挑戦用に保持。
+const decideMctsPuct: Decider = (state, playerId) =>
+  decideMcts(state, playerId, undefined, { progressiveBias: true });
+
+/**
+ * Gen-3-B で採用された tuned weights を、決定の前後で set/reset する mcts。
+ * Note: setEvalWeights はモジュール global state を変えるため、
+ * 同一ベンチ内で他の戦略にも影響しうる。`--weights` フラグでベンチ全体を
+ * 統一する方が望ましい。本ラッパーは「他の戦略は default のままで、
+ * mcts だけ tuned で動く」状況の再現用。
+ */
+const decideMctsTuned: Decider = (state, playerId) => {
+  setEvalWeights(GEN_3B_WEIGHTS);
+  const action = decideMcts(state, playerId);
+  setEvalWeights(DEFAULT_WEIGHTS);
+  return action;
+};
+
 export const STRATEGIES: Record<StrategyName, Decider> = {
   random: decideRandom,
   smart: decideSmart,
   mcts: decideMcts,
   mctsRollout: decideMctsRollout,
+  mctsPuct: decideMctsPuct,
+  mctsTuned: decideMctsTuned,
 };
 
 export function isStrategyName(s: string): s is StrategyName {
@@ -92,7 +120,7 @@ export function playOneGame({
       break;
     }
     const before = state;
-    state = reducer(state, action);
+    state = stepGame(state, action);
     if (state === before) {
       break;
     }

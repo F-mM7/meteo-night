@@ -25,7 +25,7 @@ function printUsage(): void {
 
 Options:
   --games <n>             games per run (default: 10)
-  --strategies <list>     comma-separated 4 of: random | smart | mcts | mctsRollout (default: smart x4)
+  --strategies <list>     comma-separated 4 of: random | smart | mcts | mctsRollout | mctsPuct | mctsTuned (default: smart x4)
   --seed <n>              base seed (default: 42)
   --max-steps <n>         safety bound per game (default: 5000)
   --silent                suppress per-game logs
