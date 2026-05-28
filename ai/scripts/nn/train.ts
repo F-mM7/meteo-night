@@ -20,7 +20,7 @@
  */
 import { promises as fs } from 'node:fs';
 import { existsSync } from 'node:fs';
-import * as tf from '@tensorflow/tfjs-node';
+import * as tf from '@tensorflow/tfjs-node-gpu';
 import {
   compileForTraining,
   createModel,
@@ -29,6 +29,7 @@ import {
   type MeteoAzModel,
 } from './model';
 import { generateDataset, generateDatasetWithModel, type LearnerExample } from './dataset';
+import { parseFloatArg, parseIntArg } from '../_runner';
 
 type SelfPlayMode = 'mcts' | 'neural';
 
@@ -77,22 +78,22 @@ function parseArgs(argv: string[]): Args {
     const a = argv[i];
     switch (a) {
       case '--games':
-        args.games = Number(argv[++i]);
+        args.games = parseIntArg('--games', argv[++i]);
         break;
       case '--iter':
-        args.iter = Number(argv[++i]);
+        args.iter = parseIntArg('--iter', argv[++i]);
         break;
       case '--batch':
-        args.batch = Number(argv[++i]);
+        args.batch = parseIntArg('--batch', argv[++i]);
         break;
       case '--epochs':
-        args.epochs = Number(argv[++i]);
+        args.epochs = parseIntArg('--epochs', argv[++i]);
         break;
       case '--lr':
-        args.lr = Number(argv[++i]);
+        args.lr = parseFloatArg('--lr', argv[++i]);
         break;
       case '--seed':
-        args.seed = Number(argv[++i]);
+        args.seed = parseIntArg('--seed', argv[++i]);
         break;
       case '--out':
         args.out = argv[++i];
@@ -107,16 +108,16 @@ function parseArgs(argv: string[]): Args {
         break;
       }
       case '--tau':
-        args.policyTemperature = Number(argv[++i]);
+        args.policyTemperature = parseFloatArg('--tau', argv[++i]);
         break;
       case '--mcts-batch':
-        args.mctsBatchSize = Number(argv[++i]);
+        args.mctsBatchSize = parseIntArg('--mcts-batch', argv[++i]);
         break;
       case '--hidden-units':
-        args.hiddenUnits = Number(argv[++i]);
+        args.hiddenUnits = parseIntArg('--hidden-units', argv[++i]);
         break;
       case '--hidden-layers':
-        args.hiddenLayers = Number(argv[++i]);
+        args.hiddenLayers = parseIntArg('--hidden-layers', argv[++i]);
         break;
       case '--copy-to-public':
         args.copyToPublic = argv[++i];

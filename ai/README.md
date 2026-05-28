@@ -30,8 +30,13 @@
 
 ### GPU 環境
 - **ハードウェア**: NVIDIA RTX 4080 (16 GB VRAM)、 WSL2 経由で利用可
-- **依存関係**: CUDA 11.8 + cuDNN 8（未インストール）→ **セットアップ手順は `docs/GPU_SETUP.md`**
-- 現状の学習: CPU 版 `@tensorflow/tfjs-node` で実行（GPU 未活用）
+- **依存関係**: CUDA 11.8 runtime ライブラリ + cuDNN 8.9.2（インストール済み）→ 詳細は `docs/GPU_SETUP.md`
+- **tfjs-node-gpu 4.22.0**: GPU 認識成功、 13.5 GB VRAM 利用可
+- `ai/scripts/nn/{model,train,neuralMcts}.ts` は `@tensorflow/tfjs-node-gpu` を使用
+- ⚠️ **現状の AlphaZero パイプラインでは GPU の実効果は 0.9-1.1x**（self-play の mcts-batch=16 が PCIe 律速のため）
+  - 純粋な forward pass では GPU 2x 速い（batch 16-64）
+  - 真価を出すには parallel self-play / virtual loss / 大規模モデル化が必要
+  - 開発中は `CUDA_VISIBLE_DEVICES=-1` で CPU 実行しても同等速度
 
 ### ブラウザ統合の準備状況（Gen-3-K9）
 
@@ -86,7 +91,8 @@ NN 学習の最強モデルが Gen-3-F に届いていないため、ブラウ�
 | 2-extra | per-AI weights 構造（mcts/smart で別重み）| **完了 (Gen-3-J)**：構造採用、 ブラウザ DEFAULT は据置 |
 | 2-L | MCTS 探索ハイパラ `uctC` の grid 最適化 | **完了 (Gen-3-L)**：vs smart 92.0% ← **ブラウザ反映済み** |
 | 3 | AlphaZero 風（tfjs-node で学習 → tfjs ブラウザで推論） | **基盤完成 (Gen-3-K1〜K4)**：パイプライン動作確認済み、 最強 az-v7 でも vs smart 8% |
-| 3-GPU | GPU 学習環境セットアップ | **準備中**（`docs/GPU_SETUP.md` 参照） |
+| 3-GPU | GPU 学習環境セットアップ | **完了 (Gen-3-K10)**：環境構築 OK だが現行コードでは効果なし、 アルゴリズム改良待ち |
+| 3-K11+ | parallel self-play / virtual loss 正実装 | **未着手**（GPU を活かす次手） |
 | 4 | プレゼント選択の別ヘッド化 | 未着手 |
 
 ---
@@ -199,3 +205,4 @@ npx tsx ai/scripts/bench-neural.ts ai/models/az-vN \
 | ~~az-v8/v9~~ | virtual loss / tau 調整 | 大幅悪化、 不採用 |
 | ~~az-v10~~ | 1 から再学習 (6500 games) | 改善せず、 不採用 |
 | **Gen-3-L** | uctC grid search (√2 → 2.0) | vs smart **92.0%** (CI 87.4-95.0%) ← **ブラウザ反映、現状最強** |
+| ~~Gen-3-M~~ | leafEvalScale grid search | 現状 1500 が grid 内ピーク、不採用 |

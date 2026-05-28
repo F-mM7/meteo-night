@@ -44,6 +44,84 @@
 
 ---
 
+## Gen-3-K10: GPU 学習環境セットアップ完了 (環境構築 OK、 現行コードでは効果なし) (2026-05-28)
+
+### Step 0: ルール変更チェック
+HEAD = 3f0158b 以降コミット無し、変化なし。
+
+### 背景
+これまで全 NN 学習は CPU 版 tfjs-node で実施。 ハードウェア (RTX 4080 16 GB) は利用可能だが、 ライブラリ依存（CUDA 11.8 + cuDNN 8）が未整備で GPU を活用できていなかった。
+大規模学習 (10K+ games) を見据えて GPU セットアップを完了し、 同時に現実的な speedup を実測する。
+
+### 環境整備
+
+#### CUDA 11.8 ライブラリ
+- `cuda-toolkit-11-8`（フル）は Ubuntu 24.04 で `libtinfo5` 依存が解決できず失敗
+- 個別パッケージ指定で回避: `cuda-cudart-11-8`, `libcublas-11-8`, `libcufft-11-8`, `libcurand-11-8`, `libcusolver-11-8`, `libcusparse-11-8`, `libnpp-11-8`, `cuda-nvrtc-11-8`
+- `/usr/local/cuda-11.8/lib64/` に配置
+
+#### cuDNN 8.9.2
+- `libcudnn8` パッケージは Ubuntu 24.04 標準リポジトリに存在せず
+- Ubuntu Noble 公式の `nvidia-cudnn` パッケージ（install script 形式）+ `/usr/sbin/update-nvidia-cudnn -u` で NVIDIA から tarball 取得・展開
+- `/usr/lib/x86_64-linux-gnu/libcudnn.so.8.9.2` 配置成功
+
+#### tfjs-node-gpu 動作確認
+```
+Created device /job:localhost/replica:0/task:0/device:GPU:0 with 13508 MB memory:
+  -> device: 0, name: NVIDIA GeForce RTX 4080, pci bus id: 0000:01:00.0, compute capability: 8.9
+```
+
+### コード変更
+`ai/scripts/nn/{model,train,neuralMcts}.ts` の import を `@tensorflow/tfjs-node` → `@tensorflow/tfjs-node-gpu` に統一。
+GPU 環境では GPU、 GPU 不在環境では CPU fallback で同じスクリプトが動く（前回の Gen-3-K3 smoke で確認した挙動）。
+
+### ベンチ結果 (1): 推論 forward pass（hidden=256×2）
+
+| batch | GPU ms/step | CPU ms/step | GPU/CPU |
+|---|---|---|---|
+| 1 | 0.84 | 2.08 | **2.5x** |
+| 16 | 0.81 | 1.52 | **1.9x** |
+| 64 | 2.25 | 5.19 | **2.3x** |
+| 256 | 9.50 | 13.80 | **1.5x** |
+| 1024 | 48.99 | 45.39 | 0.93x |
+
+→ 純粋な forward pass では batch 16-64 で GPU が約 2x 速い。
+
+### ベンチ結果 (2): 実 self-play（train.ts, 5 games × 1 iter, mcts-batch=16）
+
+| モデル | GPU 所要 | CPU 所要 | GPU/CPU |
+|---|---|---|---|
+| 小 (hidden=64×2, 18K params, az-v10 init) | 6.7s | 7.4s | 1.10x |
+| 中 (hidden=256×3, 188K params, 新規 init) | 7.95s | 7.39s | **0.93x（CPU 速い）** |
+
+→ **train.ts 経由では GPU の効果がほぼ消える**。
+
+### 効果消滅の原因分析
+
+- self-play 中の予測は MCTS のリーフ展開ごとに `mcts-batch=16` の小バッチで呼ばれる
+- 純粋な GPU 計算時間 (~1 ms) に対して、 GPU memory 転送 + TF runtime overhead が支配的になる
+- batch=1024 まで束ねれば GPU の transfer/compute 比が改善するが、 そこまでバッチを積むには parallel self-play が必須
+- 188K params 程度では Tensor Core が活躍するほど計算負荷が高くない
+
+### 採用判定
+**採用**（環境構築のみ）。 学習速度の改善効果は ~10% にとどまるが、 後続 Gen-3-K11+ の前提条件として必要。
+
+### 次の手（Gen-3-K11 以降の候補）
+
+| 改良案 | 期待 speedup | 実装難度 |
+|---|---|---|
+| **parallel self-play** （N games 同時並行 → 1 predict で N×mcts-batch サンプル） | 3-5x | 中（neuralMcts と train.ts の構造改修） |
+| **virtual loss 正しい実装**（K8 で 1 度失敗、 同一 node からの multi-leaf 並列展開） | 2x | 中 |
+| **大規模モデル**（hidden=512×6, 1M+ params） | 中（GPU 計算律速に入る） | 低（CLI 引数で可） |
+| **mcts-batch=64+** | 1.2-1.5x | 低 |
+
+### メモ
+- GPU 環境構築は時間投資の割に直接の効果が薄い結果になった。 ただし K11+ の改良はこの環境が無いとそもそも実験できない
+- 開発中は `CUDA_VISIBLE_DEVICES=-1` で CPU 実行可。 現行コードでは速度差ほぼ無いので CPU での反復開発に支障なし
+- 過去の `tfjs-node` → `tfjs-node-gpu` 変更は **import 行のみで API は同一**。 ロールバックも容易
+
+---
+
 ## Gen-3-K9: ブラウザ統合の準備 (NN を反映できる状態にする、 強さは未変化) (2026-05-28)
 
 ### Step 0: ルール変更チェック
@@ -106,6 +184,71 @@ NN モデル本体は az-v7 が現状最強だが vs smart 8% で Gen-3-F (89.5%
 - UI / App.tsx には触っていない。 強いモデル完成時にユーザーが UI 側で `loadNeuralAI` を呼ぶだけで切替可能
 - フォールバック設計のおかげで「モデルロード失敗 → mctsAI で続行」になるので、 配信ミスがあってもゲームは動く
 - 動的 import で別 chunk 化しているため、 初回ロード遅延ゼロ。 NN ボタンを押した時など必要時にだけ tfjs を取りに行く形に発展させやすい
+
+---
+
+## Gen-3-M: `leafEvalScale` の grid 最適化（不採用、現状 1500 が既にピーク） (2026-05-28)
+
+### Step 0: ルール変更チェック
+HEAD = 5bd9c72。前回 Gen-3-L (88af4cc) 以降の `src/game/` / `docs/RULES.md` 変更なし。
+中間コミット `ede4368` (Gen-3-K9 NN AI ブラウザ統合) は `src/ai/neuralAI.ts` / `index.ts` のみで手書き AI に影響なし。
+過去のベンチ結果は引き続き有効、Gen-3-L のベースライン (vs smart x3 = 92.0%) で進行。
+
+### 仮説
+- `DEFAULT_LEAF_EVAL_SCALE = 1500` は Gen-2 の経験則で導入されたきり untuned
+- Gen-3-L で `uctC = 2.0` に変わり「広く探索する」シフトが起きたため、leaf 評価感度（tanh の傾き）と相互作用する `leafEvalScale` の最適点も移動した可能性
+- 期待: +0.5〜+2.0pt
+
+### 実装
+- `ai/scripts/grid-eval-scale.ts` を新規作成（`grid-uct.ts` のテンプレートを再利用）
+- mctsAI に `{ leafEvalScale }` だけを options で渡し、 grid 8 候補を順に評価
+- 評価関数の重み・他ハイパラ（uctC = 2.0 含む）は全て据置
+
+### Grid Search 結果（100 局 × 8 候補, seed=1001, mcts vs smart x3, rotate）
+
+| leafEvalScale | 勝率 | 95%CI | avgScore | 期待順位 |
+|---|---|---|---|---|
+| 300 | 86.0% | 77.9-91.5% | 20.52 | 1.17 |
+| 600 | 82.0% | 73.3-88.3% | 20.30 | 1.22 |
+| 1000 | 83.0% | 74.5-89.1% | 20.46 | 1.22 |
+| **1500 (現状)** | **94.0%** | **87.5-97.2%** | **21.11** | **1.09** |
+| 2200 | 90.0% | 82.6-94.5% | 20.88 | 1.10 |
+| 3000 | 92.0% | 85.0-95.9% | 21.01 | 1.08 |
+| 5000 | 93.0% | 86.3-96.6% | 20.99 | 1.08 |
+| 8000 | 89.0% | 81.4-93.7% | 20.88 | 1.11 |
+
+**現状 1500 が grid 内ピーク**。 上 (5000=93%) と下 (1000=83%) には改善候補なし。
+1500 周辺 (1500 / 2200 / 3000 / 5000) は CI が大きく重なるが、 1500 が CI 下限・勝率ともに最高。
+`leafEvalScale ≤ 1000` は明確に悪化（tanh 飽和で leaf 評価の差が見えなくなる方向）。
+
+### 仮説の再解釈
+
+`evaluateState` の生値レンジは ~±2000。 `tanh(2000/1500) ≈ 0.87` で **飽和直前の感度ピーク領域** にちょうど当たっていた。
+- scale が小さすぎる (≤1000): tanh が飽和して微妙な差が見えない
+- scale が大きすぎる (≥3000): tanh が線形範囲に入りすぎて、 leaf 評価差が薄まり MCTS が判断しにくくなる
+
+Gen-2 の「経験則 1500」は **実は的を射た値** だった。 `uctC` と `leafEvalScale` は独立に最適化可能で、 `uctC = 2.0` への変更後も `leafEvalScale = 1500` が依然として最適。
+
+### 採用判定
+**不採用、 ブラウザ反映なし、 コード変更なし**
+
+スキル採用基準「現状最強モデルの CI 下限 (87.4%) を超える候補」が grid 内に存在せず、 ベースライン (1500) がピークのまま。 ホールドアウト 200 局確認は省略（grid 100 局の 1500 結果 94% が前回 Gen-3-L の seed=1001 200 局結果 92% と整合的、 再現性は前回確認済み）。
+
+### メモ・学び（重要）
+- **「untuned」と「経験則で良い値」は別物**。 Gen-3-L の `uctC = √2` は untuned かつ最適値でなかった一方、 `leafEvalScale = 1500` は untuned だが最適値だった
+- **改善候補の確認に grid search は安価**: 8 候補 × 100 局 = ~7 分で「もう動かす余地なし」と確定できた。 不採用結果でも学びとして残せる
+- **次の方向性（更新）**:
+  - `iterations` (現状 400) を 600〜1000 で再評価。 Gen-3-A で 1000 = 飽和判定されたが、 当時は `uctC = √2`。 `uctC = 2.0` で探索方法が変わったため再評価の価値あり
+  - `treeMaxDepth` (現状 50) は十分大きく、 改善余地は低い
+  - 評価関数の構造拡張（Gen-3-E 失敗を踏まえ、 単一特徴量追加は避ける）
+  - mcts vs mcts 自己対戦 fitness で重み再 ES（Gen-3-J の per-AI weights を活かす）
+- `ai/data/grid-eval-scale-gen3M.log` に grid 全ログ保存（gitignore 配下）
+- 残置物: `ai/scripts/grid-eval-scale.ts` は新規追加するが、 将来の再評価（uctC 別値で leafEvalScale を再 grid したい等）に使い回せる
+
+### チェックリスト
+- [x] `npx tsc -p ai/tsconfig.json --noEmit` 通過
+- [x] grid 8 候補で測定、 結果を CHANGELOG に全件記載
+- [x] 再現性チェック: 1500 の grid 結果 (94%) と前回 Gen-3-L 100 局結果 (94%) が一致
 
 ---
 

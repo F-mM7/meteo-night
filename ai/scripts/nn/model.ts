@@ -13,7 +13,7 @@
  *   - neuralMcts は path の各 actor について value[actor] を取り出して backup
  *   - 既存 az-v1〜v4 とは互換性なし（load 不能）
  */
-import * as tf from '@tensorflow/tfjs-node';
+import * as tf from '@tensorflow/tfjs-node-gpu';
 import { ENCODING_SIZE } from '../../../src/ai/encoding';
 import { ACTION_SPACE_SIZE } from '../../../src/ai/actionSpace';
 

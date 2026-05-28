@@ -8,7 +8,7 @@
  * AlphaZero と同じ「方策ネット + 価値ネット + MCTS」構成の最小実装。
  * 本実装は tfjs-node を直接 import するため学習側専用。ブラウザ移植は別途。
  */
-import * as tf from '@tensorflow/tfjs-node';
+import * as tf from '@tensorflow/tfjs-node-gpu';
 import type { Action, GameState } from '../../../src/game/types';
 import { stepGame } from '../../../src/game/reducer';
 import { decideAction as decideSmart } from '../../../src/ai/smartAI';
