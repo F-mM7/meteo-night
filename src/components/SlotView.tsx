@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { Card, Slot } from '../game/types';
 import { CardView } from './CardView';
-import { STACK_MAX_SPAN_RATIO } from '../hooks/boardLayout';
+import { CARD_FADE_DURATION_MS, STACK_MAX_SPAN_RATIO } from '../hooks/boardLayout';
 
 export type StackDirection = 'down' | 'up' | 'left' | 'right';
 
@@ -43,7 +43,6 @@ interface FadingCard {
   reason: FadeReason;
 }
 
-const FADE_DURATION_MS = 700;
 const PLACE_DURATION_MS = 400;
 
 export function SlotView({
@@ -97,7 +96,7 @@ export function SlotView({
           setFadingCards((curr) =>
             curr.filter((f) => !newFading.some((nf) => nf.card.id === f.card.id))
           );
-        }, FADE_DURATION_MS)
+        }, CARD_FADE_DURATION_MS)
       );
     }
 

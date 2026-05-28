@@ -39,6 +39,7 @@ import {
   type EvalWeights,
 } from '../../src/ai/evaluator';
 import { mulberry32 } from '../../src/game/rng';
+import { parseFloatArg, parseIntArg } from './_runner';
 
 type OpponentName = 'smart' | 'random';
 
@@ -187,16 +188,16 @@ function parseArgs(argv: string[]): Args {
     const a = argv[i];
     switch (a) {
       case '--gens':
-        args.gens = Number(argv[++i]);
+        args.gens = parseIntArg('--gens', argv[++i]);
         break;
       case '--games':
-        args.games = Number(argv[++i]);
+        args.games = parseIntArg('--games', argv[++i]);
         break;
       case '--seed':
-        args.seed = Number(argv[++i]);
+        args.seed = parseIntArg('--seed', argv[++i]);
         break;
       case '--sigma':
-        args.sigma = Number(argv[++i]);
+        args.sigma = parseFloatArg('--sigma', argv[++i]);
         break;
       case '--opponent': {
         const v = argv[++i];
@@ -208,7 +209,7 @@ function parseArgs(argv: string[]): Args {
         args.out = argv[++i];
         break;
       case '--max-steps':
-        args.maxSteps = Number(argv[++i]);
+        args.maxSteps = parseIntArg('--max-steps', argv[++i]);
         break;
       case '--init':
         args.initPath = argv[++i];

@@ -111,14 +111,6 @@ export function actionIdToAction(
   return null;
 }
 
-export function legalActionMask(state: GameState, actorId: number): boolean[] {
-  const mask = new Array<boolean>(ACTION_SPACE_SIZE).fill(false);
-  for (let i = 0; i < ACTION_SPACE_SIZE; i++) {
-    if (actionIdToAction(state, actorId, i)) mask[i] = true;
-  }
-  return mask;
-}
-
 export function legalActionIds(state: GameState, actorId: number): number[] {
   const ids: number[] = [];
   for (let i = 0; i < ACTION_SPACE_SIZE; i++) {

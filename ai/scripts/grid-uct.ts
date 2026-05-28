@@ -31,6 +31,8 @@ import type { Action, GameState } from '../../src/game/types';
 import { decideAction as decideSmart } from '../../src/ai/smartAI';
 import { decideAction as decideRandom } from '../../src/ai/randomAI';
 import { decideAction as decideMcts } from '../../src/ai/mctsAI';
+import { parseIntArg } from './_runner';
+import { expectedRankFromRankCount, wilsonInterval } from './stats';
 
 interface CandidateStat {
   uctC: number;
@@ -65,13 +67,15 @@ function parseArgs(): Args {
     const a = argv[i];
     switch (a) {
       case '--games':
-        out.games = Number(argv[++i]);
+        out.games = parseIntArg('--games', argv[++i]);
         break;
       case '--seed':
-        out.seed = Number(argv[++i]);
+        out.seed = parseIntArg('--seed', argv[++i]);
         break;
       case '--grid': {
-        const parts = argv[++i].split(',').map((s) => Number(s.trim()));
+        const raw = argv[++i];
+        if (raw === undefined) throw new Error('--grid requires a value');
+        const parts = raw.split(',').map((s) => Number(s.trim()));
         if (parts.some((v) => !Number.isFinite(v))) {
           throw new Error('--grid contained a non-finite number');
         }
@@ -79,7 +83,9 @@ function parseArgs(): Args {
         break;
       }
       case '--strategies': {
-        const list = argv[++i].split(',');
+        const raw = argv[++i];
+        if (raw === undefined) throw new Error('--strategies requires a value');
+        const list = raw.split(',');
         if (list.length !== 4) {
           throw new Error('--strategies must have 4 comma-separated entries');
         }
@@ -100,16 +106,6 @@ function parseArgs(): Args {
     }
   }
   return out;
-}
-
-function wilsonInterval(wins: number, n: number): { low: number; high: number } {
-  if (n === 0) return { low: 0, high: 0 };
-  const z = 1.96;
-  const p = wins / n;
-  const denom = 1 + (z * z) / n;
-  const center = (p + (z * z) / (2 * n)) / denom;
-  const margin = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / denom;
-  return { low: Math.max(0, center - margin), high: Math.min(1, center + margin) };
 }
 
 function rotate<T>(arr: T[], n: number): T[] {
@@ -228,8 +224,8 @@ function main(): void {
       stat.totalMs += r.durationMs;
     }
     const ci = wilsonInterval(stat.wins, stat.games);
-    const expRank =
-      stat.rankCount.reduce((acc, c, idx) => acc + c * (idx + 1), 0) / Math.max(1, stat.games);
+    // 既存挙動: denominator は Math.max(1, games)（ゼロ除算回避のための慣用）。
+    const expRank = expectedRankFromRankCount(stat.rankCount, Math.max(1, stat.games));
     const msPerStep = stat.totalSteps > 0 ? stat.totalMs / stat.totalSteps : 0;
     process.stderr.write(
       `wr=${(stat.wins / stat.games * 100).toFixed(1)}% ` +
@@ -257,8 +253,7 @@ function main(): void {
       strategies: args.strategies,
       candidates: results.map((s) => {
         const ci = wilsonInterval(s.wins, s.games);
-        const expRank =
-          s.rankCount.reduce((acc, c, idx) => acc + c * (idx + 1), 0) / Math.max(1, s.games);
+        const expRank = expectedRankFromRankCount(s.rankCount, Math.max(1, s.games));
         return {
           uctC: s.uctC,
           games: s.games,
@@ -280,8 +275,7 @@ function main(): void {
   console.log('\n--- grid summary (sorted by wins desc, tie-break: avgScore) ---');
   for (const s of sorted) {
     const ci = wilsonInterval(s.wins, s.games);
-    const expRank =
-      s.rankCount.reduce((acc, c, idx) => acc + c * (idx + 1), 0) / Math.max(1, s.games);
+    const expRank = expectedRankFromRankCount(s.rankCount, Math.max(1, s.games));
     const msPerStep = s.totalSteps > 0 ? s.totalMs / s.totalSteps : 0;
     console.log(
       `uctC=${s.uctC.toFixed(4).padStart(7)} ` +

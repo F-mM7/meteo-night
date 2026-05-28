@@ -150,6 +150,37 @@ export function playOneGame({
   };
 }
 
+/**
+ * 数値オプション（整数）を安全にパースする。
+ * `Number(argv[++i])` の素朴な実装だと `--games abc` や値忘れ `--games`（次が undefined）
+ * が `NaN` になり、ループ回数 0 等で正常終了したように見えてしまうため、
+ * 不正値・整数でない値・値忘れは throw する。
+ */
+export function parseIntArg(name: string, raw: string | undefined): number {
+  if (raw === undefined) {
+    throw new Error(`${name} requires a value`);
+  }
+  const v = Number(raw);
+  if (!Number.isFinite(v) || !Number.isInteger(v)) {
+    throw new Error(`${name} requires a finite integer, got: ${raw}`);
+  }
+  return v;
+}
+
+/**
+ * 数値オプション（実数）を安全にパースする。`parseIntArg` の浮動小数点版。
+ */
+export function parseFloatArg(name: string, raw: string | undefined): number {
+  if (raw === undefined) {
+    throw new Error(`${name} requires a value`);
+  }
+  const v = Number(raw);
+  if (!Number.isFinite(v)) {
+    throw new Error(`${name} requires a finite number, got: ${raw}`);
+  }
+  return v;
+}
+
 export interface CommonArgs {
   games: number;
   strategies: StrategyName[];
@@ -174,10 +205,14 @@ export function parseCommonArgs(argv: string[], defaults: Partial<CommonArgs> = 
     const a = argv[i];
     switch (a) {
       case '--games':
-        out.games = Number(argv[++i]);
+        out.games = parseIntArg('--games', argv[++i]);
         break;
       case '--strategies': {
-        const list = argv[++i].split(',');
+        const raw = argv[++i];
+        if (raw === undefined) {
+          throw new Error('--strategies requires a value');
+        }
+        const list = raw.split(',');
         if (list.length !== 4) {
           throw new Error('--strategies must have 4 comma-separated entries');
         }
@@ -190,7 +225,7 @@ export function parseCommonArgs(argv: string[], defaults: Partial<CommonArgs> = 
         break;
       }
       case '--seed':
-        out.seed = Number(argv[++i]);
+        out.seed = parseIntArg('--seed', argv[++i]);
         break;
       case '--rotate':
         out.rotate = true;
@@ -202,7 +237,7 @@ export function parseCommonArgs(argv: string[], defaults: Partial<CommonArgs> = 
         out.json = true;
         break;
       case '--max-steps':
-        out.maxSteps = Number(argv[++i]);
+        out.maxSteps = parseIntArg('--max-steps', argv[++i]);
         break;
       case '--help':
       case '-h':

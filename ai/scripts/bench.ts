@@ -10,7 +10,7 @@
  *   --strategies <list>    4 つカンマ区切り (default: smart,random,random,random)
  *   --seed <n>             base seed (default: 1)
  *   --rotate               各局で席を 1 つずらして席バイアスを除去
- *   --max-steps <n>        1 局あたり安全上限 (default: 5000)
+ *   --max-steps <n>        1 局あたり安全上限 (default: 20000)
  *   --silent               局ごとのログを抑制
  *   --json                 集計を JSON で出力
  *
@@ -32,6 +32,7 @@ import {
   STRATEGIES,
   StrategyName,
 } from './_runner';
+import { expectedRankFromRankCount, wilsonInterval } from './stats';
 import { setEvalWeights, type EvalWeights } from '../../src/ai/evaluator';
 import type { MctsOptions } from '../../src/ai/mctsAI';
 
@@ -46,17 +47,6 @@ function newStratStat(): StratStat {
   return { games: 0, wins: 0, scoreSum: 0, rankCount: [0, 0, 0, 0] };
 }
 
-/** Wilson 95% 信頼区間 */
-function wilsonInterval(wins: number, n: number): { low: number; high: number } {
-  if (n === 0) return { low: 0, high: 0 };
-  const z = 1.96;
-  const p = wins / n;
-  const denom = 1 + (z * z) / n;
-  const center = (p + (z * z) / (2 * n)) / denom;
-  const margin = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / denom;
-  return { low: Math.max(0, center - margin), high: Math.min(1, center + margin) };
-}
-
 function printUsage(): void {
   console.log(`Usage: tsx ai/scripts/bench.ts [options]
 
@@ -65,7 +55,7 @@ Options:
   --strategies <list>     4 of: random | smart | mcts | mctsRollout | mctsPuct | mctsTuned (default: smart,random,random,random)
   --seed <n>              base seed (default: 1)
   --rotate                rotate seats each game (removes seat bias)
-  --max-steps <n>         safety bound per game (default: 5000)
+  --max-steps <n>         safety bound per game (default: 20000)
   --silent                suppress per-game logs
   --json                  emit JSON summary to stdout
   --weights <path>        load EvalWeights from JSON for ALL AIs (global state)
@@ -194,10 +184,8 @@ function main(): void {
 
   const summary = Array.from(stats.entries()).map(([s, st]) => {
     const ci = wilsonInterval(st.wins, st.games);
-    const expRank =
-      st.games > 0
-        ? st.rankCount.reduce((acc, c, idx) => acc + c * (idx + 1), 0) / st.games
-        : 0;
+    // 既存挙動: games=0 のときは 0 を返す（ゼロ除算を避けるための if ガードを保つ）。
+    const expRank = st.games > 0 ? expectedRankFromRankCount(st.rankCount, st.games) : 0;
     return {
       strategy: s,
       games: st.games,

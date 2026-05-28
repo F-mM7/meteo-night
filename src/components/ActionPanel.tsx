@@ -59,6 +59,8 @@ export function ActionPanel({
   const message = describePhase(state, isYourTurn, youId);
   // 山札と捨札が両方空のときはドロー不可（補充元が無いため）。
   const canDrawAdditional = state.deck.length > 0 || state.discardPile.length > 0;
+  // 全スロットが空のときは取り除き不可。smartAI / actionSpace と同じガード条件。
+  const canDiscard = state.players[youId].board.slots.some((s) => s.stack.length > 0);
 
   return (
     <section className="action-panel" aria-label="操作パネル">
@@ -82,6 +84,7 @@ export function ActionPanel({
               type="button"
               className="btn btn-secondary"
               onClick={() => dispatch({ type: 'CHOOSE_ADDITIONAL_DISCARD' })}
+              disabled={!canDiscard}
             >
               スロット最上段を1枚捨札
             </button>

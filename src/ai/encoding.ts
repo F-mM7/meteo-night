@@ -14,6 +14,9 @@ const PHASES: Phase[] = [
   'awaitingAdditionalDiscard',
   'awaitingGiftSelection',
   'awaitingGiftPlacement',
+  // reserved: reducer は現状この phase に遷移しないが、ENCODING_SIZE を 185 に保つため残置。
+  // 削除すると 184 になり、既存学習済みモデル（Node 学習側・ブラウザ推論 `neuralAI.ts` の
+  // `tf.loadLayersModel` 双方）が load 不能になる。撤去はモデル再学習とセットで行う。
   'turnEnd',
   'gameOver',
 ];
@@ -125,24 +128,4 @@ export function encodeState(state: GameState, viewerId: number): number[] {
   out.push(...encodeGlobal(state));
   out.push(...encodePhase(state.phase));
   return out;
-}
-
-export interface EncodingShape {
-  total: number;
-  perPlayer: number;
-  numPlayers: number;
-  field: number;
-  global: number;
-  phase: number;
-}
-
-export function getEncodingShape(): EncodingShape {
-  return {
-    total: ENCODING_SIZE,
-    perPlayer: PLAYER_FEATURES,
-    numPlayers: NUM_PLAYERS,
-    field: FIELD_FEATURES,
-    global: GLOBAL_FEATURES,
-    phase: PHASE_FEATURES,
-  };
 }

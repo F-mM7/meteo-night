@@ -33,6 +33,8 @@ export type Phase =
   | 'awaitingAdditionalDiscard'
   | 'awaitingGiftSelection'
   | 'awaitingGiftPlacement'
+  // reserved: reducer はこの phase に遷移しないが、`src/ai/encoding.ts` の PHASES one-hot
+  // 次元との互換性を保つために残置（撤去すると学習済みモデルが load 不能になる）。
   | 'turnEnd'
   | 'gameOver';
 

@@ -160,6 +160,10 @@ export function evaluateState(
     if (p.id === playerId) continue;
     value -= threatScore(p, w);
   }
+  // 終局加点は smartAI 専用。mctsAI / neuralMcts は終局をランキング経由で leaf 価値に
+  // 直接マップしてから evaluateState を呼ぶため、それらの経路では `winnerId` が常に null で
+  // ここには到達しない。終局価値のランキング一本化は smartAI の意思決定を変えてしまうため、
+  // 別バッチ（REFACTORING.md 項目 7 案 a）で扱う。
   if (state.winnerId === playerId) value += w.winnerBonus;
   else if (state.winnerId !== null) value -= w.loserPenalty;
   return value;

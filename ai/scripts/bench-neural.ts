@@ -14,6 +14,8 @@ import { decideAction as decideRandom } from '../../src/ai/randomAI';
 import { decideAction as decideMcts } from '../../src/ai/mctsAI';
 import { loadModel, type MeteoAzModel } from './nn/model';
 import { decideActionNeural } from './nn/neuralMcts';
+import { parseIntArg } from './_runner';
+import { expectedRankFromRankCount, wilsonInterval } from './stats';
 
 type OpponentName = 'smart' | 'random' | 'mcts';
 
@@ -103,16 +105,6 @@ function playOne(
   };
 }
 
-function wilsonInterval(wins: number, n: number): { low: number; high: number } {
-  if (n === 0) return { low: 0, high: 0 };
-  const z = 1.96;
-  const p = wins / n;
-  const denom = 1 + (z * z) / n;
-  const center = (p + (z * z) / (2 * n)) / denom;
-  const margin = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / denom;
-  return { low: Math.max(0, center - margin), high: Math.min(1, center + margin) };
-}
-
 interface Args {
   modelDir: string;
   opponent: OpponentName;
@@ -150,13 +142,13 @@ function parseArgs(argv: string[]): Args {
         break;
       }
       case '--games':
-        args.games = Number(argv[++i]);
+        args.games = parseIntArg('--games', argv[++i]);
         break;
       case '--seed':
-        args.seed = Number(argv[++i]);
+        args.seed = parseIntArg('--seed', argv[++i]);
         break;
       case '--max-steps':
-        args.maxSteps = Number(argv[++i]);
+        args.maxSteps = parseIntArg('--max-steps', argv[++i]);
         break;
       case '--no-rotate':
         args.rotate = false;
@@ -207,7 +199,8 @@ async function main(): Promise<void> {
   const winRate = neuralWins / args.games;
   const ci = wilsonInterval(neuralWins, args.games);
   const avgScore = neuralScoreSum / args.games;
-  const expRank = neuralRankCount.reduce((acc, c, i) => acc + c * (i + 1), 0) / args.games;
+  // 既存挙動: ガード無しで args.games を denominator にする（args.games=0 のとき NaN）。
+  const expRank = expectedRankFromRankCount(neuralRankCount, args.games);
   const summary = {
     modelDir: args.modelDir,
     opponent: args.opponent,

@@ -36,13 +36,17 @@ export function decideAction(
 
   switch (state.phase) {
     case 'awaitingDraw': {
-      const opts: Array<0 | 1> = [];
-      if (state.field[0]) opts.push(0);
-      if (state.field[1]) opts.push(1);
-      if (opts.length > 0 && rand() < 0.6) {
-        return { type: 'DRAW_FROM_FIELD', pairIndex: pickRand(opts, rand) };
+      const fieldOpts: Array<0 | 1> = [];
+      if (state.field[0]) fieldOpts.push(0);
+      if (state.field[1]) fieldOpts.push(1);
+      // 山札・捨札が両方空のときは DECK ドローが state 不変を返してしまうため、
+      // 場ペアがあれば確実に場ドロー、無ければ null を返す（actionSpace のガードと同条件）。
+      const canDeck = state.deck.length > 0 || state.discardPile.length > 0;
+      if (fieldOpts.length > 0 && (rand() < 0.6 || !canDeck)) {
+        return { type: 'DRAW_FROM_FIELD', pairIndex: pickRand(fieldOpts, rand) };
       }
-      return { type: 'DRAW_FROM_DECK' };
+      if (canDeck) return { type: 'DRAW_FROM_DECK' };
+      return null;
     }
     case 'awaitingPlaceDrawn': {
       const card = state.turn.pendingDraw[0];

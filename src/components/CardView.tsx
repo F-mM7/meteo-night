@@ -1,18 +1,11 @@
-import type { Card, Color } from '../game/types';
+import type { Card } from '../game/types';
+import { COLOR_LABEL } from '../game/labels';
 
 interface Props {
   card: Card;
   emphasized?: boolean;
   facedown?: boolean;
 }
-
-const COLOR_LABEL: Record<Color, string> = {
-  red: '赤',
-  green: '緑',
-  yellow: '黄',
-  purple: '紫',
-  blue: '青',
-};
 
 function CrystalMark() {
   return (

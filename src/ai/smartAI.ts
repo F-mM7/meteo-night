@@ -173,9 +173,11 @@ export function decideAction(
   scored.sort((a, b) => b.score - a.score);
   const top = scored[0];
 
+  // top 自身は必ず `score >= topScore - 0.5` を満たすため tied.length >= 1。
+  // `tieRand() * tied.length` は範囲内に収まるため、フォールバックは不要。
   const topScore = top.score;
   const tied = scored.filter((s) => s.score >= topScore - 0.5);
   const tieRand = mulberry32((baseSeed ^ 0x9e3779b9) | 0);
-  const picked = tied[Math.floor(tieRand() * tied.length)] ?? top;
+  const picked = tied[Math.floor(tieRand() * tied.length)];
   return picked.action;
 }

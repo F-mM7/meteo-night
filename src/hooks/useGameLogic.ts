@@ -4,23 +4,16 @@ import { setupGame } from '../game/setup';
 import type { Action, GameState, SetupOptions } from '../game/types';
 import { decideAction } from '../ai';
 import { useTimeout } from './useTimeout';
+import { CARD_FADE_DURATION_MS } from './boardLayout';
 
 // CPU の思考演出に挟む遅延（ミリ秒）。UI からユーザーが直接指定する。
 export type CpuSpeed = number;
 
 export const DEFAULT_CPU_SPEED_MS = 550;
 
-// 新規ゲーム開始時、既存カードを外側フェードアウトさせるための遅延（ミリ秒）。
-// SlotView の FADE_DURATION_MS と揃える。
-const RESET_FADE_OUT_MS = 700;
-
 function normalizeDelay(speed: CpuSpeed): number {
   if (!Number.isFinite(speed) || speed < 0) return 0;
   return speed;
-}
-
-function delayFor(_state: GameState, speed: CpuSpeed): number {
-  return normalizeDelay(speed);
 }
 
 export function currentActorId(state: GameState): number {
@@ -95,7 +88,7 @@ export function useGameLogic(initOptions?: SetupOptions) {
       timer.clear();
       return;
     }
-    timer.set(() => dispatch(action), delayFor(state, cpuSpeed));
+    timer.set(() => dispatch(action), normalizeDelay(cpuSpeed));
     return timer.clear;
   }, [state, autoPilot, cpuSpeed, timer]);
 
@@ -105,7 +98,7 @@ export function useGameLogic(initOptions?: SetupOptions) {
     dispatch({ type: 'CLEAR_BOARDS_FOR_RESET' });
     resetTimer.set(() => {
       dispatch({ type: 'NEW_GAME', options: opts });
-    }, RESET_FADE_OUT_MS);
+    }, CARD_FADE_DURATION_MS);
   };
 
   const userDispatch = (action: Action) => {

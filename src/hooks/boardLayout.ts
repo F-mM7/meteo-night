@@ -12,6 +12,13 @@ const STACK_OFFSET_RATIO = 0.28;
 export const STACK_MAX_SPAN_RATIO = 2;
 
 /**
+ * カードのフェードアウト演出時間（ミリ秒）。
+ * `SlotView` の魔法発動／取り除きフェード時間と、`useGameLogic` の新規ゲーム開始時の
+ * 「全カードを外側へフェードアウト→再構築」遅延の両方で共有する。
+ */
+export const CARD_FADE_DURATION_MS = 700;
+
+/**
  * スタック内枚数 `stackLen` に応じて、各カード間のオフセットを返す。
  * 枚数が増えすぎても最大スパンに収まるよう、基本オフセットと
  * 最大スパン由来オフセットの小さい方を採用する。

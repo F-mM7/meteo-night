@@ -1,6 +1,7 @@
 import type { Action, GameState, GiftAssignment, GiftBatch, LogEntry, Player } from './types';
 import { setupGame } from './setup';
 import { totalScoreForTurn } from './scoring';
+import { COLOR_LABEL } from './labels';
 import {
   END_SCORE_THRESHOLD,
   computeWinner,
@@ -14,14 +15,6 @@ import {
   resolveCombosAtBoard,
   shouldEndGame,
 } from './engine';
-
-const COLOR_LABEL: Record<string, string> = {
-  red: '赤',
-  green: '緑',
-  yellow: '黄',
-  purple: '紫',
-  blue: '青',
-};
 
 function appendLog(state: GameState, message: string, emphasize = false): GameState {
   const entry: LogEntry = {
@@ -48,6 +41,23 @@ function updatePlayer(state: GameState, playerId: number, fn: (p: Player) => Pla
     ...state,
     players: state.players.map((p) => (p.id === playerId ? fn(p) : p)),
   };
+}
+
+/**
+ * 全プレイヤー・全スロット・全スタックを走査して card.id の一覧を返す。
+ * `NEW_GAME` / `CLEAR_BOARDS_FOR_RESET` で「旧ゲームのカードを discard 由来扱いで
+ * 外側フェードアウトさせる」ためにマーク対象 ID を集める用途に使う。
+ */
+function collectAllBoardCardIds(state: GameState): string[] {
+  const ids: string[] = [];
+  for (const p of state.players) {
+    for (const s of p.board.slots) {
+      for (const c of s.stack) {
+        ids.push(c.id);
+      }
+    }
+  }
+  return ids;
 }
 
 function resolveChainStep(state: GameState): GameState {
@@ -423,14 +433,7 @@ export function reducer(state: GameState, action: Action): GameState {
       // 新規ゲーム開始時に旧ゲームの場札・スロット内カードを
       // 「discard 由来で消えた」とマークし、UI 側で外側へフェードアウトさせる。
       // （未マークだとデフォルトで「魔法発動 = 中央吸い込み」扱いになるため）
-      const oldCardIds: string[] = [];
-      for (const p of state.players) {
-        for (const s of p.board.slots) {
-          for (const c of s.stack) {
-            oldCardIds.push(c.id);
-          }
-        }
-      }
+      const oldCardIds = collectAllBoardCardIds(state);
       const next = setupGame(action.options);
       return {
         ...next,
@@ -441,14 +444,7 @@ export function reducer(state: GameState, action: Action): GameState {
       // 新規ゲーム開始の前段として、全プレイヤーのスロットを空にして
       // 既存カードを外側フェードアウト（discard 由来扱い）させる中間状態。
       // 後段の NEW_GAME を待つ間、AI 思考が走らないよう phase を gameOver に固定する。
-      const oldCardIds: string[] = [];
-      for (const p of state.players) {
-        for (const s of p.board.slots) {
-          for (const c of s.stack) {
-            oldCardIds.push(c.id);
-          }
-        }
-      }
+      const oldCardIds = collectAllBoardCardIds(state);
       return {
         ...state,
         players: state.players.map((p) => ({
@@ -488,6 +484,15 @@ export function reducer(state: GameState, action: Action): GameState {
 }
 
 /**
+ * 1 ターンの連鎖解決ループ（`resolvingCombos` → 新コンボ発火 → 再び `resolvingCombos` …）の
+ * 安全上限。1 ターンに配置できるカードは最大スロット数（5）枚であり、
+ * 各カードあたり最大 1 連鎖までしか起きないため、理論上は十分余裕がある。
+ * これに到達した場合は連鎖解決ロジックのバグ（無限ループ）の可能性が高いため
+ * `console.warn` で気付けるようにする。
+ */
+const MAX_CHAIN_RESOLVE_STEPS = 16;
+
+/**
  * 配置/取り除き直後に `resolvingCombos` フェーズで一時停止する仕組みは UI 演出用。
  * AI シミュレーション・ベンチ・テストでは即時に連鎖まで解決したいので、
  * `reducer` 呼び出し後に `resolvingCombos` 状態に陥ったら自動で
@@ -496,9 +501,16 @@ export function reducer(state: GameState, action: Action): GameState {
 export function stepGame(state: GameState, action: Action): GameState {
   let s = reducer(state, action);
   let safety = 0;
-  while (s.phase === 'resolvingCombos' && safety < 16) {
+  while (s.phase === 'resolvingCombos' && safety < MAX_CHAIN_RESOLVE_STEPS) {
     s = reducer(s, { type: 'RESOLVE_COMBOS' });
     safety++;
+  }
+  if (s.phase === 'resolvingCombos') {
+    // 正常系では到達しないため、ここに来た場合は連鎖解決ロジックの不具合を疑う。
+    console.warn(
+      `[stepGame] resolvingCombos did not terminate within ${MAX_CHAIN_RESOLVE_STEPS} steps ` +
+        `(turn=${s.turnNumber}, player=${s.currentPlayerIndex})`
+    );
   }
   return s;
 }

@@ -8,7 +8,7 @@
  *   --games <n>            対戦回数 (default: 10)
  *   --strategies <list>    カンマ区切りで 4 つ (default: smart,smart,smart,smart)
  *   --seed <n>             base seed (default: 42)
- *   --max-steps <n>        1 局あたり安全上限 (default: 5000)
+ *   --max-steps <n>        1 局あたり安全上限 (default: 20000)
  *   --silent               局ごとのログを抑制
  *   --json                 集計を JSON で出力（パイプ用途）
  *
@@ -27,7 +27,7 @@ Options:
   --games <n>             games per run (default: 10)
   --strategies <list>     comma-separated 4 of: random | smart | mcts | mctsRollout | mctsPuct | mctsTuned (default: smart x4)
   --seed <n>              base seed (default: 42)
-  --max-steps <n>         safety bound per game (default: 5000)
+  --max-steps <n>         safety bound per game (default: 20000)
   --silent                suppress per-game logs
   --json                  emit JSON summary to stdout`);
 }
