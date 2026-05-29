@@ -4,6 +4,7 @@ import type { Action, GameState } from '../../src/game/types';
 import { decideAction as decideSmart } from '../../src/ai/smartAI';
 import { decideAction as decideRandom } from '../../src/ai/randomAI';
 import { decideAction as decideMcts, type MctsOptions } from '../../src/ai/mctsAI';
+import { decideAction as decideChainRush } from '../../src/ai/chainRushAI';
 import type { EvalWeights } from '../../src/ai/evaluator';
 import { GEN_3B_WEIGHTS } from '../../src/ai/tunedWeights';
 
@@ -13,7 +14,8 @@ export type StrategyName =
   | 'mcts'
   | 'mctsRollout'
   | 'mctsPuct'
-  | 'mctsTuned';
+  | 'mctsTuned'
+  | 'chainRush';
 
 export type Decider = (state: GameState, playerId: number) => Action | null;
 
@@ -56,6 +58,7 @@ export const STRATEGIES: Record<StrategyName, Decider> = {
   mctsRollout: decideMctsRollout,
   mctsPuct: decideMctsPuct,
   mctsTuned: decideMctsTuned,
+  chainRush: decideChainRush,
 };
 
 export function isStrategyName(s: string): s is StrategyName {
@@ -114,18 +117,44 @@ export function playOneGame({
   if (strategies.length !== 4) {
     throw new Error(`strategies must have 4 entries, got ${strategies.length}`);
   }
+  return playOneGameWithDeciders({
+    seed,
+    deciders: strategies.map((s) => STRATEGIES[s]),
+    names: strategies.map((s, i) => `P${i}-${s}`),
+    maxSteps,
+  });
+}
+
+/**
+ * Gen-3-X: 任意の Decider 4 つを直接対戦させる。
+ * `makeMctsWithWeights` 等で作った「候補重みの mcts」 と「baseline mcts」 を直接戦わせ、
+ * smart 非依存で相対強度を測るために使う（vs smart は評価関数の盲点を共有して検出不能なため）。
+ */
+export function playOneGameWithDeciders({
+  seed,
+  deciders,
+  names,
+  maxSteps = DEFAULT_MAX_STEPS,
+}: {
+  seed: number;
+  deciders: Decider[];
+  names?: string[];
+  maxSteps?: number;
+}): GameResult {
+  if (deciders.length !== 4) {
+    throw new Error(`deciders must have 4 entries, got ${deciders.length}`);
+  }
   const t0 = Date.now();
   let state: GameState = setupGame({
     seed,
-    playerNames: strategies.map((s, i) => `P${i}-${s}`),
-    cpuFlags: strategies.map(() => true),
+    playerNames: names ?? deciders.map((_, i) => `P${i}`),
+    cpuFlags: deciders.map(() => true),
   });
 
   let steps = 0;
   while (state.phase !== 'gameOver' && steps < maxSteps) {
     const actorId = currentActorId(state);
-    const strat = strategies[actorId];
-    const decider = STRATEGIES[strat];
+    const decider = deciders[actorId];
     const action = decider(state, actorId);
     if (!action) {
       break;
