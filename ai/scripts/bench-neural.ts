@@ -65,7 +65,8 @@ function playOne(
   model: MeteoAzModel,
   neuralSeat: number,
   opponent: OpponentName,
-  maxSteps: number
+  maxSteps: number,
+  iterations: number
 ): GameResult {
   const t0 = Date.now();
   const names = ['p0', 'p1', 'p2', 'p3'].map((n, i) =>
@@ -83,7 +84,13 @@ function playOne(
     const actor = currentActorId(state);
     let action: Action | null;
     if (actor === neuralSeat && state.phase !== 'awaitingGiftSelection') {
-      const r = decideActionNeural(state, actor, model);
+      // Gen-3-N: batchSize は小さく保つ（大きいと木を降りず探索が崩壊する。 _verify-search.ts 参照）。
+      // 8 は totalVisits ~92/100 を維持しつつ predict 回数を 1/8 に減らせる balance 点。
+      // iterations は mctsAI と揃える（デフォルト 800）と公平な比較になる。
+      const r = decideActionNeural(state, actor, model, undefined, {
+        batchSize: 8,
+        iterations,
+      });
       action = r.action;
     } else {
       action = opponentFn(state, actor);
@@ -114,6 +121,7 @@ interface Args {
   rotate: boolean;
   silent: boolean;
   json: boolean;
+  iterations: number;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -129,10 +137,14 @@ function parseArgs(argv: string[]): Args {
     rotate: true,
     silent: false,
     json: false,
+    iterations: 800,
   };
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
+      case '--iterations':
+        args.iterations = parseIntArg('--iterations', argv[++i]);
+        break;
       case '--opponent': {
         const v = argv[++i];
         if (v !== 'smart' && v !== 'random' && v !== 'mcts') {
@@ -181,7 +193,7 @@ async function main(): Promise<void> {
   for (let g = 0; g < args.games; g++) {
     const seed = args.seed + g;
     const neuralSeat = args.rotate ? g % 4 : 0;
-    const r = playOne(seed, model, neuralSeat, args.opponent, args.maxSteps);
+    const r = playOne(seed, model, neuralSeat, args.opponent, args.maxSteps, args.iterations);
     if (r.ranking[neuralSeat] === 0) neuralWins++;
     neuralRankCount[r.ranking[neuralSeat]] += 1;
     neuralScoreSum += r.scores[neuralSeat];

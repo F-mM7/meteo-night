@@ -16,7 +16,7 @@ import { decideAction as decideSmart } from '../../../src/ai/smartAI';
 import { ACTION_SPACE_SIZE, actionToActionId } from '../../../src/ai/actionSpace';
 import { encodeState } from '../../../src/ai/encoding';
 import type { MeteoAzModel } from './model';
-import { decideActionNeural } from './neuralMcts';
+import { decideActionNeural, decideActionNeuralParallel } from './neuralMcts';
 
 export interface LearnerExample {
   /** 状態ベクトル（encoding.ENCODING_SIZE 次元） */
@@ -79,6 +79,11 @@ export interface SelfPlayOptions {
    * N (N >= 2) で N 個の leaf をまとめて NN 推論し、 推論回数 1/N に削減。
    */
   mctsBatchSize?: number;
+  /**
+   * Gen-3-M: ハイブリッドモード。 leaf value を NN value head ではなく evaluator で計算。
+   * policy-only モデルとの組み合わせを想定。
+   */
+  useHeuristicValue?: boolean;
 }
 
 /**
@@ -230,6 +235,7 @@ export function generateSelfPlayGameWithModel(
     } else {
       const r = decideActionNeural(state, actor, options.model, undefined, {
         batchSize: options.mctsBatchSize,
+        useHeuristicValue: options.useHeuristicValue,
       });
       action = r.action;
       // totalVisits == 0 のときは「決定論的 1 択 or 委譲」なので学習に使わない
@@ -279,7 +285,8 @@ export function generateDatasetWithModel(
   numGames: number,
   model: MeteoAzModel,
   policyTemperature = 1.0,
-  mctsBatchSize = 1
+  mctsBatchSize = 1,
+  useHeuristicValue = false
 ): LearnerExample[] {
   const all: LearnerExample[] = [];
   for (let g = 0; g < numGames; g++) {
@@ -288,6 +295,7 @@ export function generateDatasetWithModel(
       model,
       policyTemperature,
       mctsBatchSize,
+      useHeuristicValue,
     });
     all.push(...ex);
   }
@@ -303,5 +311,189 @@ export function generateDataset(seedBase: number, numGames: number): LearnerExam
     const ex = generateSelfPlayGame({ seed: seedBase + g });
     all.push(...ex);
   }
+  return all;
+}
+
+// ============================================================================
+// Gen-3-K11: parallel self-play 用のデータセット生成
+// 複数 game を同時並行で進めて、 各 step で全 active game の MCTS を
+// 1 つの NN batch にまとめて推論する。 GPU 利用効率の向上が目的。
+// ============================================================================
+
+interface ParallelGameSlot {
+  state: GameState;
+  pending: Array<{
+    actor: number;
+    stateVec: Float32Array;
+    actionId: number | null;
+    visits: Int32Array | null;
+  }>;
+  steps: number;
+  done: boolean;
+}
+
+function makeSlot(seed: number): ParallelGameSlot {
+  return {
+    state: setupGame({
+      seed,
+      playerNames: ['neural-p0', 'neural-p1', 'neural-p2', 'neural-p3'],
+      cpuFlags: [true, true, true, true],
+    }),
+    pending: [],
+    steps: 0,
+    done: false,
+  };
+}
+
+function applyActionToSlot(
+  slot: ParallelGameSlot,
+  action: Action | null,
+  actor: number,
+  visits: Int32Array | null,
+  maxSteps: number
+): void {
+  if (!action) {
+    slot.done = true;
+    return;
+  }
+  const actionId = actionToActionId(action, slot.state);
+  if (actionId !== null) {
+    const stateVec = Float32Array.from(encodeState(slot.state, actor));
+    slot.pending.push({ actor, stateVec, actionId, visits });
+  }
+  const before = slot.state;
+  slot.state = stepGame(slot.state, action);
+  slot.steps++;
+  if (slot.state === before || slot.steps >= maxSteps) slot.done = true;
+  if (slot.state.phase === 'gameOver') slot.done = true;
+}
+
+function finalizeSlot(
+  slot: ParallelGameSlot,
+  tau: number,
+  out: LearnerExample[]
+): void {
+  const numPlayers = slot.state.players.length;
+  const ranking = computeRanking(slot.state);
+  const finalValuePerPlayer = new Float32Array(numPlayers);
+  for (let p = 0; p < numPlayers; p++) {
+    finalValuePerPlayer[p] = rankToValue(ranking[p], numPlayers);
+  }
+  for (const p of slot.pending) {
+    let policyTarget: Float32Array;
+    if (p.visits) {
+      policyTarget = visitsToPolicy(p.visits, tau);
+    } else {
+      policyTarget = new Float32Array(ACTION_SPACE_SIZE);
+      if (p.actionId !== null) policyTarget[p.actionId] = 1.0;
+    }
+    out.push({
+      state: p.stateVec,
+      policyTarget,
+      valueTarget: new Float32Array(finalValuePerPlayer),
+      actor: p.actor,
+      recordedActionId: p.actionId,
+    });
+  }
+}
+
+/**
+ * Gen-3-K11: 並列 self-play でデータセットを生成する。
+ *
+ * `parallelGames` 個の game を同時並行で進める rolling 方式:
+ *   - 同時に最大 parallelGames 個の game を進行
+ *   - 各 step で active な全 game の next action を 1 つの NN batch で同時決定
+ *   - gameOver になった slot は即 finalize + 次の game seed を投入
+ *   - 全 numGames を処理したら終わり
+ *
+ * 利点: 1 batch のサンプル数が（並列数）に近づき、 GPU の PCIe 転送オーバーヘッドが
+ * 分散される。 mcts-batch=16 の sequential と比べて、 batch サイズ N×16 級にできる。
+ *
+ * Note: `mctsBatchSize` パラメータは並列実装では使わない（並列度で吸収される）。
+ */
+export function generateDatasetParallel(
+  seedBase: number,
+  numGames: number,
+  parallelGames: number,
+  model: MeteoAzModel,
+  policyTemperature = 1.0,
+  mctsBatchSize = 16
+): LearnerExample[] {
+  if (parallelGames < 2) {
+    // 並列度 1 以下なら従来の sequential 実装に委譲
+    return generateDatasetWithModel(
+      seedBase,
+      numGames,
+      model,
+      policyTemperature,
+      mctsBatchSize
+    );
+  }
+  const all: LearnerExample[] = [];
+  const maxSteps = 20000;
+  const tau = policyTemperature;
+
+  let nextSeed = seedBase;
+  let openedGames = 0;
+  const slotCount = Math.min(parallelGames, numGames);
+  const slots: Array<ParallelGameSlot | null> = new Array(slotCount).fill(null);
+  for (let i = 0; i < slotCount; i++) {
+    slots[i] = makeSlot(nextSeed++);
+    openedGames++;
+  }
+
+  while (slots.some((s) => s !== null)) {
+    // 1. 各 active slot について next action を集める。
+    //    awaitingGiftSelection は smart で個別決定、 それ以外は neural parallel。
+    const giftRequests: Array<{ slotIdx: number; state: GameState; actor: number }> = [];
+    const neuralRequests: Array<{ slotIdx: number; state: GameState; actor: number }> = [];
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
+      if (!slot || slot.done) continue;
+      const actor = currentActorId(slot.state);
+      if (slot.state.phase === 'awaitingGiftSelection') {
+        giftRequests.push({ slotIdx: i, state: slot.state, actor });
+      } else {
+        neuralRequests.push({ slotIdx: i, state: slot.state, actor });
+      }
+    }
+
+    // 2. gift requests は smart で即決定
+    for (const req of giftRequests) {
+      const action = decideSmart(req.state, req.actor);
+      applyActionToSlot(slots[req.slotIdx]!, action, req.actor, null, maxSteps);
+    }
+
+    // 3. neural requests は 1 batch で同時決定
+    if (neuralRequests.length > 0) {
+      const results = decideActionNeuralParallel(
+        neuralRequests.map((inp) => ({ state: inp.state, playerId: inp.actor })),
+        model,
+        { batchSize: mctsBatchSize }
+      );
+      for (let i = 0; i < neuralRequests.length; i++) {
+        const req = neuralRequests[i];
+        const r = results[i];
+        const visits = r.totalVisits > 0 ? r.visits : null;
+        applyActionToSlot(slots[req.slotIdx]!, r.action, req.actor, visits, maxSteps);
+      }
+    }
+
+    // 4. 完了した slot を finalize + 次の game を投入
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
+      if (!slot) continue;
+      if (slot.done) {
+        finalizeSlot(slot, tau, all);
+        if (openedGames < numGames) {
+          slots[i] = makeSlot(nextSeed++);
+          openedGames++;
+        } else {
+          slots[i] = null;
+        }
+      }
+    }
+  }
+
   return all;
 }

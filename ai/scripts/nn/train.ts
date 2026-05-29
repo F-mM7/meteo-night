@@ -23,12 +23,19 @@ import { existsSync } from 'node:fs';
 import * as tf from '@tensorflow/tfjs-node-gpu';
 import {
   compileForTraining,
+  compileForPolicyOnly,
   createModel,
+  createPolicyOnlyModel,
   loadModel,
   saveModel,
   type MeteoAzModel,
 } from './model';
-import { generateDataset, generateDatasetWithModel, type LearnerExample } from './dataset';
+import {
+  generateDataset,
+  generateDatasetWithModel,
+  generateDatasetParallel,
+  type LearnerExample,
+} from './dataset';
 import { parseFloatArg, parseIntArg } from '../_runner';
 
 type SelfPlayMode = 'mcts' | 'neural';
@@ -55,6 +62,21 @@ interface Args {
    * 指定しない場合はコピーしない。
    */
   copyToPublic: string | null;
+  /**
+   * Gen-3-K11: parallel self-play の同時並行 game 数（neural モードのみ有効）。
+   * 0 or 1 ならば従来通り sequential self-play。
+   * N >= 2 で N 個の game の MCTS を 1 batch にまとめて NN 推論する。
+   * GPU 利用効率の向上が目的。 mcts-batch との併用は不要（並列度で吸収される）。
+   */
+  parallelGames: number;
+  /**
+   * Gen-3-M: ハイブリッドモード。 policy-only NN + Gen-3-F evaluator を leaf value に使う。
+   *   - true: createPolicyOnlyModel + useHeuristicValue + policy のみ fit
+   *   - false: 従来通り (policy + value 両方学習)
+   * 既存 Gen-3-F の強さを baseline に保証しつつ NN priors の補助だけ学習するため、
+   * 学習データ要求が桁違いに少ない（数千 games で効果が見える想定）。
+   */
+  hybrid: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -73,6 +95,8 @@ function parseArgs(argv: string[]): Args {
     hiddenUnits: 64,
     hiddenLayers: 2,
     copyToPublic: null,
+    parallelGames: 0,
+    hybrid: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -122,6 +146,12 @@ function parseArgs(argv: string[]): Args {
       case '--copy-to-public':
         args.copyToPublic = argv[++i];
         break;
+      case '--parallel-games':
+        args.parallelGames = Number(argv[++i]);
+        break;
+      case '--hybrid':
+        args.hybrid = true;
+        break;
       case '--help':
       case '-h':
         printUsage();
@@ -156,6 +186,12 @@ Options:
   --hidden-layers <n>  隠れ層数 (default: 2, init 指定時は無視)
   --copy-to-public <dir>  学習後 model.json/weights.bin を <dir> にコピー
                           ブラウザ統合用 (例: public/models/active)
+  --parallel-games <n>    Gen-3-K11: 同時並行 self-play game 数（neural モードのみ）
+                          0/1 = 従来通り sequential, N>=2 で N games を 1 batch に
+                          まとめて NN 推論し GPU 利用効率向上を狙う
+  --hybrid                Gen-3-M: ハイブリッドモード（policy-only NN + Gen-3-F leaf value）
+                          NN は policy（prior）のみ学習、 value は evaluator (Gen-3-F)
+                          少量データで効果が見込まれる安全路線
 `);
 }
 
@@ -190,6 +226,18 @@ async function main(): Promise<void> {
   if (args.init && existsSync(args.init)) {
     console.log(`loading initial weights from ${args.init}`);
     model = await loadModel(args.init);
+    // hybrid mode で valueSize=4 モデルを load した場合、 ハイブリッド側で value 出力を無視するだけなので互換
+    if (args.hybrid) {
+      console.log('NOTE: --hybrid with loaded model: value output will be ignored at MCTS leaf');
+    }
+  } else if (args.hybrid) {
+    console.log(
+      `creating new POLICY-ONLY model: hiddenUnits=${args.hiddenUnits} hiddenLayers=${args.hiddenLayers}`
+    );
+    model = createPolicyOnlyModel({
+      hiddenUnits: args.hiddenUnits,
+      hiddenLayers: args.hiddenLayers,
+    });
   } else {
     console.log(
       `creating new model: hiddenUnits=${args.hiddenUnits} hiddenLayers=${args.hiddenLayers}`
@@ -199,7 +247,11 @@ async function main(): Promise<void> {
       hiddenLayers: args.hiddenLayers,
     });
   }
-  compileForTraining(model, args.lr);
+  if (args.hybrid && model.valueSize === 0) {
+    compileForPolicyOnly(model, args.lr);
+  } else {
+    compileForTraining(model, args.lr);
+  }
   model.net.summary();
 
   for (let it = 1; it <= args.iter; it++) {
@@ -210,13 +262,24 @@ async function main(): Promise<void> {
     const t0 = Date.now();
     const examples =
       args.selfplay === 'neural'
-        ? generateDatasetWithModel(
-            seedBase,
-            args.games,
-            model,
-            args.policyTemperature,
-            args.mctsBatchSize
-          )
+        ? args.parallelGames >= 2
+          ? generateDatasetParallel(
+              seedBase,
+              args.games,
+              args.parallelGames,
+              model,
+              args.policyTemperature,
+              args.mctsBatchSize
+              // Note: parallel 経路はまだ hybrid 未対応。 必要なら今後拡張。
+            )
+          : generateDatasetWithModel(
+              seedBase,
+              args.games,
+              model,
+              args.policyTemperature,
+              args.mctsBatchSize,
+              args.hybrid
+            )
         : generateDataset(seedBase, args.games);
     const tGen = ((Date.now() - t0) / 1000).toFixed(1);
     console.log(`generated ${examples.length} examples in ${tGen}s`);
@@ -228,12 +291,21 @@ async function main(): Promise<void> {
 
     const { x, pTarget, vTarget } = examplesToTensors(examples);
     const t1 = Date.now();
-    const history = await model.net.fit(x, [pTarget, vTarget], {
-      batchSize: args.batch,
-      epochs: args.epochs,
-      shuffle: true,
-      verbose: 0,
-    });
+    // hybrid + policy-only モデルなら value target を渡さない（model の output が 1 つだけ）
+    const isPolicyOnly = args.hybrid && model.valueSize === 0;
+    const history = isPolicyOnly
+      ? await model.net.fit(x, pTarget, {
+          batchSize: args.batch,
+          epochs: args.epochs,
+          shuffle: true,
+          verbose: 0,
+        })
+      : await model.net.fit(x, [pTarget, vTarget], {
+          batchSize: args.batch,
+          epochs: args.epochs,
+          shuffle: true,
+          verbose: 0,
+        });
     const tFit = ((Date.now() - t1) / 1000).toFixed(1);
     const lastLoss = (history.history.loss as number[])[
       (history.history.loss as number[]).length - 1

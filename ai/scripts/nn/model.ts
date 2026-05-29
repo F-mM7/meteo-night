@@ -89,6 +89,60 @@ export function createModel(opts: ModelOptions = {}): MeteoAzModel {
 }
 
 /**
+ * Gen-3-M ハイブリッド用: policy head のみのモデル。
+ * value は MCTS の leaf で既存 evaluator (Gen-3-F) を呼ぶため、 NN は学習しない。
+ * 学習 target は policy のみで済むため、 同じデータ量で AlphaZero より速く収束する見込み。
+ * valueSize=0 で「value 出力なし」 を表す（hybrid neuralMcts 側でこれを判別）。
+ */
+export function createPolicyOnlyModel(opts: ModelOptions = {}): MeteoAzModel {
+  const hidden = opts.hiddenUnits ?? DEFAULT_HIDDEN_UNITS;
+  const layers = opts.hiddenLayers ?? DEFAULT_HIDDEN_LAYERS;
+  const l2 = opts.l2 ?? DEFAULT_L2;
+
+  const input = tf.input({ shape: [ENCODING_SIZE], name: 'state' });
+  let x: tf.SymbolicTensor = input;
+  for (let i = 0; i < layers; i++) {
+    x = tf.layers
+      .dense({
+        units: hidden,
+        activation: 'relu',
+        kernelRegularizer: tf.regularizers.l2({ l2 }),
+        name: `h${i + 1}`,
+      })
+      .apply(x) as tf.SymbolicTensor;
+  }
+  const policy = tf.layers
+    .dense({
+      units: ACTION_SPACE_SIZE,
+      activation: 'softmax',
+      kernelRegularizer: tf.regularizers.l2({ l2 }),
+      name: 'policy',
+    })
+    .apply(x) as tf.SymbolicTensor;
+
+  const net = tf.model({
+    inputs: input,
+    outputs: [policy],
+    name: 'meteo_hybrid_v1',
+  });
+
+  return {
+    net,
+    inputSize: ENCODING_SIZE,
+    actionSize: ACTION_SPACE_SIZE,
+    valueSize: 0,
+  };
+}
+
+/** policy-only モデル用のコンパイル。 損失は方策のみ。 */
+export function compileForPolicyOnly(model: MeteoAzModel, learningRate = 1e-3): void {
+  model.net.compile({
+    optimizer: tf.train.adam(learningRate),
+    loss: 'categoricalCrossentropy',
+  });
+}
+
+/**
  * 学習用のコンパイル。
  *   - 方策: categorical crossentropy（マスク後の確率分布に対する KL 風損失）
  *   - 価値: MSE
@@ -124,10 +178,14 @@ export async function saveModel(model: MeteoAzModel, dir: string): Promise<void>
 export async function loadModel(dir: string): Promise<MeteoAzModel> {
   const url = dir.startsWith('file://') ? dir : `file://${dir}/model.json`;
   const net = await tf.loadLayersModel(url);
+  // outputs の本数で policy-only / policy+value を判別:
+  //   - policy-only (Gen-3-M ハイブリッド) は outputs.length = 1
+  //   - policy + value (AlphaZero 風) は outputs.length = 2
+  const valueSize = net.outputs.length >= 2 ? VALUE_HEAD_SIZE : 0;
   return {
     net,
     inputSize: ENCODING_SIZE,
     actionSize: ACTION_SPACE_SIZE,
-    valueSize: VALUE_HEAD_SIZE,
+    valueSize,
   };
 }

@@ -26,6 +26,7 @@ import {
 } from './actionSpace';
 import { determinizeDeck, observationKey } from './infoSet';
 import { encodeState } from './encoding';
+import { evaluateState, DEFAULT_WEIGHTS } from './evaluator';
 
 // ============================================================================
 // モデル管理
@@ -33,7 +34,12 @@ import { encodeState } from './encoding';
 
 interface LoadedModel {
   net: tf.LayersModel;
-  /** 価値出力の次元数（4 = mean-field 解消版、 1 = 旧版） */
+  /**
+   * 価値出力の次元数。
+   *   - 4: mean-field 解消版（NN value head あり）
+   *   - 1: 旧版
+   *   - 0: policy-only（Gen-3-S ハイブリッド。 leaf value は evaluateState で計算）
+   */
   valueSize: number;
 }
 
@@ -52,11 +58,15 @@ export async function loadModel(url: string): Promise<LoadedModel | null> {
   loadingPromise = (async () => {
     try {
       const net = await tf.loadLayersModel(url);
-      // valueSize を出力 shape から推定
-      const valueOutput = net.outputs[1];
-      const valueShape = valueOutput?.shape;
-      const valueSize =
-        Array.isArray(valueShape) && typeof valueShape[1] === 'number' ? valueShape[1] : 1;
+      // valueSize を出力本数と shape から推定。
+      //   - 出力 1 本: policy-only（Gen-3-S ハイブリッド）→ valueSize=0
+      //   - 出力 2 本: policy + value → value head の次元数
+      let valueSize = 0;
+      if (net.outputs.length >= 2) {
+        const valueShape = net.outputs[1]?.shape;
+        valueSize =
+          Array.isArray(valueShape) && typeof valueShape[1] === 'number' ? valueShape[1] : 1;
+      }
       cachedModel = { net, valueSize };
       lastLoadError = null;
       return cachedModel;
@@ -95,9 +105,12 @@ export function disposeModel(): void {
 // NN 推論 + PUCT MCTS (ブラウザ版、 ai/scripts/nn/neuralMcts.ts の移植)
 // ============================================================================
 
-const DEFAULT_ITERATIONS = 100;
-const DEFAULT_PUCT_C = 1.4;
+// mctsAI (Gen-3-O) と揃える: iter=800, uctC=1.7。 ハイブリッドは同じ探索 + NN prior。
+const DEFAULT_ITERATIONS = 800;
+const DEFAULT_PUCT_C = 1.7;
 const DEFAULT_TREE_MAX_DEPTH = 50;
+/** ハイブリッド時の heuristic leaf value の tanh スケール（mctsAI と同じ 1500）。 */
+const DEFAULT_LEAF_EVAL_SCALE = 1500;
 
 export interface NeuralAiOptions {
   iterations?: number;
@@ -153,6 +166,18 @@ function makeRankingValueVec(s: GameState, numPlayers: number): Float32Array {
   return vec;
 }
 
+/**
+ * Gen-3-S ハイブリッド: leaf を全プレイヤー視点で evaluateState（Gen-3-F 重み）評価し、
+ * tanh で [-1, +1] に正規化（mctsAI と同じ scale=1500）。 policy-only モデルで使う。
+ */
+function evaluateLeafHeuristic(state: GameState, numPlayers: number): Float32Array {
+  const vec = new Float32Array(numPlayers);
+  for (let p = 0; p < numPlayers; p++) {
+    vec[p] = Math.tanh(evaluateState(state, p, DEFAULT_WEIGHTS) / DEFAULT_LEAF_EVAL_SCALE);
+  }
+  return vec;
+}
+
 function createNode(actor: number): NodeStats {
   return {
     actor,
@@ -174,12 +199,16 @@ function nnPredict(
 ): { policy: Float32Array; value: Float32Array } {
   return tf.tidy(() => {
     const input = tf.tensor2d(stateVec, [1, stateVec.length]);
-    const out = loaded.net.predict(input) as tf.Tensor[];
+    const rawOut = loaded.net.predict(input);
+    // policy-only モデルは単一 tensor、 policy+value モデルは tensor 配列を返す。
+    const out: tf.Tensor[] = Array.isArray(rawOut) ? rawOut : [rawOut];
     const policy = out[0].dataSync() as Float32Array;
-    const value = out[1].dataSync() as Float32Array;
+    // value head が無い（policy-only）場合は空配列。 leaf value は呼び出し側で heuristic 計算。
+    const value =
+      out.length >= 2 ? new Float32Array(out[1].dataSync() as Float32Array) : new Float32Array(0);
     return {
       policy: new Float32Array(policy),
-      value: new Float32Array(value),
+      value,
     };
   });
 }
@@ -294,14 +323,18 @@ function decideActionNeural(
       const node = getOrCreateNode(s, actor);
 
       if (node.priors === null) {
-        // 未展開ノード: NN で評価して expansion
+        // 未展開ノード: NN で prior を評価して expansion
         const stateVec = Float32Array.from(encodeState(s, actor));
         const { policy, value } = nnPredict(loaded, stateVec);
         installPriors(node, policy, legal);
-        // valueSize == numPlayers の想定。 旧モデル (valueSize=1) は最初の値を全 actor に流用
-        if (loaded.valueSize >= numPlayers) {
+        if (loaded.valueSize === 0) {
+          // policy-only（ハイブリッド）: leaf value は Gen-3-F heuristic
+          node.cachedValuePerPlayer = evaluateLeafHeuristic(s, numPlayers);
+        } else if (loaded.valueSize >= numPlayers) {
+          // mean-field 解消版: NN value をそのまま使う
           node.cachedValuePerPlayer = new Float32Array(value.subarray(0, numPlayers));
         } else {
+          // 旧 1 次元 value: 最初の値を全 actor に流用
           const fallback = new Float32Array(numPlayers);
           fallback.fill(value[0] ?? 0);
           node.cachedValuePerPlayer = fallback;
