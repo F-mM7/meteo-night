@@ -68,6 +68,26 @@ export interface EvalWeights {
    * pair の 2 枚中 1 枚でも一致すれば 1 加算。
    */
   fieldOpportunityMatch: number;
+
+  /**
+   * 連鎖準備度（ある 1 色が複数スロットの最上段付近に並んでいる度合い）への加点係数。
+   * Gen-3-W: 大連鎖を仕込む盤面を高評価し、 AI に連鎖構築を志向させる狙い。0 で従来挙動。
+   */
+  chainReadyMult: number;
+
+  /**
+   * 自己得点項の非線形（凸/凹）係数。
+   * 自己得点項を `score * selfScoreMult * (1 + selfScoreConvex * score / END_SCORE_THRESHOLD)` とする。
+   *   - 0（デフォルト）: 従来の線形（`score * selfScoreMult`）と完全一致
+   *   - 正値: 高得点ほど 1 点の価値が逓増（凸）
+   *   - 負値: 高得点ほど 1 点の価値が逓減（凹、 saturating）
+   *
+   * Gen-3-U で凸・凹の両方向を grid 検証（vs smart 100 局）したが、 **0（線形）が両方向のピーク**で、
+   * 正にしても負にしても勝率が下がった（凹 -0.5 は avgScore 最高だが勝率は最低）。
+   * 現状の評価は「得点差（self − threat）を tanh 飽和」 する形で既に勝利位置を表現できており、
+   * 得点項の形状変更では改善しないと判明。 0 のまま保持（将来の構造変更時の再検証用）。
+   */
+  selfScoreConvex: number;
 }
 
 /**
@@ -100,6 +120,12 @@ export const DEFAULT_WEIGHTS: EvalWeights = {
   endRoundHighReachBonus: 0,
   slotEvennessPenalty: 0,
   fieldOpportunityMatch: 0,
+  // Gen-3-U 候補（0 = 従来の線形得点項と完全一致）
+  selfScoreConvex: 0,
+  // Gen-3-X 採用: 連鎖準備度の加点。 smart 非依存ベンチ（mcts候補 vs mcts baseline, 150局）で
+  // chainReadyMult=10 が勝率 33.3% (CI 26.3-41.2%) > 公平基準 25% と有意に強いことを確認して採用。
+  // vs smart では盲点共有で検出できなかった改善。 30 は過剰（競走で遅くなり不利）、 10 が好適。
+  chainReadyMult: 10,
 };
 
 /**
@@ -148,10 +174,39 @@ function readBoardSignal(player: Player): BoardSignal {
   };
 }
 
+/**
+ * 連鎖準備度: ある 1 色が「複数スロットの最上段付近（上 2 枚以内）」 に並んでいるほど高い。
+ * 3 スロット以上に並べば大連鎖を起こせるため、 それを近似する（chainRushAI と同設計）。
+ */
+function chainReadinessScore(player: Player): number {
+  const topCount = new Map<Color, number>();
+  const nearTopCount = new Map<Color, number>();
+  for (const slot of player.board.slots) {
+    const n = slot.stack.length;
+    if (n === 0) continue;
+    const top = slot.stack[n - 1];
+    topCount.set(top.color, (topCount.get(top.color) ?? 0) + 1);
+    const near = new Set<Color>();
+    near.add(top.color);
+    if (n >= 2) near.add(slot.stack[n - 2].color);
+    for (const c of near) nearTopCount.set(c, (nearTopCount.get(c) ?? 0) + 1);
+  }
+  let best = 0;
+  for (const [color, near] of nearTopCount) {
+    const r = near * 3 + (topCount.get(color) ?? 0);
+    if (r > best) best = r;
+  }
+  return best;
+}
+
 function selfScore(player: Player, state: GameState, w: EvalWeights): number {
   const sig = readBoardSignal(player);
-  let score = player.score * w.selfScoreMult;
+  // Gen-3-U: 得点項を終了閾値への近さで逓増（凸）。selfScoreConvex=0 で従来の線形と一致。
+  const convexFactor = 1 + w.selfScoreConvex * (player.score / END_SCORE_THRESHOLD);
+  let score = player.score * w.selfScoreMult * convexFactor;
   if (player.score >= END_SCORE_THRESHOLD - 5) score += w.selfNearEnd;
+  // Gen-3-W: 連鎖準備度の加点（chainReadyMult=0 なら無効＝従来挙動）。
+  if (w.chainReadyMult !== 0) score += w.chainReadyMult * chainReadinessScore(player);
   for (const count of sig.reachByColor.values()) {
     if (count >= 5) score += w.reach5plus;
     else if (count >= 4) score += w.reach4;

@@ -38,4 +38,6 @@ export const GEN_3B_WEIGHTS: EvalWeights = {
   endRoundHighReachBonus: 0,
   slotEvennessPenalty: 0,
   fieldOpportunityMatch: 0,
+  selfScoreConvex: 0,
+  chainReadyMult: 0,
 };
