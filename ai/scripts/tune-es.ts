@@ -41,11 +41,21 @@ import {
 import { mulberry32 } from '../../src/game/rng';
 import { parseFloatArg, parseIntArg } from './_runner';
 
-type OpponentName = 'smart' | 'random';
+type OpponentName = 'smart' | 'random' | 'mcts';
+
+/**
+ * Gen-3-S: 自己対戦 fitness 用。対戦相手 3 体は **default 重みの mcts**。
+ * 学習側 mcts（seat 0）は候補重み、 対戦相手は DEFAULT_WEIGHTS で動かすことで
+ * 「現状最強 (Gen-3-O) を相手にした自己対戦で、 候補重みが勝ち越せるか」 を測る。
+ * uctC / iterations はモジュール default（Gen-3-O の 1.7 / 800）を両者とも使う。
+ */
+const decideMctsDefault = (state: GameState, playerId: number) =>
+  decideMcts(state, playerId, undefined, { weights: DEFAULT_WEIGHTS });
 
 const OPPONENT_FN: Record<OpponentName, typeof decideSmart> = {
   smart: decideSmart,
   random: decideRandom,
+  mcts: decideMctsDefault,
 };
 
 function currentActorId(state: GameState): number {
@@ -201,7 +211,9 @@ function parseArgs(argv: string[]): Args {
         break;
       case '--opponent': {
         const v = argv[++i];
-        if (v !== 'smart' && v !== 'random') throw new Error(`bad --opponent: ${v}`);
+        if (v !== 'smart' && v !== 'random' && v !== 'mcts') {
+          throw new Error(`bad --opponent: ${v} (smart | random | mcts)`);
+        }
         args.opponent = v;
         break;
       }
@@ -234,7 +246,8 @@ Options:
   --games <n>         games per fitness evaluation (default: 30)
   --seed <n>          base seed of evaluation set (default: 1)
   --sigma <f>         initial sigma (relative perturbation) (default: 0.2)
-  --opponent <name>   smart | random (default: smart)
+  --opponent <name>   smart | random | mcts (default: smart)
+                      mcts = 自己対戦 fitness（対戦相手 3 体は default 重みの mcts、 Gen-3-S）
   --out <path>        output JSON path (default: ai/data/tuned-weights.json)
   --max-steps <n>     safety cap per game (default: 20000)
   --init <path>       initial weights JSON (default: DEFAULT_WEIGHTS / warm-start可)

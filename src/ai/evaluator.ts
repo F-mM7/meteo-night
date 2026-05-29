@@ -44,6 +44,30 @@ export interface EvalWeights {
   winnerBonus: number;
   /** 自分以外が勝者の終局状態の減点 */
   loserPenalty: number;
+
+  // === Gen-3-L 追加候補 ===
+  /**
+   * `state.endTriggered === true` （誰かが終了閾値を踏み、 最終ラウンドに突入した）状態で、
+   * 自分の reach が 1 または 2 のみ（残り 1-2 turn では完成しない見込み）の color 1 個あたり減点。
+   * 「もう間に合わない」 reach は価値が無いことを表現。
+   */
+  endRoundLowReachPenalty: number;
+  /**
+   * endTriggered = true で reach 3+ がある color 1 個あたり加点（今 turn で完成可能）。
+   * 「今すぐ仕上げる」 を急がせる。
+   */
+  endRoundHighReachBonus: number;
+  /**
+   * スロット高さの偏り（max - min）係数。 偏ってるほどジャム（overflow）に近い構造で配置自由度が低い。
+   * overflowPenalty は総量のみ見るのに対し、 これは分布の偏りを見る補完。
+   */
+  slotEvennessPenalty: number;
+  /**
+   * 自分の手番中、 場 (field) の公開 4 枚に「自分の reach 2-4 と同色」 のカードがある時の機会ボーナス。
+   * 「次手で完成できる pair が見えている」 状態を高評価する。
+   * pair の 2 枚中 1 枚でも一致すれば 1 加算。
+   */
+  fieldOpportunityMatch: number;
 }
 
 /**
@@ -71,6 +95,11 @@ export const DEFAULT_WEIGHTS: EvalWeights = {
   pendingMult: 106.5629775591632,
   winnerBonus: 5211.641039704553,
   loserPenalty: 3128.971983687204,
+  // Gen-3-L 候補（ES tune 前は 0 = 既存挙動と互換）
+  endRoundLowReachPenalty: 0,
+  endRoundHighReachBonus: 0,
+  slotEvennessPenalty: 0,
+  fieldOpportunityMatch: 0,
 };
 
 /**
@@ -87,25 +116,39 @@ interface BoardSignal {
   reachByColor: Map<Color, number>;
   chainSeeds: number;
   totalCards: number;
+  /** 各スロットの stack 長 (Gen-3-L: 偏り評価用) */
+  maxStackHeight: number;
+  minStackHeight: number;
 }
 
 function readBoardSignal(player: Player): BoardSignal {
   const reach = new Map<Color, number>();
   let chainSeeds = 0;
   let totalCards = 0;
+  let maxStackHeight = 0;
+  let minStackHeight = Infinity;
   for (const slot of player.board.slots) {
     const stack = slot.stack;
-    totalCards += stack.length;
+    const h = stack.length;
+    totalCards += h;
+    if (h > maxStackHeight) maxStackHeight = h;
+    if (h < minStackHeight) minStackHeight = h;
     const top = stack[stack.length - 1];
     if (!top) continue;
     reach.set(top.color, (reach.get(top.color) ?? 0) + 1);
     const below = stack[stack.length - 2];
     if (below && below.color === top.color) chainSeeds += 1;
   }
-  return { reachByColor: reach, chainSeeds, totalCards };
+  return {
+    reachByColor: reach,
+    chainSeeds,
+    totalCards,
+    maxStackHeight,
+    minStackHeight: minStackHeight === Infinity ? 0 : minStackHeight,
+  };
 }
 
-function selfScore(player: Player, w: EvalWeights): number {
+function selfScore(player: Player, state: GameState, w: EvalWeights): number {
   const sig = readBoardSignal(player);
   let score = player.score * w.selfScoreMult;
   if (player.score >= END_SCORE_THRESHOLD - 5) score += w.selfNearEnd;
@@ -122,6 +165,33 @@ function selfScore(player: Player, w: EvalWeights): number {
   if (sig.totalCards > slotCount * 3) {
     score -= (sig.totalCards - slotCount * 3) * w.overflowPenalty;
   }
+
+  // Gen-3-L: 終局突入後の reach 期待値補正
+  // endTriggered = true ということは最終 round 中。 reach 1-2 は完成見込み低い、
+  // reach 3+ は今 turn で完成可能 → 急ぐ
+  if (state.endTriggered) {
+    for (const count of sig.reachByColor.values()) {
+      if (count >= 3) score += w.endRoundHighReachBonus;
+      else if (count >= 1) score -= w.endRoundLowReachPenalty;
+    }
+  }
+
+  // Gen-3-L: スロット高さの偏りペナルティ
+  // overflowPenalty は総量だけ見るが、 偏りも問題（1 slot だけ高いと配置自由度が落ちる）
+  score -= (sig.maxStackHeight - sig.minStackHeight) * w.slotEvennessPenalty;
+
+  // Gen-3-L: 場の機会マッチ
+  // 自分の手番中、 公開 field に「自分の reach 2-4 と同色」 のカードがあれば次手で完成 / 進捗可
+  if (state.currentPlayerIndex === player.id) {
+    for (const pair of state.field) {
+      if (!pair) continue;
+      for (const card of pair) {
+        const r = sig.reachByColor.get(card.color) ?? 0;
+        if (r >= 2 && r <= 4) score += w.fieldOpportunityMatch;
+      }
+    }
+  }
+
   return score;
 }
 
@@ -151,7 +221,7 @@ export function evaluateState(
 ): number {
   const w = weights ?? currentWeights;
   const me = state.players[playerId];
-  let value = selfScore(me, w);
+  let value = selfScore(me, state, w);
   if (state.currentPlayerIndex === playerId) {
     const pending = totalScoreForTurn(state.turn.combosThisTurn);
     value += pending.total * w.pendingMult;

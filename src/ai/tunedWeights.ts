@@ -34,4 +34,8 @@ export const GEN_3B_WEIGHTS: EvalWeights = {
   pendingMult: 126.18057109761712,
   winnerBonus: 3985.9107961471595,
   loserPenalty: 3060.1117760614543,
+  endRoundLowReachPenalty: 0,
+  endRoundHighReachBonus: 0,
+  slotEvennessPenalty: 0,
+  fieldOpportunityMatch: 0,
 };
