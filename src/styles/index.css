@@ -994,6 +994,13 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   transition: transform 0.1s, background 0.15s, border-color 0.15s;
 }
 .btn:hover { background: var(--bg-elev2); transform: translateY(-1px); }
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: saturate(0.55);
+  pointer-events: none;
+}
 
 .btn-primary {
   background: linear-gradient(135deg, var(--accent-strong), var(--accent-warm));
@@ -1112,6 +1119,23 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   background: rgba(6, 10, 31, 0.4);
   border: 1px solid rgba(255, 255, 255, 0.08);
   min-width: 0;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+/* 未選択時は黄色系の点滅枠で「ここを選んでください」ことを強調 */
+.gift-bar-row-unselected {
+  border-color: var(--accent-strong);
+  background: rgba(255, 210, 77, 0.07);
+  animation: gift-row-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes gift-row-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(255, 210, 77, 0.0);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(255, 210, 77, 0.28);
+  }
 }
 
 .gift-bar-row .card {
@@ -1144,4 +1168,12 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   border-color: var(--accent-strong);
   background: rgba(255, 210, 77, 0.14);
   color: var(--accent);
+}
+
+/* 決定 / ランダムに配布 ボタンを横並びで右上に配置 */
+.gift-confirm-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  flex-shrink: 0;
 }

@@ -91,8 +91,10 @@ export default function App() {
     }
   }, [showGiftBar, giftQueue]);
 
+  const giftSelectedCount = giftTargets.filter((t) => t !== null).length;
+  const giftTotalCount = giftQueue.length;
   const allGiftTargetsReady =
-    showGiftBar && giftTargets.length === giftQueue.length && giftTargets.every((t) => t !== null);
+    showGiftBar && giftTargets.length === giftTotalCount && giftSelectedCount === giftTotalCount;
 
   const handleConfirmGifts = () => {
     if (!allGiftTargetsReady) return;
@@ -104,15 +106,42 @@ export default function App() {
     dispatch({ type: 'CONFIRM_GIFTS', assignments });
   };
 
+  // 既存の選択状態に関わらず、全件をランダムに割り当てて即座に配布する。
+  const handleRandomDistribute = () => {
+    if (!showGiftBar || giftQueue.length === 0) return;
+    const otherIds = state.players.filter((p) => p.id !== you).map((p) => p.id);
+    if (otherIds.length === 0) return;
+    const assignments: GiftAssignment[] = giftQueue.map((combo, i) => ({
+      comboIndex: i,
+      cardId: combo.cards[0].id,
+      targetPlayerId: otherIds[Math.floor(Math.random() * otherIds.length)],
+    }));
+    dispatch({ type: 'CONFIRM_GIFTS', assignments });
+  };
+
   const giftConfirmSlot = showGiftBar ? (
-    <button
-      type="button"
-      className="btn btn-primary"
-      disabled={!allGiftTargetsReady}
-      onClick={handleConfirmGifts}
-    >
-      決定
-    </button>
+    <div className="gift-confirm-actions">
+      <button
+        type="button"
+        className="btn btn-secondary"
+        onClick={handleRandomDistribute}
+      >
+        ランダムに配布
+      </button>
+      <button
+        type="button"
+        className="btn btn-primary"
+        disabled={!allGiftTargetsReady}
+        onClick={handleConfirmGifts}
+        aria-label={
+          allGiftTargetsReady
+            ? '決定'
+            : `配布先を選択してください (${giftSelectedCount}/${giftTotalCount})`
+        }
+      >
+        決定 ({giftSelectedCount}/{giftTotalCount})
+      </button>
+    </div>
   ) : null;
 
   const { cardSize, layout, stackOffset, cssVars } = useBoardLayout(state);
