@@ -11,10 +11,12 @@
 
 ### ブラウザに反映されている CPU
 - **戦略**: mctsAI (IS-MCTS + leaf 評価関数)
-- **重み**: Gen-3-F（`src/ai/evaluator.ts` の `DEFAULT_WEIGHTS`）
-- **探索ハイパラ**: `DEFAULT_UCT_C = 1.7` / `DEFAULT_ITERATIONS = 800`（Gen-3-O、 joint 2D grid で `(uctC, iter)` を同時最適化）
-- **強さ**: vs smart x3 で勝率 **93.5%** (95%CI 89.2-96.2%、 200 局, rotate, seed=1001)
-- **1 手あたり時間**: 約 5.7 ms（CPU 計測、 ブラウザ CPU 速度デフォルト 550 ms に対し 1% 未満）
+- **探索ハイパラ**: `DEFAULT_UCT_C = 1.7` / `DEFAULT_ITERATIONS = 800`（Gen-3-O）
+- **重み**: Gen-3-X = Gen-3-F + `chainReadyMult = 10`（連鎖準備度の加点）
+- **強さ（smart 非依存）**: mcts(Gen-3-X) vs mcts(Gen-3-O baseline) で勝率 **33.3%** (CI 26.3-41.2 > 公平基準 25%、 150 局) → 有意に強い
+- ⚠️ vs smart は盲点を共有して測れない（93.5% は Gen-3-O 当時の参考値）。 **強さの物差しは `bench-self.ts`（候補 vs baseline mcts）に移行**
+- **1 手あたり時間**: 約 5.7 ms（ブラウザ実用域）
+- **未解決**: 人間には依然弱い見込み。 連鎖挙動は chainReadyMult=10 でもほぼ不変（多ターン連鎖計画が本質課題）
 
 ### 試行中の方向性
 
@@ -33,12 +35,17 @@
 手書き AI は Gen-3-O (93.5%) でグリッドサーチ系の伸び代をほぼ使い切った。 残る本命は NN priors:
 
 - **A 路線（評価関数 feature 追加, Gen-3-R）**: 4 新 feature を追加したが、 別セッションの Gen-3-Q（21 次元 ES）でも私の ES でも不採用。 既存 17 weights と役割が重複し効果なし
-- **B 路線（ハイブリッド NN, Gen-3-S）**: policy-only NN + Gen-3-F leaf value。 **これが本命**
-  - 未学習（ランダム priors）でも vs smart **52%**（iter=800, scale=1500, batchSize=8）
-  - mctsAI は同じ value+探索 + computePriors で 93.5% → **差 41pt は全て priors の質**
-  - 強い mctsAI(800iter) の visit 分布を NN policy に蒸留すれば 93.5% 超えの可能性（policy improvement）
-  - **重大バグ発見**: batch 探索は batchSize が大きいと木を降りない（K11/K12 の speedup 結論を無効化）。 詳細は CHANGELOG Gen-3-S
-- C 路線（純粋 AlphaZero / 新 architecture）: ROI 低く保留
+- **B 路線（ハイブリッド NN, Gen-3-S）**: policy-only NN + Gen-3-F leaf value。 **検証完了 → 低天井で棄却**
+  - 未学習 52% → 蒸留後 55%（CI 重複、 有意改善なし）。 mctsAI 93.5% に遠く及ばず
+  - 原因（実測確定）: **平均合法手数 5.1**（`_branching-factor.ts`）と小さく、 mctsAI の UCT1+全手展開で十分尽くせる。 NN prior は囲碁級の高分岐ゲームでこそ効くもので本 game では出番がない
+  - 副産物: batch 探索バグ発見（K11/K12 の speedup 結論を無効化）、 ブラウザ側 neuralAI も policy-only 対応済み
+- C 路線（純粋 AlphaZero / 新 architecture）: 同じ理由で ROI 低い
+
+### 現時点の総括（最強 AI を目指す上での到達点）
+
+- **最強は heuristic mctsAI (Gen-3-O, 93.5%)**。 NN は priors（Gen-3-S）も value（az-v1〜v10）も hand-tuned evaluator に勝てない
+- 93.5% 超えの残レバー: ①非線形 leaf value、 ②ギフト選択フェーズ（構造的弱点）、 ③より深い探索（伸び代小）。 いずれも難度高
+- NN 系は本 game の構造（低分岐 + 既に優秀な評価関数）と相性が悪いことが判明
 
 ### GPU 環境
 - **ハードウェア**: NVIDIA RTX 4080 (16 GB VRAM)、 WSL2 経由で利用可
@@ -104,16 +111,11 @@ NN 学習の最強モデルが Gen-3-F に届いていないため、ブラウ�
 | 2 | 評価関数の重み自動チューニング（(1+1)-ES） | **完了 (Gen-3-B〜F)**：vs smart 89.5% |
 | 2-extra | per-AI weights 構造（mcts/smart で別重み）| **完了 (Gen-3-J)**：構造採用、 ブラウザ DEFAULT は据置 |
 | 2-L | MCTS 探索ハイパラ `uctC` の grid 最適化 | **完了 (Gen-3-L)**：vs smart 92.0% |
-| 2-O | `uctC × iter` joint 2D grid search | **完了 (Gen-3-O)**：vs smart 93.5% ← **ブラウザ反映済み** |
-| 3 | AlphaZero 風（tfjs-node で学習 → tfjs ブラウザで推論） | **基盤完成 (Gen-3-K1〜K4)**：パイプライン動作確認済み、 最強 az-v7 でも vs smart 8% |
-| 3-GPU | GPU 学習環境セットアップ | **完了 (Gen-3-K10)**：環境構築 OK だが小モデルでは効果なし |
-| 3-K11 | parallel self-play 実装 | 完了 → 後に不要と判明 |
-| 3-K12 | mcts-batch=iterations 化 | ⚠️ **Gen-3-S で撤回**（探索が空回りするバグ。 正しい上限は mcts-batch=8）|
-| 3-R | 評価関数に 4 新 feature 追加 | 実装のみ。 別セッション Gen-3-Q の ES で不採用 |
-| 3-S | ハイブリッド NN（policy-only + Gen-3-F leaf value）+ batch バグ発見 | 未学習 52%、 蒸留学習で 93.5% 超え検証中 |
-| 3-M | ハイブリッド NN（policy-only + Gen-3-F leaf value）| **実装完了 (Gen-3-M)**：smoke OK、 本格学習はこれから |
-| 3-K13+ | virtual loss 正実装 / az-v11 大規模学習 + 強さ検証 | 未着手 |
-| 4 | プレゼント選択の別ヘッド化 | 未着手 |
+| 2-O | `uctC × iter` joint 2D grid search | **完了 (Gen-3-O)**：vs smart 93.5% |
+| 3 | AlphaZero 風 / ハイブリッド NN | **棄却 (Gen-3-S)**：分岐因子 5.1 で priors 無効、 NN は本 game と相性が悪い |
+| 3-診断 | 「vs smart は強さの錯覚」 を実証 | **完了**：mcts は size3 連鎖 88%・size5 0.1%、 物差しが盲点を共有 |
+| 3-X | **smart 非依存ベンチ確立 + `chainReadyMult=10` 採用** | **完了・ブラウザ反映**：vs baseline mcts 33.3% (>25%) で有意。 ただし改善は modest |
+| 4 | 多ターン連鎖計画（人間との差を埋める本命）| 未着手。 静的評価では不足、 探索構造 or outcome 接地 value が要 |
 
 ---
 
@@ -239,3 +241,5 @@ npx tsx ai/scripts/bench-neural.ts ai/models/az-vN \
 | ~~Gen-3-P~~ | uctC × leafEvalScale joint 2D grid | `(1.7, 1500)` が依然 grid 内ピーク、不採用。`leafEvalScale=1500` は他軸に依存しないロバスト値 |
 | ~~Gen-3-Q~~ | 21 次元 ES tune（新 4 特徴量 + 既存 17）| 17 世代 sigma 早期収束、best = default。smart x3 fitness は天井（98%, avgScore 22.24）、 新特徴量は smart 相手では検出不能 |
 | ~~Gen-3-S~~ | mcts 自己対戦 fitness で 21 次元 ES | self-play では改善（+1.88 avgScore、新特徴量も非ゼロ化）も vs smart で -4.5〜-5pt 退行、不採用。Gen-3-J 現象（self-play 最適 ≠ vs smart 最適）を再確認 |
+| ~~Gen-3-T~~ | 終局評価を純粋勝敗(winLoss)化 | vs smart も head-to-head も中立（改善なし）、不採用。終局評価は到達頻度が低く実質無関係、「得点重視」是正の効きどころは途中評価の非線形化と判明 |
+| ~~Gen-3-U~~ | 自己得点項の非線形化（凸/凹 grid）| 線形(0)が両方向のピーク、不採用。現状の評価は得点差+tanh飽和で既に勝利位置を表現済み。手書き AI は Gen-3-O が実質天井と確定 |

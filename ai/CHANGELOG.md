@@ -7,9 +7,10 @@
 
 ## 📌 現状最強モデル（コンテキスト復元用）
 
-| 種類 | モデル | vs smart 勝率 | ブラウザ反映 | 由来 |
+| 種類 | モデル | 強さ指標 | ブラウザ反映 | 由来 |
 |---|---|---|---|---|
-| 手書き AI（採用版） | **Gen-3-O**（Gen-3-L + joint 2D grid で `(uctC, iter) = (1.7, 800)` 採用）| **93.5%** (95%CI 89.2-96.2%) | **✓ 反映済み** | `src/ai/mctsAI.ts` の `DEFAULT_UCT_C` / `DEFAULT_ITERATIONS` |
+| 手書き AI（採用版） | **Gen-3-X**（Gen-3-O + `chainReadyMult=10`）| **vs baseline mcts 33.3%** (CI 26.3-41.2 > 公平 25%, smart 非依存) | **✓ 反映済み** | `src/ai/evaluator.ts` の `chainReadyMult` |
+| 旧採用版 | Gen-3-O（`(uctC, iter)=(1.7, 800)`）| vs smart 93.5% | （置換） | `src/ai/mctsAI.ts` |
 | NN AI（最強だが未到達） | **az-v7**（K6 + 5000 games AlphaZero）| 8% | – | `ai/models/az-v7/` (gitignore) |
 | 旧 NN 系 | az-v1〜v6, v8〜v10 | 0-6% | – | 不採用、 詳細は下の各 Gen-3-K* エントリ |
 
@@ -17,6 +18,98 @@
 1. このサマリと最新 Gen エントリを読む
 2. `ai/README.md` の「現状」セクションを確認
 3. ベンチで実機確認: `npx tsx ai/scripts/bench.ts --games 50 --strategies mcts,smart,smart,smart --rotate --seed 1001 --silent --json`
+
+---
+
+## 🔴 根本診断（2026-05-29）: 「vs smart 93.5%」 は強さの錯覚、 評価関数が連鎖の超線形得点を捉えていない
+
+ユーザー報告「人間が圧倒的に強い」 を受けた診断。 **これが最重要エントリ**。
+
+### 事実1: 物差しが弱く自己参照的
+- 全ベンチが `smart,random,random,random` 基準。 `smartAI` は 1 手読み貪欲ヒューリスティック
+- `smartAI` も `mctsAI` も同じ `evaluateState`（手書き線形評価）を葉/評価に使う → **両者が同じ盲点を共有**
+- 「vs smart 93.5%」 = 「弱い 1 手読みボットに圧勝」 の意味でしかなく、 絶対的強さを測っていない
+- **物差しより強くなれない。 共有する盲点はベンチで検出不能**
+
+### 事実2: 得点は超線形だが評価関数は線形 reach 近似
+- `scoring.ts`: size3=1pt, size4=3pt, **size5=10pt**, size6=15pt + 1ターン複数連鎖ボーナス n(n-1)/2
+- `evaluateState` は reach（同色トップ枚数）の線形和 + `chainSeed`（重み 9.3、 reach5plus 222 に対し極小）
+- → 大連鎖・チェインの超線形価値を捉えていない
+
+### 事実3: 実測した mctsAI の連鎖挙動（自己対戦 20 局）
+| size | pt | 割合 |
+|---|---|---|
+| 3 | 1 | **88.3%** |
+| 4 | 3 | 11.6% |
+| 5 | 10 | **0.1%** |
+
+平均連鎖サイズ 3.12、 勝者平均スコア 20.9。 **最小連鎖を刻むだけで大連鎖を組めていない**。
+測定: `ai/scripts/_combo-stats.ts`。 分岐因子 5.1: `_branching-factor.ts`。
+
+### 追加実測（2026-05-29）: chainRushAI vs mctsAI と「競走」 の核心
+
+既存のチェイン特化 bot（`chainRushAI`, Gen-3-V）を smart 非依存で検証:
+
+- **chainRush vs mcts x3（48 games, rotate）: chainRush 勝率 4.2%、 mcts 31.9%/席**（公平基準 25% に対し chainRush は大幅に弱い）
+- chainRush 自己対戦の連鎖統計: **size5 が 7.6%**（mcts は 0.1%）、 平均サイズ 3.35、 勝者スコア 23.8
+  - → chainRush は**大連鎖を組む能力はある**が、 mcts と戦うと負ける
+
+**核心: このゲームは「20 点への競走」**。
+- mcts は小連鎖を毎ターン高速に刻んで先に 20 点へ → 終了トリガー
+- chainRush は大連鎖の仕込みに時間をかける間に mcts に先着される
+- **大連鎖は点効率は高いが時間効率が悪い**。 「大連鎖を組む」 だけでは勝てず、 「**十分速く**組む」 必要がある
+- ユーザーが手動大連鎖で勝てるのは、 効率的に速く組めるから。 chainRush は遅すぎる
+
+### 正しい方向（更新）
+1. 単純な「連鎖 potential proxy の最大化」 は失敗（chainRush が実証）。 **速度（テンポ）と連鎖サイズのトレードオフ**を最適化する必要がある
+2. mcts の高速グラインドを保ちつつ連鎖バイアスを少量加える `chainReadyMult` を、 **mcts(候補) vs mcts(Gen-3-O baseline) の直接対戦**（smart 非依存）で再評価する。 過去 vs smart で測ったため盲点で見えなかった可能性
+3. より本質的には、 複数ターンにまたがる効率的連鎖構築の計画が要る（静的線形評価でも own-turn DFS でも不足）
+4. 物差しは smart から外す（self-play 世代間 / 実スコア / ユーザー判断）
+
+→ **2 を実行して Gen-3-X として採用（下記）**。 物差し交換が機能し、 vs smart では見えなかった改善を検出できた。
+
+---
+
+## Gen-3-X: smart 非依存ベンチの確立 + `chainReadyMult=10` 採用（vs smart では検出不能だった改善） (2026-05-29)
+
+### Step 0: ルール変更チェック
+HEAD = 13cd1ae 以降 `src/game/` 変更なし。
+
+### 第1段階: 物差しを smart から外す（最重要・恒久的成果）
+- `ai/scripts/_runner.ts` に `playOneGameWithDeciders`（任意 Decider 4 つを直接対戦）を追加
+- `ai/scripts/bench-self.ts` 新設: **mcts(候補重み) vs mcts(baseline=DEFAULT_WEIGHTS) を 1 席 vs 3 席で rotate 対戦**し、 候補の勝率を公平基準 25% と比較
+- 偏りチェック: 候補 override 空（=baseline 同士）で 20.8%（24 局、 CI が 25% を含む）→ 物差しに偏りなし
+- 意義: vs smart は mcts と smart が同じ評価関数を共有し盲点を検出できない。 候補 vs baseline なら「現最強より強くなったか」 を smart 非依存で判定できる
+
+### 第2段階: `chainReadyMult` の掃引（smart 非依存）
+48 局掃引:
+| chainReadyMult | 候補勝率 | 候補/base 平均点 |
+|---|---|---|
+| 3 | 29.2% (CI 18-43) | 16.67 / 15.97 |
+| 10 | 29.2% (CI 18-43) | 16.48 / 15.90 |
+| 30 | 18.8% (CI 10-32) | 16.17 / 16.22 |
+
+→ 小〜中は正の傾向、 大（30）は不利（競走で遅くなる＝chainRush と同じ失敗）。
+
+確認ラン（150 局, seed=2001）:
+- **chainReadyMult=10: 勝率 33.3% (CI 26.3-41.2%) > 公平基準 25% → 統計的に有意に強い**
+- 候補平均点 16.88 > baseline 16.09
+
+### 採用判定
+**採用**: `DEFAULT_WEIGHTS.chainReadyMult = 0 → 10`。 ブラウザ自動反映（mctsAI が DEFAULT_WEIGHTS を使う）。
+
+### 正直な限界（重要）
+- **改善は modest**。 連鎖挙動はほぼ不変（size5 0.1%→0.4%、 平均サイズ 3.12→3.14）。 「劇的に大連鎖を組む」 ようにはなっていない
+- vs smart は 86%（50 局, CI 73.8-93）で baseline 93.5% から下がって見えるが、 vs smart は盲点指標なので参考外（誤差大）
+- **intransitive リスク**: 「baseline mcts に勝つ」 は絶対的強さを保証しない（特定 baseline へのカウンター戦略の可能性）。 真の検証は**ユーザー（強い人間）が実際に対戦して判断**すること
+- 人間との実力差を埋めるには、 静的 readiness 加点では不足。 **複数ターンにまたがる効率的連鎖構築の計画**が本質的に必要（今後の課題）
+
+### 今後
+1. ユーザーがブラウザで新 AI と対戦し、 体感が改善したか判断（ground truth）
+2. chainReadyMult の最適値の精緻化（5/15/20 を 150+ 局で）
+3. 本質的改善: 多ターン連鎖計画（探索の構造変更 or outcome 接地の value 学習）
+
+---
 
 ---
 
@@ -74,7 +167,37 @@
 **対処**: bench / 学習では `batchSize <= 8` を使う。 `bench-neural.ts` は batchSize=8 に修正済み。
 根本対処（batch 探索に virtual loss 相当の仮想 visit を入れて発散させる）は今後の課題。
 
-### 仮説（ハイブリッド設計、 当初）
+### 結論: ハイブリッド NN priors はこの game では低天井（2026-05-29）
+
+| モデル | vs smart 勝率 | 備考 |
+|---|---|---|
+| 未学習ハイブリッド（ランダム prior, iter=800, scale=1500, bs=8）| 52% (95%CI 38.5-65.2) | |
+| **蒸留ハイブリッド**（強い mctsAI の visit 分布を 43003 例で蒸留）| **55%** (95%CI 42.5-66.9) | 未学習と CI 重複、 有意改善とは言えない |
+| mctsAI (Gen-3-O) | **93.5%** | 同じ leaf value + iter だが UCT1 |
+
+**なぜハイブリッドが勝てないか（コード確認 + 実測で確定）:**
+
+1. **mctsAI はデフォルトで prior を使っていない**。 `progressiveBias=false`（Gen-3-C で PUCT 不採用）なので、
+   「未訪問の合法手を全て random 展開 → 以降 UCT1（Q + C√(lnN/n)）」 で動く。 prior は不使用。
+2. **この game は分岐が小さい**: `_branching-factor.ts` 実測で **平均合法手数 5.1**（分布: 2手14%, 3手22%, 4手3%, 5手41%, 10手20%、 最大 10）。
+3. 分岐 5 程度なら 800 iter で各手を ~160 回探索でき、 UCT1 の全手展開で十分尽くせる。
+   NN prior の役割（多数選択肢から探索を絞る）は **囲碁(361手)級の高分岐でこそ効く**もので、 本 game では出番が無い。
+4. しかもハイブリッドの PUCT は uctC=1.7 を UCT1 から流用しており、 式のスケールが違うため探索効率がむしろ悪化。
+
+**構造的結論:**
+- **NN priors はこの game の「最強 AI」 への正しいレバーではない**（分岐が小さすぎる）。
+- 最強は依然として heuristic な mctsAI (Gen-3-O, 93.5%)。 NN は priors も value（az-v1〜v10）も hand-tuned evaluator に勝てていない。
+- 93.5% を超える残レバー候補:
+  1. **leaf value の質**（evaluateState の改善 — ただし Gen-3-R/Q の feature 追加は失敗。 非線形 value が要るかも）
+  2. **ギフト選択フェーズ**（現状 smartAI 委譲。 Gen-3-G/H/I で失敗した構造的弱点）
+  3. より深い探索（Gen-3-N で 400-800 plateau 確認済み、 伸び代小）
+
+### バグ修正と成果物（残置）
+- `decideActionNeural` の batch 探索バグは未根治（batchSize<=8 で回避）。 根治には virtual loss 相当の発散機構が必要
+- ブラウザ側 `src/ai/neuralAI.ts` も policy-only / heuristic value に対応済み（将来 NN を使う場合の互換性確保）
+- 診断スクリプト残置: `_verify-search.ts`（batch バグ実証）、 `_branching-factor.ts`（分岐測定）、 `_profile-*.ts`
+
+### 仮説（ハイブリッド設計、 当初。 上記結論により棄却）
 これまで NN AI (az-v1〜v10) は vs smart 0-8% で頭打ち。 Gen-3-F (vs smart 89.5%) に遠く及ばない。
 原因は AlphaZero 流の「value もゼロから学習」 が学習データ要求量に対して不足しているため。
 **「value は既存 Gen-3-F の heuristic に任せ、 NN は priors（方策）のみ学習」** のハイブリッド設計に切り替えれば、
@@ -598,6 +721,146 @@ NN モデル本体は az-v7 が現状最強だが vs smart 8% で Gen-3-F (89.5%
 - UI / App.tsx には触っていない。 強いモデル完成時にユーザーが UI 側で `loadNeuralAI` を呼ぶだけで切替可能
 - フォールバック設計のおかげで「モデルロード失敗 → mctsAI で続行」になるので、 配信ミスがあってもゲームは動く
 - 動的 import で別 chunk 化しているため、 初回ロード遅延ゼロ。 NN ボタンを押した時など必要時にだけ tfjs を取りに行く形に発展させやすい
+
+---
+
+## Gen-3-U: 自己得点項の非線形化（凸/凹 grid、不採用＝線形が両方向のピーク） (2026-05-29)
+
+### Step 0: ルール変更チェック
+HEAD = 13cd1ae（ユーザーが Gen-3-M〜S をコミット済み、 Gen-3-T のコードも取り込み済み）。 `src/game/` / `docs/RULES.md` 変更なし。 ベースライン Gen-3-O = 93.5%。
+
+### 仮説（Gen-3-T の知見からの発展）
+- Gen-3-T で「得点 vs 勝利のトレードオフが効くのは終局評価ではなく途中盤面の評価関数（得点項）」 と判明
+- 得点項 `score * selfScoreMult` は線形。 これを「勝利閾値(20点)への近さ」 で非線形化すれば、 「得点の量」 より「勝利への到達」 を評価できるのでは
+- 得点項を `score * selfScoreMult * (1 + convex * score/20)` とパラメータ化（convex=0 で従来線形と完全一致）
+
+### 実装
+- `src/ai/evaluator.ts`: `EvalWeights.selfScoreConvex`（default 0）を追加、 `selfScore` で適用
+- `src/ai/tunedWeights.ts`: `GEN_3B_WEIGHTS` にも 0 追加（型互換）
+- `ai/scripts/grid-score-convex.ts`: 新規。 mcts に `{ weights: {...DEFAULT, selfScoreConvex: c} }` を渡して grid 評価。 smart は module global（convex=0）のまま影響を受けない
+
+### Grid Search 結果（vs smart x3, 100 局 rotate, seed=1001, iter=800/uctC=1.7）
+
+| selfScoreConvex | 勝率 | avgScore | expRank | 形状 |
+|---|---|---|---|---|
+| -0.5 | 91.0% | **21.35** | 1.09 | 凹（高得点で逓減）|
+| -0.25 | 88.0% | 21.17 | 1.13 | 凹 |
+| -0.10 | 88.0% | 20.96 | 1.12 | 凹 |
+| **0（現状）** | **94.0%** | 21.04 | **1.07** | 線形 |
+| 0.25 | 92.0% | 20.66 | 1.08 | 凸 |
+| 0.5 | 87.0% | 20.72 | 1.14 | 凸 |
+| 1.0 | 86.0% | 20.80 | 1.15 | 凸（高得点を強調）|
+| 2.0 | 81.0% | 20.35 | 1.23 | 凸 |
+| 4.0 | 86.0% | 20.33 | 1.15 | 凸 |
+
+**線形(0)が両方向のピーク (94%)**。 凸（得点を強調）も凹（得点を逓減）も勝率を下げる。
+
+### 採用判定
+**不採用、 ブラウザ反映なし、 重みは 0 のまま（＝従来の線形）**
+
+スキル採用基準「現状最強 (94%/CI下限87.5%) を上回る候補」 が grid 内に存在しない。 convex=0 は seed=1001 で 94/100＝Gen-3-O / Gen-3-T と完全一致（再現性 OK）。
+
+### メモ・学び（重要）
+
+1. **得点項の形状は線形が最適**: ESが調整したのは線形係数だけだったが、 形状（凸/凹）まで広げても線形がピーク。 構造的にも線形で正しかった
+2. **「得点を重視しすぎ」 は現状の評価では成立しない**: ユーザーの直感は理論的に妥当だが、 現状の評価関数は既に
+   - **得点差**（self − Σthreat）で相対化されている
+   - 全体を **tanh で飽和**（大きくリードすると +1 に頭打ち＝高得点の逓減効果は tanh が既に担っている）
+   ため、 得点項単体を凹（逓減）にしても二重適用になり、 むしろ勝率が下がる
+3. **凹 -0.5 の avgScore 最高・勝率最低**が象徴的: 得点を軽視させると「得点は稼ぐが勝てない」。 現状の線形＋相対化＋tanh が「得点」と「勝利」 を既によく整合させている
+4. **手書き AI 重み・評価構造の探索はほぼ完全に飽和**:
+   - Gen-3-L (uctC) / Gen-3-O (uctC×iter joint) で採用、 93.5% 到達
+   - Gen-3-M/N/P (grid)、 Gen-3-Q/S (ES)、 Gen-3-T (終局評価)、 Gen-3-U (得点形状) はすべて不採用
+   - **Gen-3-O が手書き AI の実質的な天井**という結論が決定的に
+5. **次の方向性（手書き AI 以外へ）**:
+   - **NN AI（Gen-3-K 系）への本格注力**: 評価関数の「形」 を人手で設計する限界に達した。 NN なら任意の非線形価値関数を学習可能。 az-v7 (8%) からの大規模学習で構造的突破を狙う
+   - もし手書きで続けるなら、 残るは「評価特徴量の追加」 だが Gen-3-E/Q で単一特徴追加は効果薄と判明済み
+
+### 残置物
+- `src/ai/evaluator.ts` の `selfScoreConvex`（default 0 = 線形）: 将来 threat 構造や tanh スケールを変えた際の再検証用に保持
+- `ai/scripts/grid-score-convex.ts`: 得点項形状の grid 探索ツール（負値も対応）
+- `ai/data/grid-score-{convex,concave}-gen3U.log`: 計測ログ（gitignore 配下）
+
+### チェックリスト
+- [x] `npx tsc -p ai/tsconfig.json --noEmit` 通過
+- [x] `npx tsc -p tsconfig.app.json --noEmit` 通過
+- [x] `npx vitest run` 通過（33/33、 convex=0 で挙動不変）
+- [x] 凸 6 候補 + 凹 4 候補で測定、 全件 CHANGELOG 記載
+- [x] convex=0 が Gen-3-O 同条件結果 (94/100) と一致＝再現性確認
+
+---
+
+## Gen-3-T: 終局評価を純粋勝敗（winLoss）化（不採用＝中立、 終局評価は実質無関係と判明） (2026-05-29)
+
+### Step 0: ルール変更チェック
+HEAD = 9c4cade のまま。 Gen-3-S 以降の `src/game/` / `docs/RULES.md` 変更なし。 ベースラインは Gen-3-O = 93.5%。
+
+### 仮説（ユーザー提案）
+- このゲームは **1 位のみ勝者**（2-4 位は等しく敗北）。 勝率を最大化するなら終局評価は「1位=+1、 それ以外=一律」 が目的関数として正しい
+- 現状の終局評価 `rankToValue` は **2位 +0.33 / 3位 -0.33** と順位を傾斜配点しており、 「2位狙いの保守」 を許す＝1 位を狙う賭けを過小評価しているのでは
+- 期待: 終局を純粋勝敗にすれば、 接戦で「1 位を取りに行く」 判断が増えて強くなる
+
+### 実装
+- `src/ai/mctsAI.ts`: 終局価値を `TerminalValueMode = 'rank' | 'winLoss'` で切替可能に
+  - `rankToValue` を `terminalValue(rank, numPlayers, mode)` に置換
+  - `'rank'`（デフォルト・従来）: 1位+1 / 2位+0.33 / 3位-0.33 / 4位-1 の線形傾斜
+  - `'winLoss'`（新）: 1位+1 / それ以外一律 -1（勝率最大化と一致）
+  - `MctsOptions.terminalValueMode` 追加、 default は `'rank'` で挙動互換
+- `ai/scripts/bench.ts`: `--mcts-terminal <rank|winLoss>` フラグ追加
+- `ai/scripts/hh-terminal.ts`: 新規。 winLoss x1 vs rank x3（座席ローテーション）の直接対決スクリプト
+
+### 計測結果
+
+**vs smart x3（200 局 rotate）― 標準ベンチ**:
+| seed | Gen-3-O (rank) | Gen-3-T (winLoss) |
+|---|---|---|
+| 1001 | 93.5% (187/200) | **93.5%** (187/200) |
+| 2001 | 91.5% (183/200) | **91.5%** (183/200) |
+
+→ 勝率は完全一致（個々の対局は totalSteps 52382→52403 で変化しており、 winLoss は適用されている。 だが勝敗の最終結果は不変）。 デフォルト(rank)は Gen-3-O と完全一致＝リファクタ退行なし。
+
+**head-to-head: winLoss x1 vs rank x3（200 局 rotate, seed=7001）― 接戦での直接対決**:
+| 指標 | winLoss |
+|---|---|
+| 勝率 | **26.0%** (CI 20.4-32.5%) |
+| 期待順位 | 2.465 |
+| 順位分布 | [52, 53, 45, 50] |
+
+→ 互角（25%）が CI に含まれる。 winLoss は rank と **統計的に区別できない**。
+
+### 採用判定
+**不採用（デフォルトは `'rank'` 維持）。 ただし切替オプション・スクリプトは保持**
+
+vs smart でも head-to-head でも中立（改善も退行もなし）。 スキル採用基準「CI 下限が現状最強を上回る」 に未達（タイ）。
+
+### メモ・学び（最重要）
+
+1. **終局評価モードは実質的に勝敗へ無関係**:
+   - 終局価値（`rankToValue` / `terminalValue`）が使われるのは、 探索木内で gameOver に到達したリーフのみ。 その割合は僅か
+   - 判断の大半は **途中盤面の評価関数 `tanh(evaluateState/1500)`** が駆動。 これは得点差が大きい局面を tanh 飽和で +1 近くに評価し、 既に勝利方向を向いている
+   - よって 2位を +0.33→-1 に変えても、 手の選択はほぼ反転しない
+2. **「得点重視しすぎ」 を直す本当のレバーは終局評価ではなく途中盤面の評価関数**:
+   - ユーザーの「1 位を目的にすべき」 という原則は理論的に正しいが、 実装上の効きどころは `selfScoreMult` の **線形得点項**
+   - これを「勝率に沿った非線形」（例: 20 点閾値付近を急激に高評価、 リードの絶対量より順位差を重視）に作り替える方が効果的なはず
+   - → 次の有望仮説が「終局評価」 から「途中評価の非線形化」 に具体化された
+3. **rank の傾斜配点には合理性もある**: 報酬勾配が密で、 限られた試行数（800）でも MCTS が収束しやすい。 winLoss はスパースだが、 今回それによる悪化も無かった（中立）
+4. **次の方向性**:
+   - **途中評価の得点項を非線形化**: `selfScore` の `player.score * selfScoreMult` を、 20 点閾値への近さで逓増する形に（例: 区分線形 or 二乗）。 これは ES が触っていない構造変更で、 ユーザーの直感に直接対応
+   - **勝利確率推定への置き換え**: 評価関数の出力を「順位の期待値」 ではなく「1 位になる確率」 の推定に寄せる設計
+   - NN AI（Gen-3-K 系）: 価値ヘッドを rank-based でなく win-prob にする実験
+
+### 残置物
+- `src/ai/mctsAI.ts` の `terminalValueMode` オプション（default `'rank'`）: 将来、 途中評価を非線形化した後に終局モードが効くようになる可能性があり、 再検証用に保持
+- `ai/scripts/hh-terminal.ts`: 2 つの mcts 設定の直接対決を測る汎用ツールとして保持
+- `ai/data/hh-terminal-gen3T.log`: 計測ログ（gitignore 配下）
+
+### チェックリスト
+- [x] `npx tsc -p ai/tsconfig.json --noEmit` 通過
+- [x] `npx tsc -p tsconfig.app.json --noEmit` 通過
+- [x] `npx vitest run` 通過（33/33）
+- [x] デフォルト(rank)が Gen-3-O と完全一致＝リファクタ退行なしを確認
+- [x] vs smart 2 seed + head-to-head で測定、 全件 CHANGELOG 記載
+- [x] 採用基準（CI 下限が現状最強超え）に未達を数値で確認 → 不採用
 
 ---
 
