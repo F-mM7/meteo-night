@@ -27,6 +27,7 @@ import {
   GameResult,
   makeMctsWithOpts,
   parseCommonArgs,
+  parseIntArg,
   playOneGame,
   rotateSeats,
   STRATEGIES,
@@ -60,8 +61,10 @@ Options:
   --json                  emit JSON summary to stdout
   --weights <path>        load EvalWeights from JSON for ALL AIs (global state)
   --mcts-weights <path>   load EvalWeights from JSON for mcts ONLY (per-AI, Gen-3-J)
-  --mcts-uct <n>          override mcts uctC (default: sqrt(2) ~= 1.4142, Gen-3-L tuning)
-  --mcts-eval-scale <n>   override mcts leafEvalScale (default: 1500, Gen-3-L tuning)`);
+  --mcts-uct <n>          override mcts uctC (default: 1.7, Gen-3-O)
+  --mcts-iter <n>         override mcts iterations (default: 800, Gen-3-O)
+  --mcts-eval-scale <n>   override mcts leafEvalScale (default: 1500, Gen-3-L)
+  --mcts-terminal <mode>  override mcts terminal value mode: rank | winLoss (default: rank, Gen-3-T)`);
 }
 
 function loadWeightsFromFile(path: string): EvalWeights {
@@ -76,9 +79,10 @@ function loadWeightsFromFile(path: string): EvalWeights {
  * `--mcts-weights <path>`: mcts 戦略のみ独立した重みで動かす。smart など他の AI は default のまま。
  *                          Gen-3-J 以降の per-AI weights 検証用。
  * `--mcts-uct <n>`: mcts のみ uctC を上書き。Gen-3-L 探索ハイパラ調整用。
+ * `--mcts-iter <n>`: mcts のみ iterations を上書き。Gen-3-O joint grid 検証用。
  * `--mcts-eval-scale <n>`: mcts のみ leafEvalScale を上書き。Gen-3-L 用。
  *
- * --mcts-weights と --mcts-uct / --mcts-eval-scale は同時指定可。
+ * --mcts-weights と --mcts-uct / --mcts-iter / --mcts-eval-scale は同時指定可。
  */
 function loadWeightsArg(argv: string[]): string[] {
   let next = argv;
@@ -115,6 +119,16 @@ function loadWeightsArg(argv: string[]): string[] {
     next = [...next.slice(0, muctIdx), ...next.slice(muctIdx + 2)];
   }
 
+  const miterIdx = next.indexOf('--mcts-iter');
+  if (miterIdx >= 0) {
+    const v = parseIntArg('--mcts-iter', next[miterIdx + 1]);
+    if (v <= 0) throw new Error('--mcts-iter requires a positive integer');
+    mctsOpts.iterations = v;
+    mctsOptsChanged = true;
+    console.error(`[bench] mcts iterations overridden to ${v}`);
+    next = [...next.slice(0, miterIdx), ...next.slice(miterIdx + 2)];
+  }
+
   const mscaleIdx = next.indexOf('--mcts-eval-scale');
   if (mscaleIdx >= 0) {
     const v = Number(next[mscaleIdx + 1]);
@@ -125,6 +139,18 @@ function loadWeightsArg(argv: string[]): string[] {
     mctsOptsChanged = true;
     console.error(`[bench] mcts leafEvalScale overridden to ${v}`);
     next = [...next.slice(0, mscaleIdx), ...next.slice(mscaleIdx + 2)];
+  }
+
+  const mtermIdx = next.indexOf('--mcts-terminal');
+  if (mtermIdx >= 0) {
+    const v = next[mtermIdx + 1];
+    if (v !== 'rank' && v !== 'winLoss') {
+      throw new Error('--mcts-terminal requires: rank | winLoss');
+    }
+    mctsOpts.terminalValueMode = v;
+    mctsOptsChanged = true;
+    console.error(`[bench] mcts terminalValueMode overridden to ${v}`);
+    next = [...next.slice(0, mtermIdx), ...next.slice(mtermIdx + 2)];
   }
 
   if (mctsOptsChanged) {

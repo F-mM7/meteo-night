@@ -11,17 +11,28 @@ import {
 } from './actionSpace';
 import { determinizeDeck, observationKey } from './infoSet';
 
-const DEFAULT_ITERATIONS = 400;
+/**
+ * MCTS の探索 iteration 数。
+ *
+ * Gen-2 で 100 → 400 に増加（rollout 廃止で 1 iter のコスト激減を受けて）。
+ * Gen-3-N で 200〜2000 を grid 評価し、 単独最適化では 400 がピークだった。
+ * Gen-3-O で uctC × iter の joint 2D grid search を実施し、
+ *   `(uctC, iter) = (1.7, 800)` が `(2.0, 400)` 単独最適解と同率（grid 100 局で 94%）、
+ *   200 局ホールドアウト ×2 seed で +1.0〜+1.5pt の改善を確認、 採用。
+ * `iter=800` は coordinate-descent では発見できなかった組合せ（uctC=2.0 固定では 800 → 90% で悪化）。
+ * 詳細は `ai/CHANGELOG.md` の Gen-3-O エントリ。
+ */
+const DEFAULT_ITERATIONS = 800;
 /**
  * UCT1 の探索係数。
  *
- * Gen-3-L で grid search により最適化された値:
- *   uctC ∈ {0.3, 0.5, 0.7, 1.0, 1.4142, 1.7, 2.0, 2.4} (100 局 vs smart x3)
- *   uctC = 2.0 で勝率 94% / avgScore 21.11 がピーク（旧 √2 ≈ 1.4142 は 88%）。
- *   200 局ホールドアウト ×2 seed で +2.0〜+3.5pt の改善を確認、 採用。
- *   詳細は `ai/CHANGELOG.md` の Gen-3-L エントリ。
+ * Gen-3-L で grid search で `uctC=2.0` を採用 (iter=400 固定下で 94%)。
+ * Gen-3-O の joint 2D grid で `(uctC=1.7, iter=800)` が `(2.0, 400)` と同率最高で、
+ * 200 局ホールドアウト ×2 seed で +1.0〜+1.5pt の改善を確認、 採用。
+ * `uctC` を 2.0 → 1.7 に下げる代わりに `iter` を 400 → 800 に倍増する「相補的調整」。
+ * 詳細は `ai/CHANGELOG.md` の Gen-3-O エントリ。
  */
-const DEFAULT_UCT_C = 2.0;
+const DEFAULT_UCT_C = 1.7;
 const DEFAULT_PB_C = 1.5;
 const DEFAULT_ROLLOUT_MAX_STEPS = 400;
 const DEFAULT_TREE_MAX_DEPTH = 50;
@@ -29,12 +40,21 @@ const DEFAULT_LEAF_EVAL_SCALE = 1500;
 
 export type LeafEvalMode = 'rollout' | 'evaluator';
 
+/**
+ * 終局リーフの価値付けモード。詳細は `terminalValue` を参照。
+ *   - 'rank'（デフォルト）: 順位の線形傾斜（1位 +1 … 最下位 -1、 2-3 位も中間値）
+ *   - 'winLoss'（Gen-3-T）: 1 位のみ +1、 それ以外は一律 -1（勝率最大化と一致）
+ */
+export type TerminalValueMode = 'rank' | 'winLoss';
+
 export interface MctsOptions {
   iterations?: number;
   uctC?: number;
   rolloutMaxSteps?: number;
   treeMaxDepth?: number;
   determinize?: boolean;
+  /** 終局リーフの価値付けモード。省略時は 'rank'（従来挙動）。 */
+  terminalValueMode?: TerminalValueMode;
   /**
    * リーフでの価値推定方法。
    *   - 'evaluator' (デフォルト): `evaluateState` を tanh で [-1, +1] にマッピングし即値を返す。高速・安定。
@@ -94,11 +114,17 @@ function computeRanking(state: GameState): number[] {
 }
 
 /**
- * 0(1位)=+1.0, 1(2位)=+0.33, 2(3位)=-0.33, 3(4位)=-1.0
- * 線形マッピングで [-1, +1] の範囲に収める。
+ * 終局（gameOver）リーフの価値を、actor の最終順位から計算する。
+ *
+ * - 'rank'（従来・デフォルト）: 1位 +1.0 / 2位 +0.33 / 3位 -0.33 / 4位 -1.0 の線形傾斜。
+ *   勾配が密で MCTS が少ない試行数でも収束しやすい一方、 2-3 位を「そこそこ良い」と
+ *   みなすため、 1 位を狙う賭けを過小評価しがち。
+ * - 'winLoss'（Gen-3-T）: 1位 +1.0 / それ以外すべて -1.0。 このゲームは 1 位のみ勝者なので
+ *   「勝率最大化」 と目的関数が厳密に一致する。 ただし報酬がスパースになり分散は増える。
  */
-function rankToValue(rank: number, numPlayers: number): number {
+function terminalValue(rank: number, numPlayers: number, mode: TerminalValueMode): number {
   if (numPlayers <= 1) return 0;
+  if (mode === 'winLoss') return rank === 0 ? 1 : -1;
   return 1 - (2 * rank) / (numPlayers - 1);
 }
 
@@ -141,11 +167,12 @@ function leafValueByEvaluator(
   viewerId: number,
   scale: number,
   numPlayers: number,
-  weights: EvalWeights | undefined
+  weights: EvalWeights | undefined,
+  terminalMode: TerminalValueMode
 ): number {
   if (state.phase === 'gameOver') {
     const ranking = computeRanking(state);
-    return rankToValue(ranking[viewerId], numPlayers);
+    return terminalValue(ranking[viewerId], numPlayers, terminalMode);
   }
   const raw = evaluateState(state, viewerId, weights);
   return Math.tanh(raw / scale);
@@ -206,7 +233,8 @@ function computePriors(
   legal: number[],
   scale: number,
   numPlayers: number,
-  weights: EvalWeights | undefined
+  weights: EvalWeights | undefined,
+  terminalMode: TerminalValueMode
 ): Float64Array {
   const priors = new Float64Array(ACTION_SPACE_SIZE);
   for (const aid of legal) {
@@ -221,7 +249,7 @@ function computePriors(
     if (nextState === state) continue;
     if (nextState.phase === 'gameOver') {
       const ranking = computeRanking(nextState);
-      priors[aid] = rankToValue(ranking[actor], numPlayers);
+      priors[aid] = terminalValue(ranking[actor], numPlayers, terminalMode);
     } else {
       const raw = evaluateState(nextState, actor, weights);
       priors[aid] = Math.tanh(raw / scale);
@@ -318,6 +346,7 @@ export function decideActionWithInfo(
   const leafEvalScale = options.leafEvalScale ?? DEFAULT_LEAF_EVAL_SCALE;
   const progressiveBias = options.progressiveBias ?? false;
   const pbC = options.pbC ?? DEFAULT_PB_C;
+  const terminalValueMode: TerminalValueMode = options.terminalValueMode ?? 'rank';
   const weights = options.weights;
 
   const baseSeed = (seed ?? stateBaseSeed(state, playerId)) | 0;
@@ -364,7 +393,7 @@ export function decideActionWithInfo(
       let chosen: number;
       if (progressiveBias) {
         if (!node.priors) {
-          node.priors = computePriors(s, actor, legal, leafEvalScale, numPlayers, weights);
+          node.priors = computePriors(s, actor, legal, leafEvalScale, numPlayers, weights, terminalValueMode);
         }
         chosen = puctSelect(node, legal, pbC);
         // PUCT は未訪問アクションも prior 順で扱うため、unvisited を別途 random 展開する必要はない。
@@ -409,9 +438,9 @@ export function decideActionWithInfo(
     for (const { node, aid } of path) {
       let value: number;
       if (ranking) {
-        value = rankToValue(ranking[node.actor], numPlayers);
+        value = terminalValue(ranking[node.actor], numPlayers, terminalValueMode);
       } else {
-        value = leafValueByEvaluator(leafState, node.actor, leafEvalScale, numPlayers, weights);
+        value = leafValueByEvaluator(leafState, node.actor, leafEvalScale, numPlayers, weights, terminalValueMode);
       }
       node.total += 1;
       node.visits[aid] += 1;
