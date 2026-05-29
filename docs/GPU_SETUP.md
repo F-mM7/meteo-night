@@ -94,45 +94,93 @@ LD_LIBRARY_PATH=/usr/local/cuda-11.8/lib64:${LD_LIBRARY_PATH} \
 | 256 | 9.50 | 13.80 | **1.5x 速い** |
 | 1024 | 48.99 | 45.39 | 0.93x (CPU 微速) |
 
-### 実 self-play（train.ts、 5 games × 1 iter、 mcts-batch=16）
+### 実 self-play（train.ts、 mcts-batch=16）
+
+#### Gen-3-K10 時点（sequential のみ、 5 games × 1 iter）
 
 | モデル | GPU 所要 | CPU 所要 | 効果 |
 |---|---|---|---|
 | 小 (hidden=64×2, 18K params, az-v10 init) | 6.7s | 7.4s | 1.10x |
 | 中 (hidden=256×3, 188K params, 新規 init) | 7.95s | 7.39s | **0.93x（CPU が速い）** |
 
+#### Gen-3-K11 時点（parallel self-play 追加）
+
+→ K12 でより大きな改善が見つかったため、 表は削除。 詳細は `ai/CHANGELOG.md` Gen-3-K11 参照。
+
+> ⚠️ **【2026-05-29 訂正】 以下の K12「mcts-batch=100 で 1.5x speedup」 は誤りでした。**
+> `decideActionNeural` の batch 探索は `batchSize` が大きいと木を降りないバグがあり、
+> `batchSize >= iterations` では root すら展開せず探索がほぼ空回りします（`_verify-search.ts` で実証）。
+> mcts-batch=100 が「速かった」 のは探索をしていなかったからで、 speedup は無効です。
+> **正しい設定は `batchSize <= 8`**。 詳細は `ai/CHANGELOG.md` Gen-3-S エントリ参照。
+
+#### Gen-3-K12 時点（mcts-batch=iterations が真の改善、 大モデル 8 games × 1 iter） ※下表は無効（上の訂正参照）
+
+| 構成 | examples | 所要 | ms/example | A 比 |
+|---|---|---|---|---|
+| A: GPU seq, mcts-batch=16 (旧 baseline) | 1193 | 23.0s | 19.3 | 1.00x |
+| **B: GPU seq, mcts-batch=100 (推奨)** | 960 | **12.2s** | **12.7** | **1.52x** |
+| C: GPU parallel=8, mcts-batch=16 (K11) | 1081 | 16.3s | 15.1 | 1.28x |
+| D: GPU parallel=8, mcts-batch=100 | 1064 | 12.7s | 11.9 | 1.62x |
+| E: CPU seq, mcts-batch=16 | 1282 | 27.2s | 21.2 | 0.91x |
+| **F: CPU seq, mcts-batch=100** | 960 | **11.6s** | **12.1** | **1.60x** |
+| G: CPU parallel=8, mcts-batch=100 | 1064 | 15.7s | 14.8 | 1.30x |
+
+→ **mcts-batch=100 (iterations と同値) が支配的に効く**（sequential 単体で 1.5x speedup）。 parallel-games は不要。
+→ ただし mcts-batch=100 だと **GPU と CPU が同等** （B vs F）。 NN cost が小さくなり GPU の優位性は消える。
+
+#### プロファイル結果（NN predict のコスト構造）
+
+```
+batch=  1:  3.15 ms/call  3.148 ms/sample  ← 3 ms 固定オーバーヘッド
+batch= 16:  3.68 ms/call  0.230 ms/sample
+batch=100: ~9    ms/call  0.090 ms/sample
+batch=256: 21.09 ms/call  0.082 ms/sample
+```
+
+→ predict 回数を減らす（call/turn を 6 → 1 に）のが最も効く改善。
+
 ### 解釈と今後の方針
 
 純粋な forward pass では GPU 2x 速いのに、 train.ts に組み込むと効果が消える。 原因は self-play 中の MCTS 推論が `mcts-batch=16` の逐次小バッチで、 PCIe 転送と TF ランタイムのオーバーヘッドが支配的になるため。
 
-GPU を有効活用するには:
+#### Gen-3-K11 → K12 の経緯
 
-| 改良案 | 期待効果 | 実装難度 |
-|---|---|---|
-| **parallel self-play**（複数 games を同時並行で進めて 1 回の predict で 64-256 サンプル束ねる） | 高（3-5x speedup 期待） | 中（neuralMcts の構造改修） |
-| **virtual loss 正しい実装**（同一ノードで複数 leaf を並列展開、 K8 で 1 度失敗） | 中（2x speedup 期待） | 中 |
-| **大規模モデル**（1M+ params） | 中（GPU 計算律速に入る） | 低（CLI 引数で可） |
-| **mcts-batch=64+** | 低（並列度の限界がある） | 低 |
+K11 で parallel self-play を実装したが、 大モデルで GPU 1.32x が限度。
+**プロファイル実測** で律速箇所を特定したところ:
 
-つまり「**GPU セットアップは Gen-3-K11 以降のアルゴリズム改良への前提条件**」 という位置付け。 現行コードのまま GPU で回しても恩恵はほぼゼロなので、 大規模学習を始める前に改良が必要。
+| 改良案 | 期待効果 | 実測効果 | 結論 |
+|---|---|---|---|
+| parallel self-play（複数 games を同時並行） | 高（3-5x 期待） | 中モデル 1.0x、 大モデル 1.32x | K12 で **不要と判明** |
+| **mcts-batch=iterations 化（1 turn = 1 NN call）** | 未予測 | **sequential 1.5x、 parallel と組み合わせて 1.6x** | **K12 採用** |
+| virtual loss 正しい実装（K8 で 1 度失敗） | 中（2x 期待） | 未試行 | K13 以降の候補 |
+| 大規模モデル（1M+ params） | 中 | GPU が CPU の 1.0-1.6x（mcts-batch 設定次第） | 採用、 ただし GPU 必須ではない |
+
+#### 結論（Gen-3-S で訂正済み）
+
+- ❌ ~~推奨設定: `--mcts-batch 100`~~ → **誤り。 mcts-batch=100 は探索が空回りする（上の訂正バナー参照）**
+- ✅ **正しい設定: `--mcts-batch 8`（探索品質を保てる上限付近）**
+- mcts-batch=8 でも NN 呼び出しは 1/8 に減らせるので、 GPU/CPU の速度傾向（Gen-3-K10 の結論: 小モデルでは GPU 優位性ほぼ無し）は概ね維持
+- 開発中も本番学習も CPU で問題なし。 GPU を使う場合の利点はわずか
 
 ## 今後やること（TODO）
 
 GPU セットアップは完了したが、 現行アルゴリズムでは効果が出ない。 以下を順に実施して GPU を真に活かす。
 
-### フェーズ A: アルゴリズム改良（Gen-3-K11 以降）
+### フェーズ A: アルゴリズム改良
 
-上の改良案を **期待効果が大きい順** に実装する:
-
-1. **parallel self-play** （Gen-3-K11 候補）
-   - `ai/scripts/nn/dataset.ts` と `neuralMcts.ts` を改修
-   - N games を同時進行させ、 NN 推論を集中バッチ化する
-   - 目標: 推論バッチサイズを 16 → 64-256 に引き上げ、 GPU 利用効率を上げる
-2. **virtual loss の正しい実装**（Gen-3-K12 候補）
-   - 既存 `mctsAI.ts` / `neuralMcts.ts` の virtual loss は Gen-3-K8 で実装したが効果がマイナスだった
-   - 単純な visit-count ペナルティではなく、 path 上の選択 action にだけ仮想 loss を加える正しい実装に直す
-3. **大規模モデル**（hidden=512×6, 1M+ params）
-   - CLI 引数のみで切替可能。 上の 1, 2 が安定したあとで導入
+1. ✅ **parallel self-play** （Gen-3-K11、 2026-05-28、 後に K12 で不要と判明）
+   - `--parallel-games N` オプション追加
+   - 効果: 大モデルで 1.32x → K12 後はゼロ
+   - 実装は残置（マイクロモデルで活きる可能性のため）
+2. ❌ ~~**mcts-batch=iterations 化** （Gen-3-K12）~~ → **Gen-3-S で撤回**
+   - プロファイルで NN predict の 3 ms 固定オーバーヘッドを発見したのは正しい
+   - しかし `--mcts-batch 100` は探索が空回りするバグがあり、 speedup は無効だった
+   - 正しい上限は `--mcts-batch 8`
+3. ✅ **大規模モデル** （hidden=512×6, 1.4M params、 動作確認済み）
+4. **virtual loss の正しい実装**（Gen-3-K13 候補、 未着手）
+   - K8 の失敗の再挑戦。 path 上の選択 action にだけ仮想 loss
+5. **az-v11 大規模学習** （Gen-3-K13 候補、 未着手）
+   - mcts-batch=16 vs 100 を 2 条件並行学習して、 強さ（vs smart 勝率）が劣化していないか検証必須
 
 ### フェーズ B: 再計測（各改良後に必須）
 
@@ -167,7 +215,26 @@ GPU セットアップは完了したが、 現行アルゴリズムでは効果
 
 ### フェーズ C: 大規模学習の開始
 
-フェーズ A・B で「GPU が CPU の 2-3x 以上速い」 が確認できたら、 az-v11 として 10K-50K games の AlphaZero ループを GPU で実施する。 それまでは **CPU での反復開発と小規模実験** に注力（速度差ほぼ無いので CPU で問題なし）。
+K12 後の推奨設定で、 CPU でも GPU でも同じコマンドで動く:
+
+```bash
+# az-v11 候補: 大モデル + mcts-batch=iterations
+# GPU 環境
+export LD_LIBRARY_PATH=/usr/local/cuda-11.8/lib64:${LD_LIBRARY_PATH}
+# CPU 環境（GPU セットアップなしでも同じ性能）
+# 何もしない、 普通に実行
+
+npx tsx ai/scripts/nn/train.ts \
+  --games 500 --iter 20 --batch 256 --epochs 3 --seed 50000 \
+  --selfplay neural --hidden-units 512 --hidden-layers 6 \
+  --mcts-batch 8 \
+  --out ai/models/az-v11 \
+  --copy-to-public public/models/active
+```
+
+10000 games の AlphaZero ループは推定 **約 5 時間**（12 ms/example × 100 examples/game × 10000 games / 3600s）。
+
+K12 結論として GPU の利点はほぼ無いが、 開発スピード向上の保険として GPU 環境は維持する。
 
 ## トラブルシューティング
 

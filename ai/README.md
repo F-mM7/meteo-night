@@ -12,15 +12,15 @@
 ### ブラウザに反映されている CPU
 - **戦略**: mctsAI (IS-MCTS + leaf 評価関数)
 - **重み**: Gen-3-F（`src/ai/evaluator.ts` の `DEFAULT_WEIGHTS`）
-- **探索ハイパラ**: `DEFAULT_UCT_C = 2.0`（Gen-3-L、 grid search で √2 → 2.0 に調整）
-- **強さ**: vs smart x3 で勝率 **92.0%** (95%CI 87.4-95.0%、 200 局, rotate, seed=1001)
-- **1 手あたり時間**: 約 2.3 ms（CPU 計測）
+- **探索ハイパラ**: `DEFAULT_UCT_C = 1.7` / `DEFAULT_ITERATIONS = 800`（Gen-3-O、 joint 2D grid で `(uctC, iter)` を同時最適化）
+- **強さ**: vs smart x3 で勝率 **93.5%** (95%CI 89.2-96.2%、 200 局, rotate, seed=1001)
+- **1 手あたり時間**: 約 5.7 ms（CPU 計測、 ブラウザ CPU 速度デフォルト 550 ms に対し 1% 未満）
 
 ### 試行中の方向性
 
 | 方向 | 現状 | スキル |
 |---|---|---|
-| 手書き AI 改善（evaluator 重み / mcts ハイパラ / ヒューリスティック）| Gen-3-L で +2pt 改善（uctC 最適化）、 残伸び代は leafEvalScale 等の未調整ハイパラと iter 再評価 | `evolve-meteo-ai-handwritten` |
+| 手書き AI 改善（evaluator 重み / mcts ハイパラ / ヒューリスティック）| **Gen-3-O が実質天井 (93.5%)**。 重み tune は smart fitness=天井 (Q)・self-play fitness=vs smart 退行 (S) で頭打ち。 残候補は複合 fitness / progressive bias 再設計などの構造的変更 | `evolve-meteo-ai-handwritten` |
 | NN AI（AlphaZero 風）| 基盤・パイプライン完成（K1〜K4）、最強モデル az-v7 は vs smart 8% でブラウザ未到達 | `evolve-meteo-ai-neural` |
 
 ### NN 系の最強モデル
@@ -28,14 +28,28 @@
 - 学習設定: K6 (mean-field 解消) + 5000 games AlphaZero (batch=16)
 - ブラウザ反映なし（Gen-3-F に届かないため）
 
+### 新方向: 最強 AI（93.5% 超え）を目指す路線（2026-05-28〜）
+
+手書き AI は Gen-3-O (93.5%) でグリッドサーチ系の伸び代をほぼ使い切った。 残る本命は NN priors:
+
+- **A 路線（評価関数 feature 追加, Gen-3-R）**: 4 新 feature を追加したが、 別セッションの Gen-3-Q（21 次元 ES）でも私の ES でも不採用。 既存 17 weights と役割が重複し効果なし
+- **B 路線（ハイブリッド NN, Gen-3-S）**: policy-only NN + Gen-3-F leaf value。 **これが本命**
+  - 未学習（ランダム priors）でも vs smart **52%**（iter=800, scale=1500, batchSize=8）
+  - mctsAI は同じ value+探索 + computePriors で 93.5% → **差 41pt は全て priors の質**
+  - 強い mctsAI(800iter) の visit 分布を NN policy に蒸留すれば 93.5% 超えの可能性（policy improvement）
+  - **重大バグ発見**: batch 探索は batchSize が大きいと木を降りない（K11/K12 の speedup 結論を無効化）。 詳細は CHANGELOG Gen-3-S
+- C 路線（純粋 AlphaZero / 新 architecture）: ROI 低く保留
+
 ### GPU 環境
 - **ハードウェア**: NVIDIA RTX 4080 (16 GB VRAM)、 WSL2 経由で利用可
 - **依存関係**: CUDA 11.8 runtime ライブラリ + cuDNN 8.9.2（インストール済み）→ 詳細は `docs/GPU_SETUP.md`
 - **tfjs-node-gpu 4.22.0**: GPU 認識成功、 13.5 GB VRAM 利用可
 - `ai/scripts/nn/{model,train,neuralMcts}.ts` は `@tensorflow/tfjs-node-gpu` を使用
-- ⚠️ **現状の AlphaZero パイプラインでは GPU の実効果は 0.9-1.1x**（self-play の mcts-batch=16 が PCIe 律速のため）
-  - 純粋な forward pass では GPU 2x 速い（batch 16-64）
-  - 真価を出すには parallel self-play / virtual loss / 大規模モデル化が必要
+- **Gen-3-K11 実装**: `--parallel-games N` で並列 self-play 実装（後に不要と判明）
+- ⚠️ **Gen-3-K12 撤回（Gen-3-S）**: `--mcts-batch 100` の「1.5x speedup」 は **誤り**
+  - `decideActionNeural` の batch 探索は batchSize が大きいと木を降りないバグがあった（`_verify-search.ts` で実証）
+  - mcts-batch=100 が速かったのは探索が空回りしていたから。 正しい上限は **`--mcts-batch 8`**
+  - プロファイルで NN predict の 3 ms 固定オーバーヘッドを発見したこと自体は有効
   - 開発中は `CUDA_VISIBLE_DEVICES=-1` で CPU 実行しても同等速度
 
 ### ブラウザ統合の準備状況（Gen-3-K9）
@@ -89,10 +103,16 @@ NN 学習の最強モデルが Gen-3-F に届いていないため、ブラウ�
 | 1-B | IS-MCTS の leaf 評価関数化（`evaluateState` を tanh 圧縮）| **完了 (Gen-2)**：vs smart 83.5% |
 | 2 | 評価関数の重み自動チューニング（(1+1)-ES） | **完了 (Gen-3-B〜F)**：vs smart 89.5% |
 | 2-extra | per-AI weights 構造（mcts/smart で別重み）| **完了 (Gen-3-J)**：構造採用、 ブラウザ DEFAULT は据置 |
-| 2-L | MCTS 探索ハイパラ `uctC` の grid 最適化 | **完了 (Gen-3-L)**：vs smart 92.0% ← **ブラウザ反映済み** |
+| 2-L | MCTS 探索ハイパラ `uctC` の grid 最適化 | **完了 (Gen-3-L)**：vs smart 92.0% |
+| 2-O | `uctC × iter` joint 2D grid search | **完了 (Gen-3-O)**：vs smart 93.5% ← **ブラウザ反映済み** |
 | 3 | AlphaZero 風（tfjs-node で学習 → tfjs ブラウザで推論） | **基盤完成 (Gen-3-K1〜K4)**：パイプライン動作確認済み、 最強 az-v7 でも vs smart 8% |
-| 3-GPU | GPU 学習環境セットアップ | **完了 (Gen-3-K10)**：環境構築 OK だが現行コードでは効果なし、 アルゴリズム改良待ち |
-| 3-K11+ | parallel self-play / virtual loss 正実装 | **未着手**（GPU を活かす次手） |
+| 3-GPU | GPU 学習環境セットアップ | **完了 (Gen-3-K10)**：環境構築 OK だが小モデルでは効果なし |
+| 3-K11 | parallel self-play 実装 | 完了 → 後に不要と判明 |
+| 3-K12 | mcts-batch=iterations 化 | ⚠️ **Gen-3-S で撤回**（探索が空回りするバグ。 正しい上限は mcts-batch=8）|
+| 3-R | 評価関数に 4 新 feature 追加 | 実装のみ。 別セッション Gen-3-Q の ES で不採用 |
+| 3-S | ハイブリッド NN（policy-only + Gen-3-F leaf value）+ batch バグ発見 | 未学習 52%、 蒸留学習で 93.5% 超え検証中 |
+| 3-M | ハイブリッド NN（policy-only + Gen-3-F leaf value）| **実装完了 (Gen-3-M)**：smoke OK、 本格学習はこれから |
+| 3-K13+ | virtual loss 正実装 / az-v11 大規模学習 + 強さ検証 | 未着手 |
 | 4 | プレゼント選択の別ヘッド化 | 未着手 |
 
 ---
@@ -149,9 +169,11 @@ npx tsx ai/scripts/tune-es.ts \
   --out ai/data/tuned-weights-new.json
 ```
 
-### NN 学習（CPU 版で動作中、GPU セットアップ後は同じコマンドで GPU 利用に切替）
+### NN 学習（GPU で動作中、 CPU でも同じコマンドで動く）
 
 ```bash
+export LD_LIBRARY_PATH=/usr/local/cuda-11.8/lib64:${LD_LIBRARY_PATH}
+
 # Warm-up: mctsAI 自己対戦
 npx tsx ai/scripts/nn/train.ts --games 100 --iter 2 --batch 256 --epochs 3 --seed 1000 \
   --selfplay mcts --out ai/models/az-vN-warm
@@ -160,6 +182,12 @@ npx tsx ai/scripts/nn/train.ts --games 100 --iter 2 --batch 256 --epochs 3 --see
 npx tsx ai/scripts/nn/train.ts --games 200 --iter 5 --batch 256 --epochs 3 --seed 2000 \
   --selfplay neural --init ai/models/az-vN-warm --mcts-batch 16 \
   --out ai/models/az-vN
+
+# Gen-3-S ハイブリッド蒸留: 強い mctsAI 自己対戦データで policy-only NN を学習
+npx tsx ai/scripts/nn/train.ts --games 200 --iter 1 --batch 256 --epochs 15 --seed 60000 \
+  --selfplay mcts --hybrid --hidden-units 256 --hidden-layers 3 \
+  --out ai/models/hybrid-distill-v1
+# 注: --mcts-batch は 8 以下に保つこと（大きいと探索が空回りする。 Gen-3-S 参照）
 ```
 
 ### NN モデルのベンチ
@@ -204,5 +232,10 @@ npx tsx ai/scripts/bench-neural.ts ai/models/az-vN \
 | **az-v7** | K6 + 5000 games | vs smart 8%、 NN 系最強 |
 | ~~az-v8/v9~~ | virtual loss / tau 調整 | 大幅悪化、 不採用 |
 | ~~az-v10~~ | 1 から再学習 (6500 games) | 改善せず、 不採用 |
-| **Gen-3-L** | uctC grid search (√2 → 2.0) | vs smart **92.0%** (CI 87.4-95.0%) ← **ブラウザ反映、現状最強** |
+| **Gen-3-L** | uctC grid search (√2 → 2.0) | vs smart 92.0% ← ブラウザ反映（後段 Gen-3-O で更新） |
 | ~~Gen-3-M~~ | leafEvalScale grid search | 現状 1500 が grid 内ピーク、不採用 |
+| ~~Gen-3-N~~ | iterations grid 再評価 (uctC=2.0 で) | 現状 400 が grid 内ピーク、不採用（coordinate-descent 解として確認） |
+| **Gen-3-O** | uctC × iter joint 2D grid | `(uctC, iter) = (1.7, 800)` で coordinate-descent 解を突破、 vs smart **93.5%** (CI 89.2-96.2%) ← **ブラウザ反映、現状最強** |
+| ~~Gen-3-P~~ | uctC × leafEvalScale joint 2D grid | `(1.7, 1500)` が依然 grid 内ピーク、不採用。`leafEvalScale=1500` は他軸に依存しないロバスト値 |
+| ~~Gen-3-Q~~ | 21 次元 ES tune（新 4 特徴量 + 既存 17）| 17 世代 sigma 早期収束、best = default。smart x3 fitness は天井（98%, avgScore 22.24）、 新特徴量は smart 相手では検出不能 |
+| ~~Gen-3-S~~ | mcts 自己対戦 fitness で 21 次元 ES | self-play では改善（+1.88 avgScore、新特徴量も非ゼロ化）も vs smart で -4.5〜-5pt 退行、不採用。Gen-3-J 現象（self-play 最適 ≠ vs smart 最適）を再確認 |

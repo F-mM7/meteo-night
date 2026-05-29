@@ -9,7 +9,7 @@
 
 | 種類 | モデル | vs smart 勝率 | ブラウザ反映 | 由来 |
 |---|---|---|---|---|
-| 手書き AI（採用版） | **Gen-3-L**（Gen-3-F + uctC を √2 → 2.0 に調整）| **92.0%** (95%CI 87.4-95.0%) | **✓ 反映済み** | `src/ai/mctsAI.ts` の `DEFAULT_UCT_C` |
+| 手書き AI（採用版） | **Gen-3-O**（Gen-3-L + joint 2D grid で `(uctC, iter) = (1.7, 800)` 採用）| **93.5%** (95%CI 89.2-96.2%) | **✓ 反映済み** | `src/ai/mctsAI.ts` の `DEFAULT_UCT_C` / `DEFAULT_ITERATIONS` |
 | NN AI（最強だが未到達） | **az-v7**（K6 + 5000 games AlphaZero）| 8% | – | `ai/models/az-v7/` (gitignore) |
 | 旧 NN 系 | az-v1〜v6, v8〜v10 | 0-6% | – | 不採用、 詳細は下の各 Gen-3-K* エントリ |
 
@@ -41,6 +41,420 @@
 ### メモ
 - ...
 ```
+
+---
+
+## Gen-3-S: ハイブリッド NN（policy-only NN + Gen-3-F leaf value）実装 + 重大バグ発見 (2026-05-28〜29)
+
+> 注: 当初このエントリを「Gen-3-M」 と命名したが、 別セッションが grid search 系で
+> Gen-3-L〜Q を使用済みのため Gen-3-S にリネーム（命名衝突の解消）。
+
+### ⚠️ 重大バグ発見（Gen-3-N 相当の neuralMcts batch 探索バグ、 2026-05-29）
+
+`decideActionNeural` の batched 探索は、 `batchSize` が大きいと **木を降りない**。
+`_verify-search.ts` での実測（iterations=100 固定）:
+
+| batchSize | totalVisits | 探索された action 数 |
+|---|---|---|
+| 1 | 99 | 3（正常）|
+| 8 | 92 | 3（正常）|
+| 16 | 84 | 3（やや劣化）|
+| 50 | 50 | 1（壊れ）|
+| 100 | **0** | **0（root すら展開せず、 常に最初の合法手）** |
+
+原因: 1 ラウンドで bsz 個の selection を集めてから一括 expand する構造のため、
+同一ラウンド内では visit が更新されず全 selection が同じ未展開ノードに殺到する。
+`batchSize >= iterations` だと root すら展開されない。
+
+**この発見が無効化する過去の結論:**
+- **Gen-3-K11（parallel self-play）**: speedup 計測は壊れた探索が前提で無効
+- **Gen-3-K12（mcts-batch=100 で 1.5x speedup）**: 速かったのは探索をほぼしていなかったから。 結論を撤回
+- **hybrid-v1（100 games × 2 iter, mcts-batch=100 で学習）**: 学習データは全て「最初の合法手」 の one-hot でゴミ。 vs smart 0%（avgScore 0）はこれが原因
+
+**対処**: bench / 学習では `batchSize <= 8` を使う。 `bench-neural.ts` は batchSize=8 に修正済み。
+根本対処（batch 探索に virtual loss 相当の仮想 visit を入れて発散させる）は今後の課題。
+
+### 仮説（ハイブリッド設計、 当初）
+これまで NN AI (az-v1〜v10) は vs smart 0-8% で頭打ち。 Gen-3-F (vs smart 89.5%) に遠く及ばない。
+原因は AlphaZero 流の「value もゼロから学習」 が学習データ要求量に対して不足しているため。
+**「value は既存 Gen-3-F の heuristic に任せ、 NN は priors（方策）のみ学習」** のハイブリッド設計に切り替えれば、
+Gen-3-F を baseline として保証しつつ、 NN が priors を補助することで強くなる可能性が高い（AlphaGo（not Zero） に近い思想）。
+
+### アーキテクチャ
+
+```
+MCTS root state
+  ↓
+selection (PUCT)
+  - prior: NN policy（学習可能、 マスク後正規化）
+  - Q: visit-averaged value
+  ↓
+leaf に到達
+  ↓
+leaf value = evaluateState(state, p, Gen-3-F weights) → tanh で正規化 [-1, +1]
+  ↓ (numPlayers 次元、 K6 互換)
+backprop
+```
+
+### 変更点
+
+#### 1. `ai/scripts/nn/model.ts`
+- `createPolicyOnlyModel`: value head 無しの NN（output は policy 1 個のみ）
+- `compileForPolicyOnly`: 損失は categoricalCrossentropy のみ
+- `loadModel` の bug 修正: 既存実装は valueSize 固定 4 だったが、 `net.outputs.length` で判定するように変更
+  - policy-only モデル load 時 valueSize=0
+  - policy+value モデル load 時 valueSize=4
+
+#### 2. `ai/scripts/nn/neuralMcts.ts`
+- `NeuralMctsOptions.useHeuristicValue?: boolean` 追加
+- 内部 helper `evaluateLeafHeuristic(state, numPlayers)`: 全プレイヤー視点で `evaluateState(..., DEFAULT_WEIGHTS)` を呼んで tanh 正規化（scale=1000）
+- `nnPredictBatch` を policy-only モデルにも対応（output が tf.Tensor or tf.Tensor[] の両方を受ける）
+- expansion 時、 `useHeuristicValue || model.valueSize === 0` なら NN value を無視して `evaluateLeafHeuristic` を呼ぶ
+
+#### 3. `ai/scripts/nn/dataset.ts`
+- `SelfPlayOptions.useHeuristicValue?: boolean` を伝搬
+- `generateSelfPlayGameWithModel` → `decideActionNeural` の options に追加
+
+#### 4. `ai/scripts/nn/train.ts`
+- `--hybrid` フラグ追加
+- hybrid 指定時:
+  - `createPolicyOnlyModel` を新規作成（init JSON 経由なら従来モデルでも可、 value 出力は無視される）
+  - `compileForPolicyOnly` で fit
+  - `model.net.fit(x, pTarget, ...)` （value target 不要）
+
+#### 5. `ai/scripts/bench-neural.ts`
+- `mcts-batch=100` を渡すように変更（Gen-3-K12 で発見した 1.5x speedup を反映）
+
+### Smoke 結果（CPU, 5 games × 1 iter）
+
+```
+Total params: 186910 (hidden=256x3, policy-only)
+generated 600 examples in 6.7s
+trained 1 epochs in 0.1s, final loss=3.0497
+saved model to /tmp/hybrid-smoke/
+```
+
+→ 動作確認 OK。 7.7 秒で 5 games + train 1 epoch、 model save 成功。
+
+### 採用判定
+**実装採用**。 強さの検証（hybrid vs Gen-3-F）はまだ。 ES tune (Gen-3-L) と並行検証予定。
+
+### 次の手
+1. ES tune (Gen-3-L) 完了後、 hybrid を本格学習
+   ```bash
+   npx tsx ai/scripts/nn/train.ts --games 200 --iter 10 --batch 256 --epochs 3 \
+     --seed 50000 --selfplay neural --hybrid \
+     --hidden-units 256 --hidden-layers 3 --mcts-batch 100 \
+     --out ai/models/hybrid-v1
+   ```
+2. `bench-neural.ts /path/to/hybrid-v1 --opponent smart --games 200` で勝率確認
+3. Gen-3-F (89.5%) を超えるか
+4. 超えれば az-v1 系列に代わる本命候補、 ブラウザ統合
+
+### メモ
+- ハイブリッドは AlphaGo（not Zero）方式。 NN の役割は「priors の補助」 に限定
+- 学習データ要求が桁違いに少ない見込み（数千 games で効果が出る想定）
+- Gen-3-F の評価関数があと数 pt 強くなれば hybrid 全体も底上げされる（A 路線 Gen-3-L と組み合わさる）
+
+---
+
+## Gen-3-R: 評価関数に 4 新 feature 追加（実装のみ。 別セッション Gen-3-Q の 21 次元 ES で検証され不採用） (2026-05-28)
+
+> 注: 当初「Gen-3-L」 と命名したが grid search 系の Gen-3-L と衝突するため Gen-3-R にリネーム。
+> 追加した 4 特徴量（endRoundLowReachPenalty 他）は別セッションの Gen-3-Q（21 次元 ES）でも
+> まとめて検証され、 いずれも不採用（DEFAULT は 0 のまま）。 結論は一致。
+
+### Step 0: ルール変更チェック
+HEAD = 3f0158b 以降コミット無し、変化なし。 ただし RULES.md 改訂で「**このゲームに手札（hand）は存在しない**」 と再確認（取得 2 枚は即配置）。 一時的に手札評価を検討候補に挙げたが撤回。
+
+### 仮説
+Gen-3-F の `EvalWeights` 17 keys を見直したところ、 以下の重要な要素が抜けていた:
+
+1. **endTriggered 後の reach 期待値補正**: 「もう間に合わない reach 1-2」 を区別していない
+2. **slot 高さの偏り**: 1 slot に積み上がるとジャム（overflow 直前）なのに総量しか見ていない
+3. **場の機会**: 公開 field の 4 枚に自分の reach 一致色があれば次手で完成可だが評価していない
+
+これらを追加して ES tune すれば Gen-3-F + 数 pt の改善が見込める。
+
+### 変更点
+
+#### 1. `src/ai/evaluator.ts`
+- `EvalWeights` に 4 keys 追加（all default 0 = 既存挙動と互換）:
+  - `endRoundLowReachPenalty`: endTriggered 中の reach 1-2 ペナルティ
+  - `endRoundHighReachBonus`: endTriggered 中の reach 3+ 加算（急がせる）
+  - `slotEvennessPenalty`: max-min 高さ偏りペナルティ
+  - `fieldOpportunityMatch`: 自分手番中、 field に reach 2-4 同色がある時の加算
+- `readBoardSignal` に `maxStackHeight`, `minStackHeight` 追加
+- `selfScore(player, state, w)` に state 引数追加（state.endTriggered, state.field, state.currentPlayerIndex を参照するため）
+
+#### 2. `src/ai/tunedWeights.ts`
+- `GEN_3B_WEIGHTS` に新 4 keys 追加（all 0 で互換）
+
+### 手動値での方向性チェック（200 games rotate, vs smart）
+
+| 設定 | mcts winRate |
+|---|---|
+| Gen-3-F baseline (新 keys=0) | 89.5%（既知）|
+| 手動 weights（new keys=30,60,5,10）| **87.0%** |
+
+→ 手動値は -2.5pt だが 95%CI 内（範囲 84.5-93.0%）で**有意悪化とは言えない**。 ES で最適値を探索する必要あり。
+
+### ES tune 結果（2026-05-28 完了）
+
+```bash
+npx tsx ai/scripts/tune-es.ts --gens 30 --games 100 --seed 7 --sigma 0.15 \
+  --init ai/data/tuned-weights-gen3f.json --out ai/data/tuned-weights-gen3l.json
+```
+
+実測（15 gen で sigma が 0.01 を下回り早期終了）:
+```
+gen  0 baseline: avgScore=21.76 winRate=98.0% (Gen-3-F default)
+gen  1-15: 全て reject (sigma 0.15 → 0.0097)
+final: best ever = Gen-3-F default のまま、 新 4 keys は全て 0
+```
+
+### 採用判定
+**不採用**: 15 gen の ES 探索で Gen-3-F を超える child が一度も得られなかった。
+
+### 失敗原因の分析
+
+1. **新 4 keys は既存 keys と役割が重複していた可能性が高い**:
+   - `endRoundLowReachPenalty / endRoundHighReachBonus`: 既存 `winnerBonus` / `loserPenalty` / `threatScoreMult` が「終局を意識して急ぐ」 を既にカバー
+   - `slotEvennessPenalty`: 既存 `overflowPenalty` が総量を見ており、 偏りも間接的に効いている
+   - `fieldOpportunityMatch`: 既存 `reach2`/`reach3` などが「進捗 reach は価値が高い」 を表現済み
+2. **Gen-3-F は既に高度に局所最適化されている**: 17 keys × 18 gen × 100 games の探索済みなので、 単純な追加 features では超えられない
+3. ES の sigma 探索範囲 (0.15 → 0.01) が狭く、 0 から大きな正値の探索が不足した可能性もある（次回は sigma=0.3 + 別 seed で再試行する価値あり）
+
+### 次の手（A 路線の再挑戦案）
+
+1. **より新規性ある feature** を試す:
+   - card counting（捨札・deck 残り）
+   - 多 turn lookahead（次の自分の手番までの相手 N 手予測）
+   - gift queue size の戦略的重み
+2. **ES 設定変更**: sigma=0.3、 seed 別、 gens=50 で再 tune
+3. **A 路線を一旦保留し、 B 路線（ハイブリッド）に注力**（こちらが本命と思われる）
+
+### メモ
+- このゲームに手札 (hand) はない（取得 2 枚は即ボード配置）。 私が一時的に「手札評価」 を提案したのは誤読
+- 新 4 keys は 0 のまま残置（コードは互換、 将来 ES re-tune で復活可能性）
+- 「最強 AI」 目標に対して、 既存 evaluator の単純拡張は ROI が低かった。 構造的改善（hybrid NN）が次の本命
+
+---
+
+## Gen-3-K12: mcts-batch=iterations 化が真の効率化、 parallel-games は不要 (1.5-1.6x speedup) (2026-05-28)
+
+### Step 0: ルール変更チェック
+HEAD = 3f0158b 以降コミット無し、変化なし。
+
+### 背景
+K11 で parallel self-play を実装したが GPU 1.32x にとどまった。 「もっと効率化できるはず」 とのユーザー指摘を受け、 推測ではなく **プロファイル実測** で律速箇所を特定し、 本質的な改善を行う。
+
+### プロファイル結果（`ai/scripts/_profile-nn-selfplay.ts`）
+
+#### NN predict のコスト構造（hidden=512×6, 1.4M params, GPU）
+
+| batch | ms/call | ms/sample |
+|---|---|---|
+| 1 | 3.15 | 3.148 |
+| 16 | 3.68 | 0.230 |
+| 32 | 3.36 | 0.105 |
+| 64 | 5.88 | 0.092 |
+| 128 | 10.72 | 0.084 |
+| 256 | 21.09 | 0.082 |
+
+→ **3 ms/call の固定オーバーヘッド** が支配的。 batch を増やしても 1 sample 単価は安くなるが、 1 call 単価は線形以下にしか減らない。 つまり **predict 回数を減らす** のが最も効く。
+
+#### Game logic 単体（参考）
+
+- `encodeState`: 0.0092 ms (109K ops/sec)
+- `observationKey`: 0.0033 ms (string 生成)
+- `legalActionIds`, `stepGame`, `determinizeDeck`: それぞれ 0.0005 ms 以下（ほぼ無視）
+- 1 simulation (depth 5、 determinize + 5 step + 5 obsKey + 1 encode): 0.044 ms
+
+#### 律速の数値理解
+- iterations=100, mcts-batch=16 だと **6 predict calls/turn** = 6 × 3.68 = 22 ms NN cost
+- iterations=100, mcts-batch=100 だと **1 predict call/turn** = 1 × 21 (batch≈100) = 21 ms NN cost… 同じ?
+- ただし mcts-batch=100 では batch=100 で 1 predict (≈9 ms) → **2.4x speedup**
+
+### 改良の検証
+
+`--mcts-batch` を 16/32/64/100 と振って測定（hidden=512×6, 8 games × 1 iter）:
+
+| 構成 | ms/example | A 比 |
+|---|---|---|
+| **A**: GPU seq, mcts-batch=16 | 19.3 | 1.00x |
+| **B**: GPU seq, mcts-batch=100 | **12.7** | **1.52x** |
+| C: GPU parallel=8, mcts-batch=16 (K11) | 15.1 | 1.28x |
+| D: GPU parallel=8, mcts-batch=100 | 11.9 | 1.62x |
+| **E**: CPU seq, mcts-batch=16 | 21.2 | 0.91x |
+| **F**: CPU seq, mcts-batch=100 | **12.1** | **1.60x** |
+| G: CPU parallel=8, mcts-batch=100 | 14.8 | 1.30x |
+
+### 主な発見
+
+1. **mcts-batch=100 が圧倒的**（sequential 単体で 1.5x）。 NN call 回数を 6→1 に減らす効果が、 parallel-games 8 倍化よりも大きい
+2. **parallel-games は K12 後は不要**。 mcts-batch=100 と組み合わせると 8 games 分の Map/encode overhead が 1 round に集中し、 微悪化（GPU: 12.7 → 11.9 ぐらいで誤差、 CPU: 12.1 → 14.8 で明確悪化）
+3. **GPU と CPU の差が消えた**（B 12.7 vs F 12.1）。 mcts-batch=100 になると NN cost が小さくなり、 残るは JS overhead が支配 → GPU の優位性ゼロ
+4. **K11 の parallel 実装は無駄ではなかった**: 「mcts-batch を大きくしたい」 という発想に至るためのデータが揃った。 ただし機能としては「mcts-batch=iterations なら sequential で十分」
+
+### 採用判定
+**条件付き採用**: `--mcts-batch 100` （iterations と同値）を **推奨設定** として CHANGELOG/README/GPU_SETUP に記載。
+ただし以下の risk を明記:
+- mcts-batch=100 では provisional uniform priors の影響で MCTS 探索品質が劣化する懸念
+  - examples 数の減少が観測されている: mcts-batch=16 で 1193, mcts-batch=100 で 960 (8 games)
+  - → 同じ iterations でも生成 sample 数が違う = game 進行が異なる = MCTS の選択が変わっている
+- 強さの検証は **Gen-3-K13 で az-v11 を batch=16 と batch=100 の 2 条件で並行学習** して bench 比較すべき
+- parallel-games は実装は残すが、 デフォルト推奨ではない（mcts-batch を大きくすれば不要）
+
+### 既存コードへの影響
+
+なし。 `--mcts-batch` は既存 CLI オプション、 デフォルト値（1）は変更せず（互換性のため）。 推奨設定はドキュメントで明示する。
+
+### 補追：「なぜ GPU の優位性がないのか」 の根本分析（2026-05-28 追加）
+
+ユーザーから「なぜ GPU の優位性がないのか」 と聞かれて、 model サイズ別の GPU/CPU predict 速度を実測した（`ai/scripts/_profile-gpu-vs-cpu.ts`）。
+
+#### NN predict 単体 (batch=100)
+
+| モデル | params | GPU samples/s | CPU samples/s | GPU/CPU |
+|---|---|---|---|---|
+| hidden=64×2 | 18K | 22,422 | 39,746 | **0.56** (CPU 速い) |
+| hidden=256×3 | 188K | 21,677 | 23,646 | 0.92 |
+| hidden=512×6 | 1.4M | 15,729 | 12,137 | **1.30** |
+| hidden=1024×6 | 5.5M | 15,322 | 6,700 | **2.29** |
+| hidden=1024×12 | 11.8M | 10,566 | 3,246 | **3.26** |
+
+→ モデルが大きいほど GPU の優位性が出る。 1.4M はちょうど臨界点。
+
+#### しかし実 self-play では…
+
+| モデル | GPU self-play ms/ex | CPU self-play ms/ex | GPU/CPU |
+|---|---|---|---|
+| 1.4M | 12.7 | 12.1 | 0.95 |
+| 5.5M | 18.8 | 22.5 | **1.20** |
+| 12M | 38.5 | 35.0 | **0.91** (CPU 速い!) |
+
+predict 単体では 12M で GPU 3.26x だったのに、 self-play では CPU の方が速くなる。
+
+#### 3 つの構造的理由
+
+1. **モデルが小さすぎる → GPU 起動オーバーヘッドが支配的**
+   - RTX 4080 は 9,728 cores、 48 TFLOPS
+   - 1.4M params の predict は数百 FLOPs/sample → **GPU の 0.1% も使えていない**
+   - 3 ms の kernel launch overhead が、 ms 単位の計算本体を上回る
+
+2. **JS overhead が支配的**
+   - 1 turn のうち NN predict は 1-10 ms
+   - JS（encodeState, observationKey, Map 操作, MCTS tree 管理）が 10-30 ms
+   - GPU/CPU 共通コスト → GPU 加速できない領域が大きい
+
+3. **実 self-play は predict 単体ベンチより不利**
+   - 単体ベンチは同じ batch を繰り返し → GPU kernel cache が効く
+   - 実 self-play は turn ごとに batch size 変動（mcts-batch=100 でも実 batch は 50-90）→ kernel 再 tune が走る可能性
+   - → 12M で単体 3.3x → self-play で逆転、 という非対称が説明できる
+
+### 次の手（Gen-3-K13+ 候補）
+
+1. **JS overhead 削減**（最有望）
+   - observationKey の hash 化（string → number、 ~50% 削減）
+   - encodeState の TypedArray 直接書き込み（Float32Array.from の copy 排除）
+   - Map<string, NodeStats> → Map<number, NodeStats>（lookup 高速化）
+   - 期待: 全体 1.3-1.5x（GPU/CPU 共通の効果）
+2. **tree reuse**: 前 turn の MCTS tree を再利用、 実質 iterations 1.5-2x（学習効率も改善）
+3. **az-v11 大規模学習**: 1.4M + mcts-batch=100、 10K games（推定 ~5 時間）
+4. **強さ比較**: mcts-batch=16 vs 100 を並行学習し、 vs smart 勝率で品質を確認
+
+### メモ
+- 「推測で実装 → ベンチで効果なし」 を K11 で繰り返した後、 K12 でプロファイル先行に切り替えたら一発で本命の律速点が見えた
+- 教訓: 性能改善は必ずプロファイル先行で
+- GPU の優位性は predict 単体では出るが、 実 self-play では出ない。 改善するには **JS overhead 削減** が次の本命
+- parallel-games の実装はそのまま残す（マイクロ秒級の NN で活きる場面が将来あり得るため）
+
+---
+
+## Gen-3-K11: parallel self-play 実装 (大モデルで GPU 1.32x、 中モデルで効果なし) (2026-05-28)
+
+### Step 0: ルール変更チェック
+HEAD = 3f0158b 以降コミット無し、変化なし。
+
+### 仮説
+K10 のベンチで「現行コードでは GPU の効果ほぼゼロ」 と判明。 原因は self-play 中の予測が `mcts-batch=16` の小バッチ逐次呼び出しで、 PCIe 転送オーバーヘッドが支配的だから。
+複数 game の MCTS を同時並行で進めて 1 batch を大きくすれば（N games × 16 leaves = 128-256 サンプル）、 GPU の効率が上がるはず。
+
+### 変更点
+
+#### 1. `ai/scripts/nn/neuralMcts.ts`
+- `decideActionNeuralParallel(inputs, model, options)` を追加
+  - 各 input は `{state, playerId, seed?}` を持つ
+  - 各 context について独立の MCTS tree を保持
+  - 1 round 内で各 context が `options.batchSize` 回の selection を試みる
+  - 集まった全 expand leaves を 1 つの NN batch で評価
+  - 各 expand について path に backprop
+- 「同 round 内で同じ leaf に衝突する」 問題に対しては、 expand 時に **uniform priors を `provisional=true` で仮 install** し、 NN 結果到着時に上書きする方式を採用
+  - virtual loss (K8) のように visit count を触らないので、 K8 失敗の二の舞は避けられる
+- `NodeStats` に `provisional?: boolean` フィールド追加（optional）
+- 既存 `decideActionNeural` は無変更（後方互換）
+
+#### 2. `ai/scripts/nn/dataset.ts`
+- `generateDatasetParallel(seedBase, numGames, parallelGames, model, tau, mctsBatchSize)` を追加
+  - rolling 方式: 同時に最大 `parallelGames` 個の game を進行、 完了した slot から即 finalize + 次の game seed を投入
+  - 各 step で active な全 slot の next action を 1 つの NN batch で同時決定
+  - awaitingGiftSelection の slot は smart で個別決定（既存と同じ委譲ロジック）
+- `parallelGames < 2` のときは従来の `generateDatasetWithModel` に委譲
+
+#### 3. `ai/scripts/nn/train.ts`
+- `--parallel-games N` オプション追加（default 0 = sequential）
+- N >= 2 のとき `generateDatasetParallel` を呼ぶ
+
+### ベンチ結果
+
+#### 中モデル (hidden=256×3, 188K params, 16 games × 1 iter, GPU)
+
+| 構成 | examples | 所要 | examples/sec |
+|---|---|---|---|
+| seq, mcts-batch=16 | 2747 | 23.4s | 117 |
+| parallel=4, mcts-batch=16 (batch=64) | 2472 | 25.1s | 98 |
+| parallel=8, mcts-batch=16 (batch=128) | 2365 | 23.6s | 100 |
+| parallel=16, mcts-batch=16 (batch=256) | 3043 | 27.9s | 109 |
+
+→ **中モデルでは並列化の効果なし**（むしろ微悪化）。 JS overhead がボトルネック。
+
+#### 大モデル (hidden=512×6, 1.4M params, 8 games × 1 iter)
+
+| 構成 | examples | 所要 | ms/example | vs CPU seq |
+|---|---|---|---|---|
+| GPU seq, mcts-batch=16 | 1560 | 30.7s | 19.7 | 1.08x |
+| **GPU parallel=8, mcts-batch=16** | 1169 | **18.9s** | **16.2** | **1.32x** |
+| CPU seq, mcts-batch=16 | 1181 | 25.1s | 21.3 | 1.00x |
+
+→ **大モデル + parallel=8 で GPU が CPU の 1.32x 速い**。 188K params では出なかった効果が 1.4M で初顕在化。
+
+### 解釈
+
+- 188K params は CPU でも数 ms/predict で済む → GPU の優位性が小さい → 並列化しても JS overhead に飲まれる
+- 1.4M params で GPU 計算が顔を出し、 並列化で 1 batch を 128 サンプルにまとめると GPU が活きる
+- ただし期待した 3-5x には届かず。 残るオーバーヘッド:
+  - 各 context の Map 操作（per-game node storage）
+  - encodeState（185 次元の生成）
+  - path のオブジェクト構築
+- これらを削るには TypedArray ベースの node storage / encodeState のキャッシュ等が必要
+
+### 採用判定
+**条件付き採用**: parallel-games オプションは保留せず本流に残す。 ただし:
+- 中モデル以下では使わない（効果なし）
+- 大規模モデル（1M+ params）+ parallel=8 の組み合わせを **az-v11 候補** として採用
+- GPU_SETUP.md フェーズ C の採用判定基準（1.5x 以上）には僅かに届かないが、 1.32x でも CPU よりは速いので使う価値あり
+
+### 次の手（Gen-3-K12 以降の候補）
+
+1. **virtual loss の正しい実装**（K8 で失敗した再挑戦、 期待 2x）
+2. **大規模学習の実行**（hidden=512×6 + parallel=8 で 10K games の az-v11）
+3. **JS overhead 削減**（TypedArray node, encodeState キャッシュ、 path をプリミティブ配列に）
+
+### メモ
+- 並列実装の核は「provisional uniform priors の仮 install + NN 結果で上書き」。 virtual loss と違って visit count を触らないので、 MCTS の探索品質を壊さない
+- 同 round 内の同 leaf 衝突は `installed: Set<NodeStats>` で「最初の 1 つだけ priors install」 にして対処
+- parallel-games = numGames（全 games 同時並行）のときが理論最大効率
 
 ---
 
@@ -184,6 +598,402 @@ NN モデル本体は az-v7 が現状最強だが vs smart 8% で Gen-3-F (89.5%
 - UI / App.tsx には触っていない。 強いモデル完成時にユーザーが UI 側で `loadNeuralAI` を呼ぶだけで切替可能
 - フォールバック設計のおかげで「モデルロード失敗 → mctsAI で続行」になるので、 配信ミスがあってもゲームは動く
 - 動的 import で別 chunk 化しているため、 初回ロード遅延ゼロ。 NN ボタンを押した時など必要時にだけ tfjs を取りに行く形に発展させやすい
+
+---
+
+## Gen-3-S: mcts 自己対戦 fitness で 21 次元 ES tune（不採用、self-play 改善が vs smart 退行とトレードオフ） (2026-05-29)
+
+### Step 0: ルール変更チェック
+HEAD = 9c4cade のまま。 Gen-3-Q 以降の `src/game/` / `docs/RULES.md` 変更なし。 ベースラインは Gen-3-O = 93.5% で有効。
+
+### 仮説
+- Gen-3-Q で「smart x3 fitness は天井 (98%)、 新 4 特徴量が 0 のまま動かない」 と判明
+- Gen-3-J の per-AI weights API を使い、 **学習側 mcts = 候補重み / 対戦相手 3 体 = default 重み（Gen-3-O 現状最強）** の自己対戦で fitness を取れば、 smart 相手では見えない差別化要素を学習できるはず
+- 期待: 新特徴量が非ゼロに動き、 強い相手（自分自身）に勝てる重みが見つかる
+
+### 実装
+- `ai/scripts/tune-es.ts` に `--opponent mcts` を追加（対戦相手 3 体を DEFAULT_WEIGHTS の mcts に。 学習側 seat 0 は候補重み、 uctC/iter は両者とも Gen-3-O default の 1.7/800）
+- `--gens 15 --games 50 --seed 5 --sigma 0.2 --opponent mcts`、 warm-start from DEFAULT_WEIGHTS
+- 1 局 ~4.55 秒（smart x3 の ~4 倍、 全 4 体が mcts のため）、 実時間 ~60 分
+
+### 学習結果（self-play, seed=5, 実時間 60 分）
+
+| 指標 | gen 0 (default) | best ever (gen 13) | 差分 |
+|---|---|---|---|
+| avgScore | 16.40 | **18.28** | +1.88 |
+| winRate (seat 0) | 38.0% | 40.0% | +2pt |
+| avgRank | 2.44 | 2.22 | -0.22 |
+
+- 6 回 ACCEPT (gen 2/4/7/8/9/13)、 sigma は最後まで収束せず（0.187 で gen 15 到達）
+- **新特徴量が今回は非ゼロに動いた**: `endRoundLowReachPenalty` 0→0.92, `endRoundHighReachBonus` 0→0.23, `slotEvennessPenalty` 0→-0.10, `fieldOpportunityMatch` 0→-0.89
+- 既存重みも大きく変化: `selfScoreMult` 124→50, `threatScoreMult` 57→111, `chainSeed` 9→21, `winnerBonus` 5212→7188, `loserPenalty` 3129→1429
+- 方向性: **「自己得点重視」 → 「相手警戒重視」**
+
+注: default re-check（default-vs-default 自己対戦, seat 0）の winRate=38% は 25% でなく seat 0 のターン順バイアス。 ただし parent-child は両者 seat 0 で比較するため acceptance 判定は公平。
+
+### Holdout: vs smart x3（200 局 rotate、 標準ベンチ）
+
+| seed | Gen-3-O (現状最強) | **Gen-3-S** | 差分 |
+|---|---|---|---|
+| 1001 | 93.5% (CI 89.2-96.2%) | **89.0%** (CI 83.9-92.6%) | **-4.5pt** |
+| 2001 | 91.5% (CI 86.8-94.6%) | **86.5%** (CI 81.1-90.6%) | **-5.0pt** |
+| avgScore (1001/2001) | 21.0 / 21.0 | 20.9 / 20.7 | 同等 |
+
+→ **2 seed 一貫して vs smart で退行**、 CI 下限も Gen-3-O を明確に下回る。
+
+### 採用判定
+**不採用、 ブラウザ反映なし、 重みのコード変更なし**
+
+ブラウザの関連指標（vs smart ≈ 人間プロキシ）で -4.5〜-5.0pt 退行するため、 スキル採用基準「現状最強の CI 下限を上回る」 を満たさない。
+
+### メモ・学び（重要）
+
+1. **Gen-3-J 現象の再確認＋拡張**: 「self-play 用に最適化した重みは強い mcts には勝てるが弱い smart には退行する」。 Gen-3-J は per-AI weights API だけで重み数値は不採用だったが、 Gen-3-S は新特徴量込みで本格 ES しても同じ結論
+2. **fitness の選択が重みの性格を決める**:
+   - smart fitness (Gen-3-Q): 「攻撃的・自己得点最大化」 方向（既に天井）
+   - self-play fitness (Gen-3-S): 「警戒的・相手抑制」 方向（強い相手には有効、 弱い相手には過剰）
+   - 両者はトレードオフの関係。 単一 fitness ではどちらかに寄る
+3. **新 4 特徴量は「効く文脈はある」が「ブラウザ向けには中立〜微負」**: self-play では非ゼロに動いた（特に endRound 系、 終局判断）が、 vs smart では裏目
+4. **手書き AI 重み tune の根本的限界が明確に**:
+   - smart fitness = 天井 (Gen-3-Q)
+   - self-play fitness = vs smart 退行 (Gen-3-S)
+   - → 単純な重み最適化では Gen-3-O (uctC×iter joint) を超えられない
+5. **次の方向性**:
+   - **複合 fitness**: 「vs smart の avgScore + vs default-mcts の avgScore」 の加重和で、 両方に強い重みを探す（トレードオフの妥協点を ES で探索）
+   - **progressive bias 再挑戦**（Gen-3-C の prior 設計改良）: 重みではなく探索構造の変更
+   - **NN AI (Gen-3-K 系) に注力**: 手書き AI は Gen-3-O が実質天井という結論が強まった。 az-v7 (vs smart 8%) からの大規模学習で構造的突破を狙う
+
+### 残置物
+- `ai/scripts/tune-es.ts` の `--opponent mcts`: self-play fitness 用、 将来の複合 fitness 探索にも使い回せる有用な拡張なので保持
+- `ai/data/tuned-weights-gen3S.json`: 学習結果（self-play では強いが vs smart で退行する重み、 参照用）
+- `ai/data/tune-es-gen3S.log`: 学習ログ（gitignore 配下）
+- 評価関数の新 4 特徴量は DEFAULT=0 のまま保持（複合 fitness で再評価する余地）
+
+### チェックリスト
+- [x] `npx tsc -p ai/tsconfig.json --noEmit` 通過
+- [x] ES 学習完了 (15 世代、 6 ACCEPT)
+- [x] vs smart holdout 2 seed で測定、 結果を CHANGELOG に全件記載
+- [x] 採用基準（CI 下限が現状最強超え）に未達を数値で確認 → 不採用
+
+---
+
+## Gen-3-Q: 21 次元 ES tune（新 4 特徴量 + 既存 17 重み、不採用、smart x3 fitness の天井を実証） (2026-05-29)
+
+### Step 0: ルール変更チェック
+HEAD = 9c4cade のまま。 Gen-3-P 以降の `src/game/` / `docs/RULES.md` 変更なし。
+ユーザーが並行で `src/ai/evaluator.ts` に 4 つの新特徴量を追加（DEFAULT 値 0 で挙動互換）。 `tunedWeights.ts` の `GEN_3B_WEIGHTS` も互換維持で 4 つ 0 追加。 ベースラインは Gen-3-O = 93.5%、 ES 学習は新拡張で 21 次元で回る。
+
+### 仮説
+- Gen-3-L〜P で **単独 grid / joint 2D grid のハイパラ最適化はほぼ天井**（Gen-3-O の +1.25pt 以降は不採用続き）
+- 残る大きな改善余地は「評価関数の構造拡張」
+- ユーザーが追加した 4 新特徴量を ES tune で 0 → 適切な重みに学習すれば、 終局判断・盤面偏り・場マッチの 3 つの側面で mcts が強化される
+- 期待: +1〜+3pt（過去 Gen-3-B〜F の重み tune パターンの範囲）
+
+### 4 つの新特徴量（ユーザー実装、 全て DEFAULT=0 で開始）
+1. `endRoundLowReachPenalty`: 終局トリガー後の reach 1-2 へのペナルティ（「もう間に合わない reach」 を価値ゼロ扱い）
+2. `endRoundHighReachBonus`: 終局トリガー後の reach 3+ へのボーナス（「今すぐ仕上げる」 を急がせる）
+3. `slotEvennessPenalty`: スロット高さの偏り (max - min) ペナルティ（overflowPenalty の総量と相補）
+4. `fieldOpportunityMatch`: 自分の手番中、 場の公開 4 枚に「自分の reach 2-4 と同色」 がある時の機会ボーナス
+
+### 実装
+- `tune-es.ts` の `mutate` は `Object.keys(out)` で全キーに摂動 → コード変更なしで自動的に 21 次元 ES
+- `--gens 25 --games 50 --seed 5 --sigma 0.2 --opponent smart` で実行
+- DEFAULT_WEIGHTS warm-start (= Gen-3-F + 新 4 = 0)、 学習中 mcts は uctC=1.7, iter=800 (Gen-3-O 採用値) で動作
+
+### 学習結果（実時間 18 分 17 秒、 17 世代で sigma 早期収束）
+
+| gen | child avgScore | child winRate | sigma | 判定 |
+|---|---|---|---|---|
+| 0 (default) | **22.24** | **98.0%** | 0.20 | – |
+| 1 | 21.52 | 100.0% | 0.1667 | reject |
+| 5 | 21.90 | **100.0%** | 0.0804 | reject |
+| 8 | 21.38 | **100.0%** | 0.0465 | reject |
+| 10 | 21.12 | **100.0%** | 0.0323 | reject |
+| 16 | 21.68 | **100.0%** | 0.0108 | reject |
+| 17 | 21.38 | 98.0% | 0.0090 | sigma converged, stop |
+
+**17 世代連続 reject、 best ever = DEFAULT_WEIGHTS（完全に同一）**。 default re-check も 22.24 で一致。
+
+### 重要な観察
+
+**winRate 100% が複数世代で出るが avgScore が parent を下回って reject**:
+- parent (DEFAULT_WEIGHTS = Gen-3-O 設定) は seed=5 50 局で **「全勝かつ高得点」 の上限値** を既に達成
+- gen 1/5/8/10/16 の child は「勝率は parent と同等以上だが、 1 試合あたり 0.3〜0.9 点低い」
+- → 摂動された重みは「勝つが、 高得点パスを取れていない」
+
+### 採用判定
+**不採用、 ブラウザ反映なし、 コード変更なし**
+
+- best ever が DEFAULT_WEIGHTS と完全一致 → ES で意味ある改善ゼロ
+- holdout 200 局確認は省略（同一重みで同一結果になるため）
+- `tuned-weights-gen3Q.json` 保存済み（参照用、 中身は DEFAULT_WEIGHTS と同じ）
+
+### メモ・学び（重要）
+
+1. **smart x3 fitness は完全に天井**: Gen-3-O 設定の DEFAULT_WEIGHTS が seed=5 評価セットで 98% / avgScore 22.24 → 摂動による改善余地が事実上ない（noise レベル）
+2. **新 4 特徴量は smart 相手では効かない**: `endRoundLowReachPenalty` / `endRoundHighReachBonus` / `slotEvennessPenalty` / `fieldOpportunityMatch` のいずれも 0 → 学習で意味のある非ゼロ値に動かなかった。 mcts が既に十分強い局面では differentiator にならない
+3. **次のステップが論理的に明確化**:
+   - smart 相手では検出不能な改善余地が、 **mcts 同士の自己対戦**では検出可能なはず（Gen-3-J で観察された「mcts x4 では各座席 25% で平均化する」現象は、 言い換えれば「自己対戦で差別化できる重みが見つかれば 25% → 26-27% に勝率を寄せられる可能性」）
+   - → **Gen-3-S: 自己対戦 fitness で重み再 ES** が次の有望候補
+   - Gen-3-J で「per-AI weights API」 を整備済み: 学習側 mcts は学習中の重み、 対戦相手 3 体の mcts は default 重みで固定 → 「学習側のみ改善」 を検出可能
+
+### 残置物
+- `ai/data/tuned-weights-gen3Q.json`: 学習結果（中身は DEFAULT_WEIGHTS と同一）
+- `ai/data/tune-es-gen3Q.log`: 学習ログ（gitignore 配下）
+- 評価関数の新 4 特徴量自体は保持（後の Gen-3-S 等で再評価）
+
+### チェックリスト
+- [x] `npx tsc -p ai/tsconfig.json --noEmit` 通過
+- [x] `npx tsc -p tsconfig.app.json --noEmit` 通過
+- [x] `npx vitest run` 通過（33/33）
+- [x] ES 学習完了 (17 世代、 sigma 早期収束)
+- [x] best ever = default を再現確認（default re-check）
+- [x] 結果を CHANGELOG に全件記載
+
+---
+
+## Gen-3-P: `uctC × leafEvalScale` joint 2D grid（不採用、`leafEvalScale = 1500` が robust にピーク） (2026-05-28)
+
+### Step 0: ルール変更チェック
+HEAD = 9c4cade のまま。 Gen-3-O 以降の `src/game/` / `docs/RULES.md` 変更なし。
+
+並行作業の未コミット変更があったが、 評価関数挙動への影響を確認:
+- `src/ai/evaluator.ts` (+78 行): `EvalWeights` に 4 つの新特徴量 (`endRoundLowReachPenalty` / `endRoundHighReachBonus` / `slotEvennessPenalty` / `fieldOpportunityMatch`) を追加。 ただし **DEFAULT 値は全て 0**（コメントに「ES tune 前は 0 = 既存挙動と互換」と明記）
+- `src/ai/tunedWeights.ts` (+4 行): `GEN_3B_WEIGHTS` にも 4 つを 0 で追加（互換性維持）
+- → **評価関数の出力は完全に旧版と同じ**。 Gen-3-P grid 結果は旧 evaluator と同等として有効
+
+→ 検証: 私の Gen-3-P grid で `(uctC=1.7, scale=1500) = 94/100` が Gen-3-O grid (`uctC=1.7, iter=800`) の同条件結果 94/100 と完全一致。 旧挙動が保たれていることを実機で確認済み。
+
+Gen-3-O 関連の未コミット変更（`src/ai/mctsAI.ts` の `DEFAULT_UCT_C=1.7` / `DEFAULT_ITERATIONS=800` 反映）はそのまま、 ベースラインは Gen-3-O = 93.5% で進行。
+
+### 仮説
+- Gen-3-O で `(uctC, iter)` joint 探索で coordinate-descent 解を突破できた
+- 残る 1 軸 `leafEvalScale` も同じパターンで joint 評価する余地
+- Gen-3-M は `(uctC=2.0, iter=400)` 時の結果なので、 現在 `(uctC=1.7, iter=800)` では別ピークがある可能性
+- 期待: +0pt〜+1pt
+
+### 実装
+- `ai/scripts/grid-joint-uct-eval.ts` を新規作成（`grid-joint-uct-iter.ts` のパターン踏襲、 `iterations` → `leafEvalScale` 軸に変更）
+- iter=800 (Gen-3-O 採用値 = DEFAULT_ITERATIONS) を固定
+- mctsAI に `{ uctC, leafEvalScale }` のみを options で渡す
+
+### Joint Grid 結果（100 局 × 9 候補, seed=1001, mcts vs smart x3, rotate, iter=800）
+
+| uctC \\ scale | 1000 | 1500 | 2200 |
+|---|---|---|---|
+| 1.4142 | 85.0% | 81.0% | 91.0% |
+| **1.7 (現状)** | 86.0% | **94.0%** (CI 87.5-97.2%, expRank 1.07) | 91.0% |
+| 2.0 | 83.0% | 90.0% | 87.0% |
+
+**現状 (uctC=1.7, scale=1500) が grid 内ピーク (94/100)**、 改善候補なし。
+- 同率 1 位なし（次点は (1.4142, 2200), (1.7, 2200), (2.0, 1500) で 90-91%、 3-4pt 差）
+- ピーク前後の左右対称性: (1.7, 1000) vs (1.7, 2200) = 86% vs 91%、 scale を上げる方向が若干強い
+
+### 興味深い観察
+- **`leafEvalScale = 1500` は uctC や iter に依存せず最適**: Gen-3-M (uctC=2.0, iter=400) でも 1500 ピーク、 Gen-3-P (uctC=1.7, iter=800) でも 1500 ピーク
+- → `leafEvalScale` は他のハイパラとほぼ独立に最適化できる「ロバストな」パラメータ
+- (1.4142, 2200) = 91% と (1.7, 1500) = 94% の比較: uctC を下げると scale を上げる補償関係が緩く存在するが、 真のピーク値は変わらず
+- → Gen-3-O で発見した `(uctC, iter)` の相補関係とは異なり、 `(uctC, leafEvalScale)` 間の coupling は弱い
+
+### 採用判定
+**不採用、 ブラウザ反映なし、 コード変更なし**
+
+スキル採用基準「現状最強モデルの CI 下限 (89.2%, Gen-3-O) を超える候補」が grid 内に存在せず、 ベースライン (1.7, 1500) がピークのまま。
+ホールドアウト 200 局は省略（grid 100 局の (1.7, 1500) 結果 94% が Gen-3-O grid 結果と完全一致、 再現性は前回確認済み）。
+
+### メモ・学び
+- **パラメータ間の coupling の強さは軸ごとに異なる**:
+  - `uctC × iter`（Gen-3-O）: **強い coupling** あり、 coordinate descent 解突破可能
+  - `uctC × leafEvalScale`（Gen-3-P）: **弱い coupling**、 単独最適 = 組合せ最適
+- これは「探索の動き」（uctC, iter）と「価値の感度」（leafEvalScale）が概念的に直交する傾向と整合
+- **`leafEvalScale = 1500` の正当性が更に強まる**: 2 つの異なる設定下で同じピーク → 「経験則 1500」が偶然ではなく構造的に最適
+- **次の方向性**:
+  - **`iter × leafEvalScale` joint**: 3 軸目を埋めて 2D 残りを全て確認
+  - **3D grid** (`uctC × iter × leafEvalScale`): 9 候補ずつなら 27 候補 × 100 局 ≈ 60-70 分、 一気に最終確認
+  - **mcts 自己対戦 fitness で重み再 ES**（Gen-3-J の per-AI weights API 活用）: ブラウザ実態に近い学習
+  - **progressive bias 再挑戦**: prior の与え方を改良（多手先評価など）
+
+### 残置物
+- `ai/scripts/grid-joint-uct-eval.ts`: 将来 iter を変えて再評価する用途で使い回し可能
+- `ai/data/grid-joint-uct-eval-gen3P.log`: grid 全ログ保存（gitignore 配下）
+
+### チェックリスト
+- [x] `npx tsc -p ai/tsconfig.json --noEmit` 通過
+- [x] grid 9 候補で測定、 結果を CHANGELOG に全件記載
+- [x] 再現性チェック: (1.7, 1500) grid 結果 (94%) が Gen-3-O grid 結果と一致
+
+---
+
+## Gen-3-O: `uctC × iterations` joint 2D grid search で coordinate-descent 解を突破（採用、ブラウザ反映済み） (2026-05-28)
+
+### Step 0: ルール変更チェック
+HEAD = 9c4cade。 Gen-3-N から進行なし、 ルール / AI ロジック変更なし。 Gen-3-L ベースライン (92.0%) はそのまま有効。
+
+### 仮説
+- Gen-3-L (uctC grid, iter=400 固定) と Gen-3-N (iter grid, uctC=2.0 固定) はいずれも **coordinate descent**
+- 各次元独立に最適化した結果が「真の組合せ最適」と一致するとは限らない
+- 「単独で悪い uctC でも iter とのペアで補える」組合せがないか joint で検証
+- 期待: +0pt〜+1pt（一致するなら不採用、 別ペアが見つかれば採用）
+
+### 実装
+- `ai/scripts/grid-joint-uct-iter.ts` を新規作成: 2 次元 grid を順に走査
+- 共通モジュール (`stats.ts` / `_runner.ts` の `parseIntArg`) を活用
+- `bench.ts` に `--mcts-iter <n>` フラグを追加（uctC / leafEvalScale と並んで mcts のみ上書き可能に）
+
+### Joint Grid 結果（100 局 × 9 候補, seed=1001, mcts vs smart x3, rotate）
+
+| uctC \\ iter | 200 | 400 | 800 |
+|---|---|---|---|
+| 1.7 | 84.0% | 91.0% | **94.0%** (CI 87.5-97.2%, expRank **1.07**) |
+| **2.0 (現状 Gen-3-L)** | 85.0% | **94.0%** (CI 87.5-97.2%, avgScore 21.11) | 90.0% |
+| 2.4 | 85.0% | 84.0% | 89.0% |
+
+**興味深い発見**: `(uctC=1.7, iter=800)` と `(uctC=2.0, iter=400)` が grid 内同率 1 位 (94/100)。
+- coordinate descent では発見不能なペア（`uctC=2.0` 固定で iter=800 だと 90% で悪化、 `iter=800` 固定で uctC=2.0 だと同じく 90%）
+- 100 局では noise が ±7-9pt あり判別不能 → 200 局 × 2 seed ホールドアウトで確認
+
+### 200 局ホールドアウト × 2 seed
+
+| 計測 | 現状 (uctC=2.0, iter=400) | **新 (uctC=1.7, iter=800)** | 差分 |
+|---|---|---|---|
+| seed=1001 200局 勝率 | 92.0% (CI 87.4-95.0%) | **93.5%** (CI 89.2-96.2%) | **+1.5pt, CI下限 +1.8pt** |
+| seed=2001 200局 勝率 | 90.5% (CI 85.6-93.8%) | **91.5%** (CI 86.8-94.6%) | +1.0pt, CI下限 +1.2pt |
+| 合計 400局 | 365/400 = 91.25% | **370/400 = 92.5%** | +1.25pt |
+| avgScore (seed=1001/2001) | 20.88 / 20.83 | 21.005 / 21.03 | 微改善 |
+| expRank (seed=1001/2001) | 1.10 / 1.10 | **1.07** / 1.12 | seed=1001 で改善 |
+| msPerStep | 2.36-2.51 ms | 5.63-5.68 ms | 2.3 倍 |
+| 再現性（同 seed 2 回） | – | 187/200 完全一致 | OK |
+
+**mcts(new) x4 自己対戦サニティ**（50 局 rotate seed=3001）:
+- 各座席 25.0% (50/200) — 席バイアスなし
+- avgScore 16.36 (Gen-3-L の 16.30 から微改善)
+- 1 手 20.6 ms（4 体全 MCTS の合算）
+
+### 計算コストとブラウザ実用性
+- mcts 単独の 1 手: **5.63-5.68 ms**（現状 2.4 ms の 2.3 倍）
+- ブラウザの CPU 速度デフォルト: **550 ms / アクション**（`src/hooks/useGameLogic.ts` の `DEFAULT_CPU_SPEED_MS`）
+- → mcts 思考時間は CPU 速度設定の **1% 未満**で完全に無視できる量
+- 1 局あたり mcts 思考時間: ~5.7 ms × ~280 step ≈ 1.6 秒（バックグラウンド計算）
+
+### 採用判定
+**採用 → ブラウザ反映済み**
+
+スキル基準を満たす:
+- 200 局以上で 95%CI 下限が現状最強 (87.4%) を **2 seed 一貫して** 上回る
+- 1 手あたり時間がブラウザ実用範囲（5.7 ms ≪ 550 ms）
+- 自己対戦の席バイアスなし、 再現性あり
+
+### 変更点
+- `src/ai/mctsAI.ts`:
+  - `DEFAULT_UCT_C` を 2.0 → **1.7**
+  - `DEFAULT_ITERATIONS` を 400 → **800**
+- `ai/scripts/bench.ts`: `--mcts-iter <n>` フラグを追加
+- `ai/scripts/grid-joint-uct-iter.ts` 新規: joint 2D grid 実装
+- `npm run build` 成功（239.53 kB / gzip 75.50 kB）
+- vitest 33/33 通過
+
+### メモ・学び（重要）
+- **coordinate descent は局所最適に陥る**: Gen-3-L (uctC) と Gen-3-N (iter) で各々ピークと確認した値が真の最適でなかった
+- **相補的調整の発見**: `uctC` を下げる代わりに `iter` を増やすことで、 explore を「広く・薄く」から「狭く・深く」に再配分しても同等以上の効果が得られる
+- joint grid のコストは「全候補数 × 100 局」だが、 単独 grid を complement する形で 9 候補に絞れば 12 分で完了
+- **手書き AI 単独パラメータの天井は実は coordinate-descent 解だっただけで、 joint で +1.25pt 突破できた**
+- 改善幅 +1.25pt は Gen-3-B〜F の典型的な改善幅（+0.5〜+1pt）の範囲内
+- **次の方向性**:
+  - **uctC × leafEvalScale joint grid**: Gen-3-M で leafEvalScale 単独は 1500 がピークだったが、 joint なら別ペアがあるかも
+  - **uctC × iter × leafEvalScale の 3D grid**: 計算コスト約 3-4 倍だが、 残された伸び代を網羅的に確認
+  - **mcts 自己対戦 fitness での重み再 ES**（Gen-3-J の per-AI weights 活用）
+  - **progressive bias 再挑戦**（Gen-3-C は短期 prior が悪手だった、 prior の与え方を改良すれば再挑戦の余地）
+
+### 残置物
+- `ai/scripts/grid-joint-uct-iter.ts`: 将来の joint 探索（例: leafEvalScale 追加）に拡張可能
+- `ai/data/grid-joint-gen3O.log`: grid 全ログ保存（gitignore 配下）
+
+### チェックリスト
+- [x] `npx tsc -p ai/tsconfig.json --noEmit` 通過
+- [x] `npx tsc -p tsconfig.app.json --noEmit` 通過
+- [x] `npx vitest run` 通過（33/33）
+- [x] `npm run build` 成功
+- [x] grid 9 候補で測定、 ホールドアウト 2 seed で結果を CHANGELOG に全件記載
+- [x] 同 seed で再実行して結果完全一致を確認（187/200, totalSteps=52382）
+- [x] mcts x4 自己対戦で座席バイアスなしを確認
+
+---
+
+## Gen-3-N: `iterations` の grid 再評価（不採用、現状 400 が依然ピーク） (2026-05-28)
+
+### Step 0: ルール変更チェック
+HEAD = 5bd9c72。前回 Gen-3-M から AI ロジックの変更なし、 ただし作業ツリーに大量の未コミット変更（リファクタリング）あり:
+- `src/ai/evaluator.ts`: 終局加点のコメント追加のみ（mcts は終局を ranking 経由で評価するためここに到達しないことの明文化）
+- `src/ai/randomAI.ts`: 山札・捨札が両方空時に null を返すバグ修正（mcts の `rolloutPolicy` は元から `if (!action) break` で対応済み）
+- `src/ai/smartAI.ts`: 不要な `?? top` フォールバック削除（同じ結果になる）
+- `src/game/reducer.ts`: `collectAllBoardCardIds` 関数抽出、`MAX_CHAIN_RESOLVE_STEPS` 定数化、`stepGame` で safety 超過時に `console.warn`
+- `src/game/types.ts`: `turnEnd` フェーズ残置のコメント追加（encoding 互換性のため撤去せず）
+- `src/ai/actionSpace.ts` / `encoding.ts`: 未使用 export 削除
+- `ai/scripts/_runner.ts`: `parseIntArg` / `parseFloatArg` ヘルパー追加
+- `ai/scripts/stats.ts` 新規: `wilsonInterval` / `expectedRankFromRankCount` を 3 スクリプトから集約
+
+→ **AI の振る舞いは完全に不変**。 ベースライン再計測（Gen-3-L 設定、 seed=1001 200 局）で 92.0% (184/200, totalSteps=53755) と前回 Gen-3-L エントリ計測値と完全一致を確認。
+
+### 仮説
+- Gen-2 で iter 100→400 に拡張、 Gen-3-A で 400→1000 を試して「飽和」判定だった
+- ただし Gen-3-A 時点は `uctC=√2`。 Gen-3-L で `uctC=2.0` に変わり「広く探索する」シフトが起きた
+- exploration が拡散するなら、 iter を増やすことで visit 統計の信頼性が向上する可能性
+- 期待: +0.5〜+1.5pt
+
+### 実装
+- `ai/scripts/grid-iter.ts` を新パターンで作成（`ai/scripts/stats.ts` の `wilsonInterval` / `expectedRankFromRankCount` 共通モジュールと `_runner.ts` の `parseIntArg` を使用）
+- mctsAI に `{ iterations }` のみを options で渡し、 8 候補を順に評価
+- 他のハイパラ (`uctC=2.0`, `leafEvalScale=1500`, etc.) は全て据置
+
+### Grid Search 結果（100 局 × 8 候補, seed=1001, mcts vs smart x3, rotate）
+
+| iterations | 勝率 | 95%CI | avgScore | msPerStep |
+|---|---|---|---|---|
+| 200 | 85.0% | 76.7-90.7% | 20.33 | 0.99 |
+| 300 | 90.0% | 82.6-94.5% | 20.71 | 1.72 |
+| **400 (現状)** | **94.0%** | **87.5-97.2%** | **21.11** | 2.65 |
+| 600 | 90.0% | 82.6-94.5% | 20.68 | 3.82 |
+| 800 | 90.0% | 82.6-94.5% | 20.98 | 5.70 |
+| 1000 | 87.0% | 79.0-92.2% | 21.22 | 7.37 |
+| 1500 | 88.0% | 80.2-93.0% | 20.97 | 10.80 |
+| 2000 | 86.0% | 77.9-91.5% | 21.14 | 15.08 |
+
+**仮説と反対の結果**: iter=400 が **スイートスポット**、 これより増やすと勝率は **悪化** する傾向。
+
+### 仮説の再解釈
+
+- 興味深い観察: iter=1000-2000 では `avgScore` は 21.14-21.22 と iter=400 の 21.11 と **同等以上**、しかし `winRate` は **減少**（21.14 / 21.22 で 86-87%）
+- → 「強い手は打てるが、 1 位を逃すケースが増える」傾向
+- 解釈: `uctC=2.0` で広く探索する設定では、 iter を増やすほど visit が分散して薄まり、 「最大化への集中力」を欠く判断に傾く
+- `uctC=2.0` ＋ `iter=400` は **coordinate-descent 的に逐次最適 (sequentially optimal)** な組合せ
+- Gen-3-A 時点（`uctC=√2`）の「飽和」判定はそのまま今回も成立、 iter 増加は uctC が変わっても効果なし
+
+### 採用判定
+**不採用、 ブラウザ反映なし、 コード変更なし**
+
+スキル採用基準「現状最強モデルの CI 下限 (87.4%) を超える候補」が grid 内に存在せず、 ベースライン (iter=400) がピークのまま。 ホールドアウト 200 局確認は省略（grid 100 局の iter=400 結果 94% が前回 Gen-3-L の同条件結果と完全一致、 再現性は前回確認済み）。
+
+### メモ・学び
+- **`uctC` と `iter` は逐次最適**: Gen-3-L で `uctC=2.0` に決まり、 今回 `iter=400` が依然ピークと確認。 single-axis grid search で「もう動かす余地なし」と確定できた
+- **avgScore と winRate の乖離**: 探索を強化しても得点能力は維持されるが、 1 位確率は下がる現象を観察。 これは多人数ゼロサム的な「ライバルの取り潰しに必要な集中力」が薄まる兆候かもしれない
+- **手書き AI の単独パラメータ最適化はほぼ天井**: Gen-3-L (uctC), Gen-3-M (leafEvalScale), Gen-3-N (iterations) でいずれもピーク確認。 残る伸び代は構造的変化のみ
+- **次の方向性（更新）**:
+  - **mcts 自己対戦 fitness での重み再 ES**: Gen-3-J の per-AI weights API を使い、 fitness を「mcts vs smart」ではなく「mcts x4 自己対戦の avgScore」にして重みを最適化。 ブラウザ実態（CPU 全員 mcts）に近い学習
+  - **progressive bias 再挑戦**: Gen-3-C で短期 prior が悪手として失敗したが、 prior の与え方を「数手先評価」「shoot 後の評価」など改良すれば再挑戦の余地あり
+  - **joint optimization**: `uctC × iterations` の 2D grid search（計算コストは増えるが、 単独最適が組合せ最適と一致するとは限らない）
+  - **`puct` ベースの ES 探索**: PUCT を有効にし、 `pbC` も含めた重み + 探索ハイパラの同時 ES（高リスク・高リターン）
+
+### 残置物
+- `ai/scripts/grid-iter.ts` 新規: 将来の `uctC` 別値などでの再評価に使い回し可能
+- `ai/data/grid-iter-gen3N.log`: grid 全ログ保存（gitignore 配下）
+
+### チェックリスト
+- [x] `npx tsc -p ai/tsconfig.json --noEmit` 通過
+- [x] `npx tsc -p tsconfig.app.json --noEmit` 通過
+- [x] `npx vitest run` 通過（33/33）
+- [x] grid 8 候補で測定、 結果を CHANGELOG に全件記載
+- [x] 再現性チェック: iter=400 grid 結果 (94%) と前回 Gen-3-L 100 局結果 (94%) が一致
+- [x] ベースライン再計測 (refactor 後): Gen-3-L 92.0% で前回計測と完全一致
 
 ---
 
