@@ -5,6 +5,7 @@ import { decideAction as decideSmart } from '../../src/ai/smartAI';
 import { decideAction as decideRandom } from '../../src/ai/randomAI';
 import { decideAction as decideMcts, type MctsOptions } from '../../src/ai/mctsAI';
 import { decideAction as decideChainRush } from '../../src/ai/chainRushAI';
+import { decideAction as decideTempo, type TempoOptions } from '../../src/ai/tempoAI';
 import type { EvalWeights } from '../../src/ai/evaluator';
 import { GEN_3B_WEIGHTS } from '../../src/ai/tunedWeights';
 
@@ -15,7 +16,8 @@ export type StrategyName =
   | 'mctsRollout'
   | 'mctsPuct'
   | 'mctsTuned'
-  | 'chainRush';
+  | 'chainRush'
+  | 'tempo';
 
 export type Decider = (state: GameState, playerId: number) => Action | null;
 
@@ -51,6 +53,14 @@ export function makeMctsWithOpts(opts: MctsOptions): Decider {
   return (state, playerId) => decideMcts(state, playerId, undefined, opts);
 }
 
+/**
+ * 任意の TempoOptions（leaf 評価の weights 等）で動く tempo decider。
+ * Phase2: tempo の評価重みを差し替えて baseline mcts と直接比較するために使う。
+ */
+export function makeTempoWithOpts(opts: TempoOptions): Decider {
+  return (state, playerId) => decideTempo(state, playerId, undefined, opts);
+}
+
 export const STRATEGIES: Record<StrategyName, Decider> = {
   random: decideRandom,
   smart: decideSmart,
@@ -59,6 +69,7 @@ export const STRATEGIES: Record<StrategyName, Decider> = {
   mctsPuct: decideMctsPuct,
   mctsTuned: decideMctsTuned,
   chainRush: decideChainRush,
+  tempo: decideTempo,
 };
 
 export function isStrategyName(s: string): s is StrategyName {

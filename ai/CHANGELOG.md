@@ -9,15 +9,82 @@
 
 | 種類 | モデル | 強さ指標 | ブラウザ反映 | 由来 |
 |---|---|---|---|---|
-| 手書き AI（採用版） | **Gen-3-X**（Gen-3-O + `chainReadyMult=10`）| **vs baseline mcts 33.3%** (CI 26.3-41.2 > 公平 25%, smart 非依存) | **✓ 反映済み** | `src/ai/evaluator.ts` の `chainReadyMult` |
-| 旧採用版 | Gen-3-O（`(uctC, iter)=(1.7, 800)`）| vs smart 93.5% | （置換） | `src/ai/mctsAI.ts` |
+| 手書き AI（採用版） | **Gen-4-A**（tempoAI: ターン内完全読み + テンポ評価, `tempoChainW=50`）| **vs Gen-3-X mcts 55.3%** (seed 8001/9001 とも, 各 150 局, CI 下限 47.3% > 公平 25%, smart 非依存) | **✓ 反映済み** | `src/ai/tempoAI.ts`（`DEFAULT_TEMPO_CHAIN_W=50`）+ `src/ai/index.ts` |
+| 旧採用版（現 baseline）| Gen-3-X（Gen-3-O mcts + `chainReadyMult=10`）| vs Gen-3-O mcts 33.3% (CI 26.3-41.2) | （置換） | `src/ai/evaluator.ts` の `chainReadyMult` |
+| さらに旧 | Gen-3-O（`(uctC, iter)=(1.7, 800)`）| vs smart 93.5% | （置換） | `src/ai/mctsAI.ts` |
 | NN AI（最強だが未到達） | **az-v7**（K6 + 5000 games AlphaZero）| 8% | – | `ai/models/az-v7/` (gitignore) |
 | 旧 NN 系 | az-v1〜v6, v8〜v10 | 0-6% | – | 不採用、 詳細は下の各 Gen-3-K* エントリ |
+
+> ⚠️ **tempoAI のレイテンシ（既知の限界）**: メインスレッド同期実行のため連鎖局面で 1 手に最大 ~21 秒の UI ブロックが出る（p50 1.7ms / p95 767ms / p99 3.4s、 約 6.7% が ≥500ms）。 ただし重い裾は深い連鎖局面に偏り通常プレイでは稀で、 **実プレイでは体感問題なしとユーザー確認済み（2026-06-01）**。 許容外になれば time-budget か Web Worker 化（現状未対応）。 詳細は下記 Gen-4-A。
 
 新セッション開始時のクイックチェック:
 1. このサマリと最新 Gen エントリを読む
 2. `ai/README.md` の「現状」セクションを確認
-3. ベンチで実機確認: `npx tsx ai/scripts/bench.ts --games 50 --strategies mcts,smart,smart,smart --rotate --seed 1001 --silent --json`
+3. ベンチで実機確認（smart 非依存）: `npx tsx ai/scripts/bench-self.ts --cand-ai tempo --tempo-chain-w 50 --games 150 --seed 8001`（候補 tempo vs baseline mcts、 候補勝率の CI 下限 >25% を確認）
+
+---
+
+## Gen-4-A: tempoAI 採用 ― ターン内完全読み + テンポ評価で現状最強 mcts を破る (2026-06-01)
+
+頭打ちだった手書き AI を、 評価関数/MCTS ハイパラの tune ではなく **探索構造の変更**で更新。
+下記「根本診断」 が示した 4 点（物差しの自己参照・評価の線形性・低分岐ゆえ NN 不向き・ターン内/多ターン
+連鎖計画の不在）のうち、 最後の「連鎖計画の不在」 に直接効く新 AI。
+
+### Step 0: ルール変更チェック
+`src/game/` は Gen-3-X 当時から不変（最後の変更は Gen-3-X 以前の `ad795aa`）。 物差しの前提を維持。
+
+### 設計（`src/ai/tempoAI.ts`、 詳細はファイル冒頭 doc）
+- **own-turn full search**: 平均合法手数 5.1 の低分岐を活かし、 「自分の手番が続く限り」（2 枚の配置順・配置先、
+  連鎖ごとの引く/捨てる、 連鎖シーケンス）を DFS で完全展開し、 ターン終了時の盤面価値を最大化する初手を選ぶ。
+- **テンポ評価**: leaf は既存 `evaluateState`（Gen-3-X 重み）を土台に、 「複数色チェイン準備度」 を全色合計・
+  非線形（near²）で加点（`tempoChainW`）。 既存の chainReadiness が最良 1 色のみを見るのに対し多色同時準備を評価する。
+- 山札ドローは山札シャッフルの期待値（expectimax, rootDrawSamples=5 / chainDrawSamples=2）で近似。
+  ギフト割り当ては得点不変ゆえ smartAI に委譲。 `lookaheadTurns=0`（多ターン先読みはコードのみ・未使用）。
+
+### 物差し: smart 非依存（候補 tempo vs baseline = 現状最強 Gen-3-X mcts）
+`ai/scripts/bench-self.ts --cand-ai tempo`。 候補 tempo 1 席 vs baseline mcts(`DEFAULT_WEIGHTS`=Gen-3-X) 3 席 rotate、
+公平基準 25%。 vs smart は評価関数の盲点を共有し検出力がないため不使用。
+
+### 確証ベンチ（各 150 局、 2 seed × tempoChainW 45/50/60）
+| tempoChainW | seed | 勝率 | Wilson CI | 候補/base 平均点 |
+|---|---|---|---|---|
+| 45 | 8001 | 61.3% | 53.3-68.8% | 20.59 / 14.10 |
+| 45 | 9001 | 50.0% | 42.1-57.9% | 19.42 / 14.98 |
+| 50 | 8001 | 55.3% | 47.3-63.1% | 19.88 / 14.56 |
+| 50 | 9001 | 55.3% | 47.3-63.1% | 19.93 / 14.62 |
+| 60 | 8001 | 53.3% | 45.4-61.1% | 19.70 / 14.44 |
+| 60 | 9001 | 57.3% | 49.3-65.0% | 20.36 / 14.79 |
+
+- **全 6 ラン CI 下限 >25%**（最低 42.1%）。 45/50/60 の合算（各 300 局）は 55.7%/55.3%/55.3% で統計的に同等。
+- **w=50 採用**: 勝率・平均点は 3 値同等だが、 (1) 2 seed の最低勝率が最良（w50=55.3% > w60=53.3% > w45=50.0%）、
+  (2) seed 間のばらつき最小（両 seed とも 55.3%）で **seed に最も頑健**。
+
+### 採用
+- `src/ai/tempoAI.ts`: `DEFAULT_TEMPO_CHAIN_W = 0 → 50`
+- `src/ai/index.ts`: `export { decideAction }` を `./mctsAI` → `./tempoAI`（ブラウザ CPU を tempo に切替）
+- 検証: `tsc -b` ✓ / `vitest run` 33/33 ✓ / `npm run build` ✓（main chunk 237 KB、 tfjs は動的 import 分離のまま・バンドル増なし）
+
+### 正直な限界（重要）: レイテンシの重い裾
+メインスレッド同期実行のため、 連鎖局面で UI が長時間ブロックする。 単独プロセスで tempo 手番 620 回を実測:
+
+| 指標 | 値 |
+|---|---|
+| p50 / mean | 1.7ms / 188ms |
+| p90 / p95 / p99 | 252ms / 767ms / 3431ms |
+| 最大 | **20,983ms（約 21 秒）** |
+| ≥500ms / ≥1s / ≥5s | 6.7% / 3.7% / 0.6% |
+
+- 大半（67%）は合法手 1〜少数で即決（p50 1.7ms）だが、 ターン内 DFS × 期待値サンプリングが連鎖局面で
+  指数的に展開し、 最遅は合法手 3 択の `awaitingDraw` でも 13.9 秒。 1 ゲーム約 52 手中、 毎ゲーム
+  ~3.5 手が ≥500ms、 ~2 手が ≥1s、 3 ゲームに ~1 回 ≥5s。
+- タスク当初の想定「~70ms・数百ms ブロック」 を大幅超過。 **強さの確証（w=50, 55.3%）自体は有効**で、 問題はレイテンシのみ。
+- 対処（未実装。 ユーザー判断で「現状反映 + 体感確認」 を選択）: ① 1 手あたり time-budget（反復深化 + 打ち切り）、
+  ② Web Worker で off-main-thread 化。 ① は探索結果を変えるため採用時は再確証が必要。
+
+### 今後
+1. ✅ ユーザーがブラウザで体感確認（ground truth, 2026-06-01）: **実プレイでは遅延は気にならない**との報告。 重い裾は深い連鎖局面に偏り通常プレイで稀なため、 現状はレイテンシ対策せず採用継続。 許容外になれば time-budget か Web Worker 化。
+2. `lookaheadTurns>0`（多ターン先読み）は計算重く現状未実用。 off-main-thread 化と合わせて再検討余地。
+3. reach 項は tempo では死に項（単色リーチを作らない）。 評価の主役は multiColorChainReadiness。
 
 ---
 

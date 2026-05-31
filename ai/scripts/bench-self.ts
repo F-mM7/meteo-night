@@ -19,6 +19,7 @@
 import { promises as fs } from 'node:fs';
 import {
   makeMctsWithWeights,
+  makeTempoWithOpts,
   playOneGameWithDeciders,
   parseIntArg,
   type Decider,
@@ -29,19 +30,40 @@ import { wilsonInterval } from './stats';
 
 interface Args {
   candOverride: Partial<EvalWeights>;
+  candAi: 'mcts' | 'tempo';
+  tempoChainW: number;
+  lookaheadTurns: number;
   games: number;
   seed: number;
   maxSteps: number;
 }
 
 async function parseArgs(argv: string[]): Promise<Args> {
-  const args: Args = { candOverride: {}, games: 48, seed: 1001, maxSteps: 20000 };
+  const args: Args = { candOverride: {}, candAi: 'mcts', tempoChainW: 0, lookaheadTurns: 0, games: 48, seed: 1001, maxSteps: 20000 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
       case '--cand':
         args.candOverride = JSON.parse(argv[++i]);
         break;
+      case '--cand-ai': {
+        const v = argv[++i];
+        if (v !== 'mcts' && v !== 'tempo') throw new Error('--cand-ai requires: mcts | tempo');
+        args.candAi = v;
+        break;
+      }
+      case '--tempo-chain-w': {
+        const v = Number(argv[++i]);
+        if (!Number.isFinite(v)) throw new Error('--tempo-chain-w requires a finite number');
+        args.tempoChainW = v;
+        break;
+      }
+      case '--lookahead': {
+        const v = Number(argv[++i]);
+        if (!Number.isInteger(v) || v < 0) throw new Error('--lookahead requires a non-negative integer');
+        args.lookaheadTurns = v;
+        break;
+      }
       case '--cand-file': {
         const raw = await fs.readFile(argv[++i], 'utf-8');
         const data = JSON.parse(raw);
@@ -67,11 +89,14 @@ async function parseArgs(argv: string[]): Promise<Args> {
 async function main(): Promise<void> {
   const args = await parseArgs(process.argv.slice(2));
   const candWeights: EvalWeights = { ...DEFAULT_WEIGHTS, ...args.candOverride };
-  const candidate: Decider = makeMctsWithWeights(candWeights);
+  const candidate: Decider =
+    args.candAi === 'tempo'
+      ? makeTempoWithOpts({ weights: candWeights, tempoChainW: args.tempoChainW, lookaheadTurns: args.lookaheadTurns })
+      : makeMctsWithWeights(candWeights);
   // baseline は DEFAULT_WEIGHTS の mcts（明示渡しで global 非依存）。
   const baseline: Decider = (state, pid) => decideMcts(state, pid, undefined, { weights: DEFAULT_WEIGHTS });
 
-  console.error(`[bench-self] candidate override: ${JSON.stringify(args.candOverride)}`);
+  console.error(`[bench-self] candidate AI: ${args.candAi}, override: ${JSON.stringify(args.candOverride)}`);
   console.error(`[bench-self] games=${args.games} seed=${args.seed} (候補 1 席 vs baseline 3 席, rotate)`);
 
   let candWins = 0;
@@ -79,6 +104,8 @@ async function main(): Promise<void> {
   let baseScoreSum = 0;
   const candRankCount = [0, 0, 0, 0];
   let unfinished = 0;
+  let totalSteps = 0;
+  let totalMs = 0;
 
   for (let g = 0; g < args.games; g++) {
     const candSeat = g % 4;
@@ -90,6 +117,8 @@ async function main(): Promise<void> {
     candScoreSum += r.scores[candSeat];
     for (let s = 0; s < 4; s++) if (s !== candSeat) baseScoreSum += r.scores[s];
     if (!r.finished) unfinished++;
+    totalSteps += r.steps;
+    totalMs += r.durationMs;
   }
 
   const winRate = candWins / args.games;
@@ -105,6 +134,7 @@ async function main(): Promise<void> {
     baseAvgScore: baseScoreSum / (args.games * 3),
     candRankDist: candRankCount,
     unfinishedGames: unfinished,
+    averageMsPerStep: totalSteps > 0 ? totalMs / totalSteps : 0,
   };
   console.log(JSON.stringify(out, null, 2));
   const verdict =

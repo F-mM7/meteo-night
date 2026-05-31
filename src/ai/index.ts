@@ -1,4 +1,6 @@
-export { decideAction } from './mctsAI';
+// ブラウザ CPU の既定 AI。Gen-4-A で mctsAI → tempoAI に切替（自分の手番をターン内完全読み + テンポ評価）。
+// 確証ベンチで現状最強 mcts(Gen-3-X) に勝率 ~55%（smart 非依存・Wilson CI 下限 >25%）。
+export { decideAction } from './tempoAI';
 
 /**
  * ニューラルネット AI の動的ロード。

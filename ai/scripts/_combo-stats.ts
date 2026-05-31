@@ -19,6 +19,7 @@ import type { ComboRecord, GameState } from '../../src/game/types';
 import { decideAction as decideMcts } from '../../src/ai/mctsAI';
 import { decideAction as decideSmart } from '../../src/ai/smartAI';
 import { decideAction as decideChainRush } from '../../src/ai/chainRushAI';
+import { decideAction as decideTempo } from '../../src/ai/tempoAI';
 import { basePointsForSize, comboCountBonus } from '../../src/game/scoring';
 
 function currentActorId(s: GameState): number {
@@ -31,7 +32,13 @@ function currentActorId(s: GameState): number {
 const strategy = process.argv[2] ?? 'mcts';
 const games = Number(process.argv[3] ?? 20);
 const decide =
-  strategy === 'smart' ? decideSmart : strategy === 'chainRush' ? decideChainRush : decideMcts;
+  strategy === 'smart'
+    ? decideSmart
+    : strategy === 'chainRush'
+      ? decideChainRush
+      : strategy === 'tempo'
+        ? decideTempo
+        : decideMcts;
 
 const sizeHist = new Map<number, number>(); // 連鎖サイズ -> 回数
 const comboPerTurnHist = new Map<number, number>(); // 1ターンの連鎖数 -> 回数

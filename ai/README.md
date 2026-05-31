@@ -10,19 +10,19 @@
 > 新セッション開始時は、まずこのセクションと `ai/CHANGELOG.md` の最新エントリを読めば現状把握できます。
 
 ### ブラウザに反映されている CPU
-- **戦略**: mctsAI (IS-MCTS + leaf 評価関数)
-- **探索ハイパラ**: `DEFAULT_UCT_C = 1.7` / `DEFAULT_ITERATIONS = 800`（Gen-3-O）
-- **重み**: Gen-3-X = Gen-3-F + `chainReadyMult = 10`（連鎖準備度の加点）
-- **強さ（smart 非依存）**: mcts(Gen-3-X) vs mcts(Gen-3-O baseline) で勝率 **33.3%** (CI 26.3-41.2 > 公平基準 25%、 150 局) → 有意に強い
-- ⚠️ vs smart は盲点を共有して測れない（93.5% は Gen-3-O 当時の参考値）。 **強さの物差しは `bench-self.ts`（候補 vs baseline mcts）に移行**
-- **1 手あたり時間**: 約 5.7 ms（ブラウザ実用域）
-- **未解決**: 人間には依然弱い見込み。 連鎖挙動は chainReadyMult=10 でもほぼ不変（多ターン連鎖計画が本質課題）
+- **戦略**: tempoAI（Gen-4-A: 自分の手番をターン内完全読み + テンポ評価）。 `src/ai/index.ts` で `decideAction` を tempoAI に切替済み
+- **要点**: 平均合法手数 5.1 の低分岐を活かし、 2 枚の配置順・配置先・連鎖シーケンスを DFS で完全展開してターン終了時の盤面価値を最大化。 leaf は `evaluateState`（Gen-3-X 重み）+ 複数色チェイン準備度（`tempoChainW=50`、 near² 非線形）
+- **強さ（smart 非依存）**: 候補 tempo vs baseline mcts(Gen-3-X) で勝率 **55.3%**（seed 8001/9001 とも、 各 150 局、 Wilson CI 下限 47.3% > 公平基準 25%）→ 現状最強の手書き mcts に有意勝ち。 w=45/60 も ~55% で同等、 w=50 は seed に最も頑健
+- ⚠️ vs smart は盲点を共有して測れない。 物差しは `bench-self.ts`（候補 vs baseline mcts）
+- ⚠️ **1 手あたり時間（メインスレッド同期）**: 中央値 1.7ms だが連鎖局面で重い裾（p95 767ms / p99 3.4s / 最大 ~21s、 約 6.7% が ≥500ms）。 体感に問題があれば time-budget か Web Worker 化が必要（現状未対応）
+- **baseline（置換された旧採用版）**: Gen-3-X = Gen-3-O mcts(`uctC=1.7 / iter=800`) + `chainReadyMult=10`。 vs Gen-3-O で 33.3%、 1 手 ~5.7 ms
+- **未解決**: 人間との実力差・レイテンシ裾。 多ターン連鎖計画（`lookaheadTurns>0` は計算重く未実用）と off-main-thread 化が次の課題
 
 ### 試行中の方向性
 
 | 方向 | 現状 | スキル |
 |---|---|---|
-| 手書き AI 改善（evaluator 重み / mcts ハイパラ / ヒューリスティック）| **Gen-3-O が実質天井 (93.5%)**。 重み tune は smart fitness=天井 (Q)・self-play fitness=vs smart 退行 (S) で頭打ち。 残候補は複合 fitness / progressive bias 再設計などの構造的変更 | `evolve-meteo-ai-handwritten` |
+| 手書き AI 改善（evaluator 重み / mcts ハイパラ / ヒューリスティック）| 重み/ハイパラ tune は **Gen-3-O が天井 (93.5%)**（smart fitness=天井 (Q)・self-play fitness=vs smart 退行 (S)）。 **構造的変更 = tempoAI（Gen-4-A, ターン内完全読み）で突破**し Gen-3-X mcts に ~55%（採用・ブラウザ反映） | `evolve-meteo-ai-handwritten` |
 | NN AI（AlphaZero 風）| 基盤・パイプライン完成（K1〜K4）、最強モデル az-v7 は vs smart 8% でブラウザ未到達 | `evolve-meteo-ai-neural` |
 
 ### NN 系の最強モデル
