@@ -263,7 +263,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 .layout-vertical .app-main {
   grid-template-columns: 1fr;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: 1fr auto 1fr;
   grid-template-areas:
     'board'
     'action'
@@ -281,7 +281,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 .layout-vertical.log-hidden .app-main {
-  grid-template-rows: auto auto;
+  grid-template-rows: 1fr auto;
   grid-template-areas:
     'board'
     'action';
@@ -298,6 +298,11 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 .board-area {
   grid-area: board;
+}
+/* 縦レイアウトでは盤面をヘッダーとアクションの間の領域内で上下中央に置く
+   （盤面行を 1fr で伸ばし、固定サイズの盤面を中央寄せする）。 */
+.layout-vertical .board-area {
+  align-self: center;
 }
 .layout-vertical .action-area {
   grid-area: action;

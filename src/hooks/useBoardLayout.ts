@@ -19,6 +19,10 @@ export interface BoardLayout extends BoardDims {
 
 const HEADER_HEIGHT = 36;
 const MIN_LOG_WIDTH = 260;
+// 縦レイアウトで盤面・アクションの下に積むログに確保する最小高さ。盤面サイズを
+// 解く前にこの分を差し引くことで、盤面（上下中央）・アクション・ログの 3 領域が
+// 縦に収まり、ログが潰れたりアクションが画面外へはみ出したりしないようにする。
+const MIN_LOG_HEIGHT = 96;
 // app-main の周囲 padding（CSS の .app-main { padding } と揃える）
 const APP_PADDING = 8;
 // app-main grid 内の gap（board と action / log の間）
@@ -72,7 +76,7 @@ function solveBoardByHeight(availableH: number): number {
   return availableH - MIN_ACTION_HEIGHT - APP_GAP;
 }
 
-function calcDims(): BoardDims {
+function calcDims(logVisible: boolean): BoardDims {
   if (typeof window === 'undefined') {
     const bs = 700;
     const sizes = deriveSizes(bs);
@@ -89,7 +93,11 @@ function calcDims(): BoardDims {
   const availableH = h - HEADER_HEIGHT - APP_PADDING * 2;
   const layout: 'vertical' | 'horizontal' = w >= h ? 'horizontal' : 'vertical';
 
-  const boardByH = solveBoardByHeight(availableH);
+  // 縦レイアウトではログが盤面・アクションの下に積まれる（横レイアウトはログが
+  // 右側にあるため縦方向の確保は不要）。ログ表示時はその最小高さと行間 gap を
+  // 先に差し引いてから盤面を解き、3 領域が縦に収まるようにする。
+  const reservedForLog = layout === 'vertical' && logVisible ? MIN_LOG_HEIGHT + APP_GAP : 0;
+  const boardByH = solveBoardByHeight(availableH - reservedForLog);
   const boardByW = layout === 'horizontal' ? availableW - MIN_LOG_WIDTH - APP_GAP : availableW;
 
   const boardLimit = Math.min(boardByH, boardByW);
@@ -112,19 +120,20 @@ function computeGlobalMaxStack(state: GameState): number {
  * viewport（ウィンドウサイズ）と現在のゲーム状態から、UI 描画に必要な
  * 寸法・CSS 変数・スタックオフセットをまとめて導出するフック。
  *
- * - 寸法部分（`boardSize` 等）は state 非依存で、リサイズ時にのみ再計算する。
+ * - 寸法部分（`boardSize` 等）は state 非依存で、リサイズ時とログ表示切替時に
+ *   再計算する（縦レイアウトでは boardSize がログ確保高さに依存するため）。
  * - `stackOffset` は全プレイヤーのスタック最大長から導出するため、state に依存する。
  *   2 種類の依存を 1 フックに同居させているのは、呼び出し側で
  *   `cssVars` をまとめて作る都合と、`cardSize` を共有させるため。
  */
-export function useBoardLayout(state: GameState): BoardLayout {
-  const [dims, setDims] = useState<BoardDims>(() => calcDims());
+export function useBoardLayout(state: GameState, logVisible: boolean): BoardLayout {
+  const [dims, setDims] = useState<BoardDims>(() => calcDims(logVisible));
   useEffect(() => {
-    const update = () => setDims(calcDims());
+    const update = () => setDims(calcDims(logVisible));
     update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
-  }, []);
+  }, [logVisible]);
 
   const globalMaxStack = useMemo(() => computeGlobalMaxStack(state), [state.players]);
   const stackOffset = computeStackOffset(dims.cardSize, globalMaxStack);

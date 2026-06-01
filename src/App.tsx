@@ -144,7 +144,7 @@ export default function App() {
     </div>
   ) : null;
 
-  const { cardSize, layout, stackOffset, cssVars } = useBoardLayout(state);
+  const { cardSize, layout, stackOffset, cssVars } = useBoardLayout(state, logVisible);
 
   const discardedCardIdSet = useMemo(
     () => new Set(state.turn.discardedCardIds),
