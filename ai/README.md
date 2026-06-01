@@ -21,8 +21,8 @@
 
 | 方向 | 現状 | スキル |
 |---|---|---|
-| 手書き AI 改善（evaluator 重み / mcts ハイパラ / ヒューリスティック）| 重み/ハイパラ tune は **Gen-3-O が天井 (93.5%)**（smart fitness=天井 (Q)・self-play fitness=vs smart 退行 (S)）。 **構造的変更 = tempoAI（Gen-4-A, ターン内完全読み）で突破**し Gen-3-X mcts に ~55%（採用・ブラウザ反映） | `evolve-meteo-ai-handwritten` |
-| NN AI（AlphaZero 風）| 基盤・パイプライン完成（K1〜K4）、最強モデル az-v7 は vs smart 8% でブラウザ未到達 | `evolve-meteo-ai-neural` |
+| AI 進化（手書き探索 + 評価関数。現 tempoFastAI）| 探索は完全、**葉評価が律速**。構造的変更 tempoAI(Gen-4-A) が mcts を超え採用、Gen-4-B で 21 秒フリーズを 1 秒に有界化。次フロンティア = 葉の重み再最適化 / 多ターン連鎖投影 / 残差価値学習 | `evolve-meteo-ai-handwritten`（唯一の AI 進化スキル）|
+| ~~NN AI（AlphaZero 風）~~ | **対象外＝実証済みの行き止まり**: branching 5.1 で priors 無効、hand-eval に value/priors とも勝てず az-v1〜v10 + 価値学習 v1/v2 が全敗。スキル `evolve-meteo-ai-neural` は削除（経緯は CHANGELOG） | （削除済み）|
 
 ### NN 系の最強モデル
 - **az-v7**（vs smart x3 で勝率 **8%**、avgScore 5.38、 1 手 ~8 ms）
