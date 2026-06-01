@@ -10,13 +10,12 @@
 > 新セッション開始時は、まずこのセクションと `ai/CHANGELOG.md` の最新エントリを読めば現状把握できます。
 
 ### ブラウザに反映されている CPU
-- **戦略**: tempoAI（Gen-4-A: 自分の手番をターン内完全読み + テンポ評価）。 `src/ai/index.ts` で `decideAction` を tempoAI に切替済み
-- **要点**: 平均合法手数 5.1 の低分岐を活かし、 2 枚の配置順・配置先・連鎖シーケンスを DFS で完全展開してターン終了時の盤面価値を最大化。 leaf は `evaluateState`（Gen-3-X 重み）+ 複数色チェイン準備度（`tempoChainW=50`、 near² 非線形）
-- **強さ（smart 非依存）**: 候補 tempo vs baseline mcts(Gen-3-X) で勝率 **55.3%**（seed 8001/9001 とも、 各 150 局、 Wilson CI 下限 47.3% > 公平基準 25%）→ 現状最強の手書き mcts に有意勝ち。 w=45/60 も ~55% で同等、 w=50 は seed に最も頑健
-- ⚠️ vs smart は盲点を共有して測れない。 物差しは `bench-self.ts`（候補 vs baseline mcts）
-- ⚠️ **1 手あたり時間（メインスレッド同期）**: 中央値 1.7ms だが連鎖局面で重い裾（p95 767ms / p99 3.4s / 最大 ~21s、 約 6.7% が ≥500ms）。 体感に問題があれば time-budget か Web Worker 化が必要（現状未対応）
-- **baseline（置換された旧採用版）**: Gen-3-X = Gen-3-O mcts(`uctC=1.7 / iter=800`) + `chainReadyMult=10`。 vs Gen-3-O で 33.3%、 1 手 ~5.7 ms
-- **未解決**: 人間との実力差・レイテンシ裾。 多ターン連鎖計画（`lookaheadTurns>0` は計算重く未実用）と off-main-thread 化が次の課題
+- **戦略**: tempoFastAI（Gen-4-B: Gen-4-A tempoAI のターン内完全読み + テンポ評価に、 時間予算 1 秒 + 反復深化 + αβ枝刈り + 置換表を加えた版）。 `src/ai/index.ts` で `decideAction` を tempoFastAI に切替済み
+- **なぜ fast 版か**: 無印 tempoAI は連鎖の配置局面でメインスレッドが最大 ~21 秒固まる（ユーザーが実機で遭遇）。 fast 版は 1 手あたり時間予算で**最悪 ~1.0 秒に有界化**（max 1.02s, 約 18% の手が ≥500ms・~10% が ~1 秒）
+- **強さ（smart 非依存）**: 候補 fast(budget 1000) vs baseline 現 tempo(Gen-4-A, w=50) で **23.7%**（n=300, Wilson CI 19.2-28.8% が公平基準 25% を跨ぐ＝**有意差なし＝同等**）。 budget 250ms では 19.3% と有意に弱く 1000ms で同等に回復。 vs Gen-3-X mcts は ~53% 維持
+- ⚠️ vs smart は盲点を共有して測れない。 物差しは `bench-self.ts` / `_fast_bench.ts`（候補 vs baseline）+ `elo-ladder.ts`
+- **強さ同等の旧採用版**: Gen-4-A tempoAI（`tempoChainW=50`）= fast 版と強さ同等だがレイテンシ無制限（21 秒裾）。 さらに旧: Gen-3-X mcts（vs Gen-3-O 33.3%、 1 手 ~5.7 ms）
+- **未解決**: 人間との実力差。 探索は完全で**葉評価が律速**だが、 実勝敗で学習した価値関数は連鎖近視(v1)/未得点との混同(v2)で失敗。 残差価値学習が最有力の未着手リード。 ~1 秒の長考が重ければ budget 500ms へ
 
 ### 試行中の方向性
 

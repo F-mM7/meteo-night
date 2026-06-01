@@ -1,6 +1,7 @@
-// ブラウザ CPU の既定 AI。Gen-4-A で mctsAI → tempoAI に切替（自分の手番をターン内完全読み + テンポ評価）。
-// 確証ベンチで現状最強 mcts(Gen-3-X) に勝率 ~55%（smart 非依存・Wilson CI 下限 >25%）。
-export { decideAction } from './tempoAI';
+// ブラウザ CPU の既定 AI。tempoAI の無制限探索が連鎖の配置局面で最大 ~21 秒 UI をブロックする問題
+// （実機で発生）への対処として、時間予算(250ms)+反復深化+枝刈り+置換表で最悪レイテンシを ~0.3 秒に
+// 抑えた tempoFastAI に切替。強さは旧王者 mcts(Gen-3-X) に 53%（n=300）で勝ち越し、tempoAI とは有意差なし。
+export { decideAction } from './tempoFastAI';
 
 /**
  * ニューラルネット AI の動的ロード。
