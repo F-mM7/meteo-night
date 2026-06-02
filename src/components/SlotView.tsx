@@ -41,6 +41,12 @@ interface FadingCard {
   card: Card;
   fromIdx: number;
   reason: FadeReason;
+  /**
+   * フェードエントリごとに一意な連番。React key と片付けに用いる。
+   * カード ID（`${color}-${i}`）はゲームごとに再生成され一意でないため、
+   * リセット直後に同 ID のフェードが重なると key 衝突・誤った早期片付けが起きる。
+   */
+  seq: number;
 }
 
 const PLACE_DURATION_MS = 400;
@@ -67,6 +73,7 @@ export function SlotView({
   const [placingCardIds, setPlacingCardIds] = useState<Set<string>>(() => new Set());
   const prevStackRef = useRef<Card[]>(stack);
   const isInitialMountRef = useRef(true);
+  const fadeSeqRef = useRef(0);
 
   useLayoutEffect(() => {
     const prev = prevStackRef.current;
@@ -89,13 +96,13 @@ export function SlotView({
         card,
         fromIdx: prev.indexOf(card),
         reason: discardedCardIds?.has(card.id) ? 'discard' : 'launch',
+        seq: fadeSeqRef.current++,
       }));
+      const newSeqs = new Set(newFading.map((f) => f.seq));
       setFadingCards((curr) => [...curr, ...newFading]);
       timers.push(
         setTimeout(() => {
-          setFadingCards((curr) =>
-            curr.filter((f) => !newFading.some((nf) => nf.card.id === f.card.id))
-          );
+          setFadingCards((curr) => curr.filter((f) => !newSeqs.has(f.seq)));
         }, CARD_FADE_DURATION_MS)
       );
     }
@@ -166,7 +173,7 @@ export function SlotView({
               : `slot-stack-fading slot-stack-fade-${direction}`;
           return (
             <div
-              key={`fade-${f.card.id}`}
+              key={`fade-${f.seq}`}
               className={`slot-stack-card ${animClass}`}
               style={{ ...cardPositionStyle(direction, f.fromIdx, offset), zIndex: 50 }}
             >
