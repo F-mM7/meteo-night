@@ -10,18 +10,18 @@
 > 新セッション開始時は、まずこのセクションと `ai/CHANGELOG.md` の最新エントリを読めば現状把握できます。
 
 ### ブラウザに反映されている CPU
-- **戦略**: tempoFastAI（Gen-4-B: Gen-4-A tempoAI のターン内完全読み + テンポ評価に、 時間予算 1 秒 + 反復深化 + αβ枝刈り + 置換表を加えた版）。 `src/ai/index.ts` で `decideAction` を tempoFastAI に切替済み
-- **なぜ fast 版か**: 無印 tempoAI は連鎖の配置局面でメインスレッドが最大 ~21 秒固まる（ユーザーが実機で遭遇）。 fast 版は 1 手あたり時間予算で**最悪 ~1.0 秒に有界化**（max 1.02s, 約 18% の手が ≥500ms・~10% が ~1 秒）
-- **強さ（smart 非依存）**: 候補 fast(budget 1000) vs baseline 現 tempo(Gen-4-A, w=50) で **23.7%**（n=300, Wilson CI 19.2-28.8% が公平基準 25% を跨ぐ＝**有意差なし＝同等**）。 budget 250ms では 19.3% と有意に弱く 1000ms で同等に回復。 vs Gen-3-X mcts は ~53% 維持
-- ⚠️ vs smart は盲点を共有して測れない。 物差しは `bench-self.ts` / `_fast_bench.ts`（候補 vs baseline）+ `elo-ladder.ts`
-- **強さ同等の旧採用版**: Gen-4-A tempoAI（`tempoChainW=50`）= fast 版と強さ同等だがレイテンシ無制限（21 秒裾）。 さらに旧: Gen-3-X mcts（vs Gen-3-O 33.3%、 1 手 ~5.7 ms）
-- **未解決**: 人間との実力差。 探索は完全で**葉評価が律速**だが、 実勝敗で学習した価値関数は連鎖近視(v1)/未得点との混同(v2)で失敗。 残差価値学習が最有力の未着手リード。 ~1 秒の長考が重ければ budget 500ms へ
+- **戦略**: tempoFastAI + **lookahead=1**（Gen-4-C）。ターン内 DFS 完全読み + テンポ評価 + 時間予算(1秒)/反復深化/αβ/置換表に加え、**相手の手番を挟んで次の自分の手番まで読む(2-ply)**。`src/ai/index.ts`→`tempoFastAI`(既定 LA=1) を export
+- **強さ（smart 非依存）**: LA=1 は現 tempoFast(LA=0) に**有意勝ち**（33.0%, n=300, Wilson CI 27.9-38.5% > 公平 25%）。点稼ぎでなく「レースに勝つ」着手。**探索系で初めて現 tempo を超えた＝horizon が「葉の天井」を破った**（葉の改善は全て parity だったが、読みの地平を伸ばすと効く）。vs Gen-3-X mcts も圧倒
+- ⚠️ **レイテンシ**: LA=1 は 1 手 ~1 秒（中央値, ≥500ms が 73%）と重い。メインスレッドを止めないよう **Web Worker(`src/ai/aiWorker.ts`)で off-main-thread 実行**（`useGameLogic.ts` が非同期呼び出し＋世代ゲーティング＋同期フォールバック）。体感 OK 確認済み
+- ⚠️ vs smart は盲点を共有して測れない。 物差しは `_fast_bench.ts` / `_la_bench.ts`（候補 vs 現状）+ `elo-ladder.ts`
+- **旧版**: Gen-4-B(tempoFast LA=0, 最悪 1s)→ Gen-4-A(tempoAI 無制限探索, 21s 裾)→ Gen-3-X mcts。いずれも強さは LA=1 未満 or 同等
+- **未解決 / 次フロンティア**: 葉の改善は天井だが **horizon に伸びしろ**あり。次は lookahead=2 / 相手モデル tempo / **NN で深い先読みを安く近似**（NN がここで初めて意味を持つ）。人間棋譜の模倣は別の高コスト路線
 
 ### 試行中の方向性
 
 | 方向 | 現状 | スキル |
 |---|---|---|
-| AI 進化（手書き探索 + 評価関数。現 tempoFastAI）| 探索は完全、**葉評価が律速**。構造的変更 tempoAI(Gen-4-A) が mcts を超え採用、Gen-4-B で 21 秒フリーズを 1 秒に有界化。次フロンティア = 葉の重み再最適化 / 多ターン連鎖投影 / 残差価値学習 | `evolve-meteo-ai-handwritten`（唯一の AI 進化スキル）|
+| AI 進化（手書き探索 + 評価関数。現 tempoFast LA=1）| **葉の改善は天井**(重み/多ターン投影/残差すべて parity)だが、**horizon=lookahead=1 で突破**(Gen-4-C, 現 tempo に 33%)。Web Worker で ~1 秒思考を off-thread 化。次フロンティア=深い先読み/NN で先読み近似 | `evolve-meteo-ai-handwritten`（唯一の AI 進化スキル）|
 | ~~NN AI（AlphaZero 風）~~ | **対象外＝実証済みの行き止まり**: branching 5.1 で priors 無効、hand-eval に value/priors とも勝てず az-v1〜v10 + 価値学習 v1/v2 が全敗。スキル `evolve-meteo-ai-neural` は削除（経緯は CHANGELOG） | （削除済み）|
 
 ### NN 系の最強モデル

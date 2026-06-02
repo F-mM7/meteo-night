@@ -9,19 +9,67 @@
 
 | 種類 | モデル | 強さ指標 | ブラウザ反映 | 由来 |
 |---|---|---|---|---|
-| 手書き AI（採用版） | **Gen-4-B**（tempoFastAI: Gen-4-A + 時間予算 1 秒/反復深化/枝刈り/置換表）| **現 tempo(Gen-4-A) と同等**（23.7%, n=300, CI 19-29, 有意差なし）/ vs Gen-3-X mcts ~53%。 **最悪レイテンシ 21s→1.0s** | **✓ 反映済み** | `src/ai/tempoFastAI.ts` + `src/ai/index.ts` |
-| 強さ同等の旧採用版 | Gen-4-A（tempoAI, `tempoChainW=50`）| vs Gen-3-X mcts 55.3% (n=300, CI 下限 47.3%) | （レイテンシで Gen-4-B に置換）| `src/ai/tempoAI.ts` |
+| 手書き AI（採用版） | **Gen-4-C**（tempoFast + **lookahead=1** + Web Worker）| **現 tempoFast(LA=0) に有意勝ち**（33.0%, n=300, CI 27.9-38.5 > 25%）＝**horizon が葉の天井を破った**。1 手 ~1 秒だが Web Worker で UI 非ブロック | **✓ 反映済み** | `tempoFastAI.ts`(LA=1) + `aiWorker.ts` + `useGameLogic.ts` |
+| 旧採用版 | Gen-4-B（tempoFast, LA=0）| 現 tempo(Gen-4-A) と同等・最悪 1.0s | （Gen-4-C に置換）| `src/ai/tempoFastAI.ts` |
+| 強さ同等の旧版 | Gen-4-A（tempoAI, `tempoChainW=50`, 無制限探索）| vs Gen-3-X mcts 55.3% (n=300) | （置換）| `src/ai/tempoAI.ts` |
 | さらに旧（baseline）| Gen-3-X（Gen-3-O mcts + `chainReadyMult=10`）| vs Gen-3-O mcts 33.3% (CI 26.3-41.2) | （置換） | `src/ai/evaluator.ts` の `chainReadyMult` |
 | さらに旧 | Gen-3-O（`(uctC, iter)=(1.7, 800)`）| vs smart 93.5% | （置換） | `src/ai/mctsAI.ts` |
 | NN AI（最強だが未到達） | **az-v7**（K6 + 5000 games AlphaZero）| 8% | – | `ai/models/az-v7/` (gitignore) |
 | 旧 NN 系 | az-v1〜v6, v8〜v10 | 0-6% | – | 不採用、 詳細は下の各 Gen-3-K* エントリ |
 
-> ✅ **レイテンシ解決（Gen-4-B, 2026-06-01）**: Gen-4-A tempoAI はメインスレッド同期実行のため連鎖の配置局面で最大 ~21 秒の UI ブロックがあり、 **ユーザーが実機で遭遇**。 Gen-4-B tempoFastAI（時間予算 1 秒 + 反復深化 + αβ枝刈り + 置換表）で**最悪 ~1.0 秒に有界化**し、 強さは Gen-4-A と有意差なし（同等）。 詳細は下記 Gen-4-B。
+> ✅ **レイテンシ（Gen-4-B→C）**: Gen-4-A tempoAI は連鎖局面で最大 ~21 秒の UI ブロック（ユーザー実機遭遇）→ Gen-4-B で時間予算により最悪 ~1.0 秒に有界化。 Gen-4-C は lookahead=1 で 1 手 ~1 秒（中央値）と重いが、 **Web Worker（off-main-thread）で実行し UI はブロックしない**（ユーザー体感 OK 確認済み）。 詳細は下記 Gen-4-C。
 
 新セッション開始時のクイックチェック:
 1. このサマリと最新 Gen エントリを読む
 2. `ai/README.md` の「現状」セクションを確認
 3. ベンチで実機確認（smart 非依存）: `npx tsx ai/scripts/bench-self.ts --cand-ai tempo --tempo-chain-w 50 --games 150 --seed 8001`（候補 tempo vs baseline mcts、 候補勝率の CI 下限 >25% を確認）
+
+---
+
+## Gen-4-C: lookahead=1 採用 — horizon が「葉の天井」を破る + Web Worker で UI 非ブロック (2026-06-02)
+
+探索ラウンド 1〜3 で「葉の改善は全て parity＝天井」 と結論したが、 それは**葉（＝多ターン未来の静的近似）の天井**であって**読みの地平(horizon)の天井ではなかった**。 ユーザー指示で horizon を厳密再検証し、 **突破**。
+
+### 検証: 多ターン先読み(lookahead=1)は現 tempoFast(LA=0) に有意勝ち
+過去の素朴 2-ply は budget250 + 高コスト mcts 相手で自分の探索が枯渇し逆効果(16.7%)だった。 交絡を排し **デプロイ budget(1000ms) + 安い相手モデル(smart) + 置換表共有**で再検証（候補 tempoFast(LA=1) 1 席 vs tempoFast(LA=0) 3 席, rotate, 公平 25%）:
+
+| seed | 勝率 | Wilson CI |
+|---|---|---|
+| 31001 | 31.3% | 24.5-39.1% |
+| 32001 | 34.7% | 27.5-42.6% |
+| **プール n=300** | **33.0%** | **27.9-38.5%（>25%, 有意）** |
+
+- **有意に強い**。 特徴的に **候補は平均点はむしろ低い(15.3 vs 16.3)のに勝率が高い**＝点稼ぎでなく「**レースに勝つ**」 着手（先読みで終盤の着順を最適化）。 horizon が捉えるべき本質そのもの。
+- **なぜ horizon は効いて葉は効かないか**: 葉は「今の盤面の多ターン未来」 を静的近似するもので網羅探索が誤差を吸収する（ラウンド 3）。 一方 lookahead は相手手番を挟んだ**実際の次ターンを探索**するので、 静的葉が表せない race timing を捉える。 改善は「葉の精度」 でなく「読みの地平」 から来た。
+
+### レイテンシと Web Worker（off-main-thread 化）
+LA=1 は budget で 1 手 ~1 秒に有界だが**ほぼ毎手 ~1 秒**（中央値 999ms, ≥500ms が 73%。 LA=0 は中央値 14ms）。 メインスレッド同期では常時もっさりするため Web Worker 化:
+- `src/ai/aiWorker.ts`（新規）: decideAction をワーカーで実行し action だけ返す（GameState は純データで構造化複製可能）。
+- `src/hooks/useGameLogic.ts`: CPU 手番を非同期ワーカー呼び出しに（世代カウンタで古い応答を破棄、 ワーカー不可時は同期フォールバック、 思考完了後 effectDelay の余り時間だけ待って着手）。
+- 結果: 思考中も UI 応答（**ユーザー体感 OK 確認済み**）。 build で worker は別チャンク(~31KB)に分離。
+
+### 採用
+- `src/ai/tempoFastAI.ts`: `DEFAULT_LOOKAHEAD_TURNS = 0 → 1`（相手モデルは既定 'smart'）。 `index.ts` 経由でブラウザ既定に。
+- 検証: tsc -b ✓ / vitest 33/33 ✓ / build ✓。 強さ確証 3 本目(seed 33001) もバックグラウンド確証中。
+
+### 今後（horizon に伸びしろがあると判明）
+- **lookahead=2** や**より正確な相手モデル(tempo)**で更に伸びるか（重い → Web Worker 前提）。
+- **NN がここで初めて意味を持つ**: 「深い lookahead の結果」 を安く近似する価値ネット（policy prior でも葉置換でもなく horizon の近似）。 lookahead が効くと分かった今、 検討価値あり。
+
+---
+
+## Gen-4 探索ラウンド 3: 残差価値学習も天井 — 「探索は葉の予測誤差に頑健」 と判明 (2026-06-02)
+
+「探索は完全・葉が律速」 を受けた最有力リード = **evaluateState への残差価値学習**（v1/v2 の失敗を回避する設計: 実証済みの葉 currentLeaf に、 実際の最終結果との残差 δ だけを小さく加える。 `leaf = currentLeaf + α·δ`、 δ は線形, target = `zscore(margin) − zscore(currentLeaf)`）。 ユーザー承認の下、 大規模化前提で段階実行。
+
+- **δ の予測力は強い**（held-out R²=0.48、 結果との相関 0.22→0.46・AUC 0.60→0.69）。 葉が取りこぼす勝敗構造を本当に捉えている＝v1（勾配なし）/v2（得点逆相関）とは質的に別物。
+- **だが対戦の強さに化けない**（候補 tempoResid vs baseline tempoFast、 smart 非依存, rotate, 公平 25%）:
+  - 低 budget(40ms＝δ が最も効くはずの浅探索)・n=600/α: α=0.1/0.2/0.3 = 22.7/25.5/22.0%、 **全て互角**（最良 0.2 でほぼ 25%、 他は僅かに下）。
+  - **デプロイ budget(1000ms)・α=0.2・n=300: 23.0%（CI ~18.6-28、 互角）**。 平均点も同等。
+- **結論（深い知見）**: 葉は完全な予測器ではない（δ が残差の 48% を説明）のに、 **網羅的なターン内探索が葉の誤差を着手選択で吸収**するため、 葉を学習で精緻化しても勝てない。 ＝**探索が葉に頑健**であることが、 tempo が天井近くである機構的理由。
+
+### 強さ上積みの総括（※「葉」の天井。 horizon は Gen-4-C で突破した）
+**葉を改善する**レバーは出尽くし、 いずれも現 tempo を超えず: NN(az-v1〜10) / 価値学習 v1・v2・残差 / ギフト最適化 / mcts ハイパラ / 葉の重み再最適化 / 多ターン投影。 ⚠️ **ただしこれは「葉＝静的な多ターン近似」 の天井であって、 読みの地平(horizon)の天井ではなかった**: 上記 **Gen-4-C で lookahead=1 が現 tempo に有意勝ち(33%)し突破**した。 残差実験ファイルは本記録を残して削除。
 
 ---
 

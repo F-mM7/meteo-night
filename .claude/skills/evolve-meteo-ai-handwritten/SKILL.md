@@ -10,11 +10,11 @@ disable-model-invocation: false
 
 ## 現在地（2026-06 時点・必ず最新は CHANGELOG で確認）
 
-- **現状最強 = tempoFastAI（Gen-4-B）**: 自分の手番をターン内 DFS で完全読み + テンポ評価。時間予算(1秒)+反復深化+αβ枝刈り+置換表で最悪レイテンシを ~1.0 秒に有界化。`src/ai/index.ts` がこれを export。
+- **現状最強 = tempoFast + lookahead=1（Gen-4-C）**: ターン内完全読み + テンポ評価 + 時間予算/反復深化/αβ/置換表に、**2-ply(相手手番を挟み次の自分の手番まで)先読み**を追加。現 tempoFast(LA=0) に有意勝ち(33%, n=300)。1 手 ~1 秒と重く **Web Worker(`src/ai/aiWorker.ts`)で off-main-thread 実行**。`src/ai/index.ts`→`tempoFastAI`(既定 LA=1) を export。
 - **強さ同等の素の版 = tempoAI（Gen-4-A）**: 同じ探索だがレイテンシ無制限（連鎖局面で最大 ~21 秒）。比較ベースラインに使う。
 - **探索はほぼ完全 → 伸びしろは「葉（ターン終了局面）の評価」**。葉 = `evaluateState`（`src/ai/evaluator.ts`）+ `multiColorChainReadiness * tempoChainW(50)`。
 - **対象**: `src/ai/{tempoAI,tempoFastAI,evaluator}.ts`、`ai/scripts/{bench-self,_fast_bench,elo-ladder,_runner,stats}.ts`。
-- **対象外（実証済みの行き止まり・着手しない）**: NN / AlphaZero（branching 5.1 で priors 無効、hand-eval に value も priors も勝てず az-v1〜v10 全敗）、教師あり価値学習（v1=フラット勝率で勾配消失 / v2=将来得点で未得点と混同、ともに失敗）、ギフト最適化（1 combo 1 枚で効果なし）、mcts 探索ハイパラ（Gen-3-O が天井）。理由は CHANGELOG 参照。
+- **対象外＝「葉の改善」 は実証済み天井（着手しない）**: NN priors（branching 5.1 で無効）、価値学習 v1/v2/残差（探索が葉の誤差に頑健で play は parity）、葉の重み再最適化（DEFAULT がほぼ最適）、多ターン連鎖**投影**（葉に貪欲ロールアウトを足す版＝弱い）、ギフト最適化、mcts ハイパラ。⚠️ **ただし「葉」 の天井であって horizon の天井ではない**: 実際に lookahead 探索する手は効く（**Gen-4-C で lookahead=1 が現 tempo に 33% 勝ち**）。理由は CHANGELOG（探索ラウンド 1〜3 + Gen-4-C）。
 
 ## 前提
 
@@ -50,14 +50,14 @@ npx tsx ai/scripts/elo-ladder.ts --ais random,smart,mctsGen3X,tempo50 --games 0 
 
 - 評価関数の重み比較は `tempoFastAI` の `weights` オプション経由（`evaluator.ts` を編集せず options で渡す）。
 
-### 3. 改善仮説の立案（葉が律速・現フロンティア）
+### 3. 改善仮説の立案（horizon が伸びしろ・葉は天井）
 
-`ai/README.md` / CHANGELOG の「今後」から最小単位を 1 つ選ぶ。tempo 時代の有望リード:
+`ai/README.md` / CHANGELOG の「今後」を読む。**「葉の改善」 は天井**（重み/投影/残差/価値学習すべて parity。上の「対象外」 参照）だが、**「読みの地平(horizon)」 は効く**と判明（Gen-4-C で lookahead=1 が +8pt）。残るリード:
 
-- **葉の評価重みを tempo 用に再最適化**: `evaluateState` の重みは mcts 時代の調整。tempo の探索向けに実勝率を直接最適化（CMA-ES / 座標降下、教師ありでなく）。
-- **多ターン連鎖投影の葉**: 相手無視で自分だけ K ターン先まで貪欲に連鎖構築した期待得点を葉に（人間の多ターン仕込みを捕捉。2 手先読みは相手モデルが重く逆効果と実証済みなので相手はモデル化しない）。
-- **evaluateState への残差価値学習**: 小さな補正のみを実勝敗で学習（連鎖構築を壊さない。教師ありを使うならこの形）。
-- **終盤レース計時の専用評価** / **人間の実戦棋譜からの模倣学習**（強い人間という上位教師でself-playの天井を破る）。
+- **（本命）lookahead を深く/賢く**: lookahead=2、 相手モデルを smart→tempo（より正確）等。horizon に伸びしろ。ただし計算が重い → Web Worker 前提、 1 手の予算配分に注意（過去 budget 不足の 2-ply は逆効果だった）。
+- **NN で深い先読みを安く近似**: 「深い lookahead の結果」 を予測する価値ネット（policy prior でも葉置換でもなく horizon の近似）。lookahead が効くと分かった今、 NN がここで初めて意味を持つ。
+- **（高コスト・別路線）人間棋譜の模倣学習**: self-play の天井を上位教師で破る。要・対局記録。
+- **（小・未検証）終盤レース計時の専用評価**: スコアが 20 点近傍の勝敗判定を専用化。期待値は小さめ。
 
 仮説と **期待勝率向上幅** を事前に文章化（事後バイアス防止）。
 

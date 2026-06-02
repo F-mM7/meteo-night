@@ -59,7 +59,10 @@ export interface TempoFastOptions {
 }
 
 const DEFAULT_TEMPO_CHAIN_W = 50;
-const DEFAULT_LOOKAHEAD_TURNS = 0;
+// ブラウザ既定で 1（2 手先読み）。lookahead=1 は現 tempoFast(LA=0) に有意勝ち（n=300, 33.0%,
+// CI 下限 27.9% > 公平 25%）。ただし 1 手 ~1 秒（中央値）と重いので、ブラウザでは Web Worker
+// （src/ai/aiWorker.ts）で実行し UI をブロックしない。相手モデルは既定の 'smart'。
+const DEFAULT_LOOKAHEAD_TURNS = 1;
 const DEFAULT_ROOT_DRAW_SAMPLES = 5;
 const DEFAULT_CHAIN_DRAW_SAMPLES = 2;
 const DEFAULT_MAX_PLACE_DEPTH = 12;
