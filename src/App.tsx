@@ -9,6 +9,7 @@ import { LogPanel } from './components/LogPanel';
 import { AppHeader } from './components/AppHeader';
 import { HandZone } from './components/HandZone';
 import { GiftBar } from './components/GiftBar';
+import { BgStars } from './components/BgStars';
 import type { GiftAssignment } from './game/types';
 import {
   placeableCards,
@@ -23,8 +24,8 @@ export default function App() {
     startNewGame,
     autoPilot,
     setAutoPilot,
-    cpuSpeed,
-    setCpuSpeed,
+    effectDelay,
+    setEffectDelay,
     logVisible,
     setLogVisible,
   } = useGameLogic();
@@ -156,10 +157,10 @@ export default function App() {
       className={`app-shell layout-${layout}${logVisible ? '' : ' log-hidden'}`}
       style={cssVars}
     >
-      <div className="bg-stars" aria-hidden />
+      <BgStars />
       <AppHeader
-        cpuSpeed={cpuSpeed}
-        setCpuSpeed={setCpuSpeed}
+        effectDelay={effectDelay}
+        setEffectDelay={setEffectDelay}
         autoPilot={autoPilot}
         setAutoPilot={setAutoPilot}
         logVisible={logVisible}

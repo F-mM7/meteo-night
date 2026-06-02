@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import type { CpuSpeed } from '../hooks/useGameLogic';
+import type { EffectDelay } from '../hooks/useGameLogic';
 
 interface Props {
-  cpuSpeed: CpuSpeed;
-  setCpuSpeed: (s: CpuSpeed) => void;
+  effectDelay: EffectDelay;
+  setEffectDelay: (s: EffectDelay) => void;
   autoPilot: boolean;
   setAutoPilot: (v: boolean) => void;
   logVisible: boolean;
@@ -11,11 +11,11 @@ interface Props {
   onStartNewGame: () => void;
 }
 
-const CPU_SPEED_STEP_MS = 50;
+const EFFECT_DELAY_STEP_MS = 50;
 
 export function AppHeader({
-  cpuSpeed,
-  setCpuSpeed,
+  effectDelay,
+  setEffectDelay,
   autoPilot,
   setAutoPilot,
   logVisible,
@@ -26,8 +26,8 @@ export function AppHeader({
   const menuWrapRef = useRef<HTMLDivElement | null>(null);
 
   const clamp = (n: number) => (Number.isFinite(n) && n >= 0 ? n : 0);
-  const decrement = () => setCpuSpeed(clamp(cpuSpeed - CPU_SPEED_STEP_MS));
-  const increment = () => setCpuSpeed(clamp(cpuSpeed + CPU_SPEED_STEP_MS));
+  const decrement = () => setEffectDelay(clamp(effectDelay - EFFECT_DELAY_STEP_MS));
+  const increment = () => setEffectDelay(clamp(effectDelay + EFFECT_DELAY_STEP_MS));
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -71,30 +71,30 @@ export function AppHeader({
         {menuOpen && (
           <div className="header-menu" role="menu">
             <div className="header-menu-item">
-              <span className="header-menu-label">CPU速度 (ms)</span>
+              <span className="header-menu-label">演出ディレイ (ms)</span>
               <div className="stepper">
                 <button
                   type="button"
                   className="stepper-btn"
-                  aria-label="CPU速度を下げる"
+                  aria-label="演出ディレイを下げる"
                   onClick={decrement}
-                  disabled={cpuSpeed <= 0}
+                  disabled={effectDelay <= 0}
                 >
                   −
                 </button>
                 <input
                   type="number"
                   className="stepper-input"
-                  value={cpuSpeed}
+                  value={effectDelay}
                   min={0}
-                  step={CPU_SPEED_STEP_MS}
-                  onChange={(e) => setCpuSpeed(clamp(Number(e.target.value)))}
-                  aria-label="CPU速度 (ms)"
+                  step={EFFECT_DELAY_STEP_MS}
+                  onChange={(e) => setEffectDelay(clamp(Number(e.target.value)))}
+                  aria-label="演出ディレイ (ms)"
                 />
                 <button
                   type="button"
                   className="stepper-btn"
-                  aria-label="CPU速度を上げる"
+                  aria-label="演出ディレイを上げる"
                   onClick={increment}
                 >
                   ＋

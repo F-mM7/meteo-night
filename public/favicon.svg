@@ -1,12 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <defs>
-    <radialGradient id="g" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#fff8c4"/>
-      <stop offset="60%" stop-color="#ffd24d"/>
-      <stop offset="100%" stop-color="#7a4d00"/>
-    </radialGradient>
+    <linearGradient id="rainbow" gradientUnits="userSpaceOnUse" x1="50" y1="8" x2="50" y2="92">
+      <stop offset="0%"   stop-color="#ff2d55"/>
+      <stop offset="17%"  stop-color="#ff8c00"/>
+      <stop offset="33%"  stop-color="#ffe000"/>
+      <stop offset="50%"  stop-color="#28d96c"/>
+      <stop offset="67%"  stop-color="#00b8ff"/>
+      <stop offset="83%"  stop-color="#5b6bff"/>
+      <stop offset="100%" stop-color="#c060ff"/>
+    </linearGradient>
   </defs>
-  <rect width="64" height="64" fill="#0b1530"/>
-  <polygon points="32,8 38,26 56,26 41,37 47,56 32,44 17,56 23,37 8,26 26,26"
-           fill="url(#g)" stroke="#fff" stroke-width="1.2"/>
+  <polygon points="50,8 72,32 68,72 50,92 32,72 28,32" fill="#fff8c4" fill-opacity="0.1"/>
+  <g fill="none" stroke="url(#rainbow)" stroke-linejoin="round" stroke-linecap="round">
+    <polygon points="50,8 72,32 68,72 50,92 32,72 28,32" stroke-width="6"/>
+    <g stroke-width="4" stroke-opacity="0.85">
+      <line x1="50" y1="8" x2="50" y2="92"/>
+      <line x1="28" y1="32" x2="72" y2="32"/>
+      <line x1="32" y1="72" x2="68" y2="72"/>
+    </g>
+    <g stroke-width="3" stroke-opacity="0.6">
+      <line x1="50" y1="8" x2="28" y2="32"/>
+      <line x1="50" y1="8" x2="72" y2="32"/>
+      <line x1="50" y1="92" x2="32" y2="72"/>
+      <line x1="50" y1="92" x2="68" y2="72"/>
+    </g>
+  </g>
 </svg>

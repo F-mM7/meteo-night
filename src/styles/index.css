@@ -1,28 +1,63 @@
 :root {
   color-scheme: dark;
-  --bg-deep: #060a1f;
-  --bg-mid: #0e1538;
+
+  /* ===== 生の色（RGB 成分）: 透明度違いで再利用するため R,G,B で保持し、
+     不透明版は rgb()、半透明版は rgba(var(--rgb-x), a) で 1 つの出所から参照する ===== */
+  --rgb-bg-deep: 0, 0, 0;             /* 最深背景 = 完全な黒 */
+  --rgb-bg-mid: 14, 21, 56;
+  --rgb-bg-elev2: 35, 47, 108;
+  --rgb-night-purple: 72, 45, 110;    /* 夜空にほのかに差す紫 */
+  --rgb-accent: 255, 248, 196;        /* 淡い星明かりの黄白。流星の発光にも使用 */
+  --rgb-accent-strong: 255, 210, 77;  /* 強い金。選択強調・脈動・先手マーカー発光 */
+  --rgb-info: 77, 201, 255;           /* 手番強調・システムログの青 */
+  --rgb-black: 0, 0, 0;               /* 影 */
+  --rgb-white: 255, 255, 255;         /* 星・ハイライト・破線 */
+
+  /* ===== 背景・罫線 ===== */
+  --bg-deep: rgb(var(--rgb-bg-deep));
+  --bg-mid: rgb(var(--rgb-bg-mid));
   --bg-elev: #1a2353;
-  --bg-elev2: #232f6c;
+  --bg-elev2: rgb(var(--rgb-bg-elev2));
   --line: #2c3a7a;
+
+  /* ===== テキスト ===== */
   --text: #f5f4ff;
   --text-dim: #b5bcdf;
   --text-mute: #8088b8;
-  --accent: #fff8c4;
-  --accent-strong: #ffd24d;
+
+  /* ===== アクセント・状態 ===== */
+  --accent: rgb(var(--rgb-accent));
+  --accent-strong: rgb(var(--rgb-accent-strong));
   --accent-warm: #ff9244;
+  --info: rgb(var(--rgb-info));
   --warn: #ff4d6d;
-  --good: #4dc9a3;
 
-  --red: #ff5d6c;
-  --green: #5ddc9c;
-  --yellow: #ffd24d;
-  --purple: #b16cff;
-  --blue: #4dc9ff;
+  /* ===== 星のかけら 5 色（hi = グラデ上部の明色 / lo = 下部の暗色） ===== */
+  --card-red-hi: #ff7d8a;     --card-red-lo: #c92238;
+  --card-green-hi: #6de2a0;   --card-green-lo: #1d8e58;
+  --card-yellow-hi: #ffe478;  --card-yellow-lo: #d0a000;
+  --card-purple-hi: #c98cff;  --card-purple-lo: #6a2adc;
+  --card-blue-hi: #6dd6ff;    --card-blue-lo: #1c84c0;
 
-  --shadow-card: 0 4px 14px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
-  --shadow-elev: 0 6px 24px rgba(0, 0, 0, 0.45);
+  /* ===== 手番プレイヤー強調（夜空シアン青グラデ） ===== */
+  --current-hi: rgba(120, 145, 230, 0.95);
+  --current-lo: rgba(45, 65, 155, 0.95);
 
+  /* ===== 先手マーカー（金） ===== */
+  --marker-hi: #fff0a8;
+  --marker-lo: #d99220;
+  --marker-edge: #6a4900;
+  --marker-text: #2a1a00;
+
+  /* ===== 裏向きカード（紺） ===== */
+  --facedown-hi: #1c2660;
+  --facedown-lo: #0a1230;
+
+  /* ===== 影 ===== */
+  --shadow-card: 0 4px 14px rgba(var(--rgb-black), 0.4), 0 2px 4px rgba(var(--rgb-black), 0.3);
+  --shadow-elev: 0 6px 24px rgba(var(--rgb-black), 0.45);
+
+  /* ===== 形状・寸法（色ではない） ===== */
   --radius: 12px;
   --radius-sm: 8px;
 
@@ -45,7 +80,10 @@ html, body, #root {
 
 body {
   font-family: 'Helvetica Neue', 'Hiragino Sans', 'Yu Gothic UI', 'Segoe UI', sans-serif;
-  background: radial-gradient(ellipse at top, #1a2870 0%, var(--bg-mid) 30%, var(--bg-deep) 80%);
+  /* 黒をベースに、下方（地平線側）からほのかな紫を差して明るくし夜空の深みを出す。 */
+  background:
+    radial-gradient(ellipse 130% 100% at 50% 118%, rgba(var(--rgb-night-purple), 0.9), transparent 80%),
+    var(--bg-deep);
   background-attachment: fixed;
   color: var(--text);
 }
@@ -67,19 +105,19 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background-image:
-    radial-gradient(1px 1px at 12% 18%, rgba(255, 255, 255, 0.9), transparent 60%),
-    radial-gradient(1px 1px at 28% 72%, rgba(255, 255, 255, 0.7), transparent 60%),
-    radial-gradient(2px 2px at 55% 30%, rgba(255, 248, 196, 0.9), transparent 60%),
-    radial-gradient(1px 1px at 78% 65%, rgba(255, 255, 255, 0.8), transparent 60%),
-    radial-gradient(1.5px 1.5px at 90% 12%, rgba(255, 255, 255, 0.7), transparent 60%),
-    radial-gradient(1px 1px at 45% 88%, rgba(255, 255, 255, 0.6), transparent 60%),
-    radial-gradient(1.5px 1.5px at 8% 50%, rgba(255, 248, 196, 0.7), transparent 60%),
-    radial-gradient(1px 1px at 70% 5%, rgba(255, 255, 255, 0.8), transparent 60%);
-  background-repeat: repeat;
-  background-size: 1200px 800px;
-  opacity: 0.85;
+  overflow: hidden;
   z-index: 0;
+}
+
+/* 個々の星。位置(left/top %)・サイズ(px)・不透明度は BgStars.tsx が乱数で inline 付与する。
+   タイルの繰り返しを使わず画面全体へ一意配置するため、継ぎ目（繰り返し）が一切出ない。 */
+.bg-star {
+  position: absolute;
+  border-radius: 50%;
+  background: rgb(var(--rgb-white));
+}
+.bg-star-warm {
+  background: rgb(var(--rgb-accent));
 }
 
 /* ---------- header ---------- */
@@ -91,15 +129,13 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   gap: 10px;
   padding: 4px 10px;
   height: 36px;
-  border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.35), transparent);
-  backdrop-filter: blur(4px);
+  background: rgba(var(--rgb-bg-deep), 0.8);
   flex-shrink: 0;
 }
 
 .app-title {
   font-size: 15px;
-  background: linear-gradient(135deg, #fff, var(--accent-strong));
+  background: linear-gradient(135deg, rgb(var(--rgb-white)), var(--accent-strong));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -127,7 +163,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 .hamburger-btn:hover,
 .hamburger-btn[aria-expanded='true'] {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--rgb-white), 0.08);
   color: var(--text);
   border-color: var(--accent-strong);
 }
@@ -151,7 +187,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   background: var(--bg-elev);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 8px 24px rgba(var(--rgb-black), 0.45);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -204,12 +240,12 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 .stepper-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--rgb-white), 0.08);
   color: var(--text);
 }
 
 .stepper-btn:active:not(:disabled) {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(var(--rgb-white), 0.14);
 }
 
 .stepper-btn:disabled {
@@ -345,8 +381,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   gap: 6px;
   /* 状態によらず常に同じ高さを確保し、伸び縮みさせない。 */
   height: var(--action-height);
-  background: linear-gradient(180deg, rgba(35, 47, 108, 0.55), rgba(14, 21, 56, 0.6));
-  border: 1px solid var(--line);
+  background: rgba(var(--rgb-bg-deep), 0.8);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-elev);
   padding: 6px 10px;
@@ -429,7 +464,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   gap: calc(var(--card-size) * 0.03);
   padding: calc(var(--card-size) * 0.08) calc(var(--card-size) * 0.18);
   border-radius: var(--radius-sm);
-  background: linear-gradient(180deg, rgba(35, 47, 108, 0.7), rgba(14, 21, 56, 0.7));
+  background: linear-gradient(180deg, rgba(var(--rgb-bg-elev2), 0.7), rgba(var(--rgb-bg-mid), 0.7));
   border: 1px solid var(--line);
   white-space: nowrap;
   transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
@@ -438,9 +473,9 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 /* ターンプレイヤー強調。アクション選択強調（黄系 = --accent-strong）と区別するため
    ゲームの夜空テーマに合うシアン青系を使う。 */
 .player-header-card.header-current {
-  background: linear-gradient(180deg, rgba(120, 145, 230, 0.95), rgba(45, 65, 155, 0.95));
-  border-color: var(--blue);
-  box-shadow: 0 0 14px rgba(77, 201, 255, 0.55), 0 2px 6px rgba(0, 0, 0, 0.5);
+  background: linear-gradient(180deg, var(--current-hi), var(--current-lo));
+  border-color: var(--info);
+  box-shadow: 0 0 14px rgba(var(--rgb-info), 0.55), 0 2px 6px rgba(var(--rgb-black), 0.5);
 }
 
 .player-name {
@@ -464,12 +499,12 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at 30% 30%, #fff0a8, #d99220);
-  border: 2px solid #6a4900;
-  box-shadow: 0 0 8px rgba(255, 210, 77, 0.6), 0 2px 4px rgba(0, 0, 0, 0.5);
+  background: radial-gradient(circle at 30% 30%, var(--marker-hi), var(--marker-lo));
+  border: 2px solid var(--marker-edge);
+  box-shadow: 0 0 8px rgba(var(--rgb-accent-strong), 0.6), 0 2px 4px rgba(var(--rgb-black), 0.5);
   font-weight: 800;
   font-size: calc(var(--card-size) * 0.2);
-  color: #2a1a00;
+  color: var(--marker-text);
   letter-spacing: 0.04em;
 }
 
@@ -544,7 +579,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 .slot-stack-top .card {
-  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
+  filter: drop-shadow(0 4px 8px rgba(var(--rgb-black), 0.5));
 }
 
 .slot-stack-fading,
@@ -594,17 +629,17 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   0% {
     opacity: 1;
     transform: translate(0, 0) scale(1);
-    filter: brightness(1) drop-shadow(0 0 0 rgba(255, 248, 196, 0));
+    filter: brightness(1) drop-shadow(0 0 0 rgba(var(--rgb-accent), 0));
   }
   40% {
     opacity: 1;
     transform: translate(0, calc(var(--card-size) * -1.6)) scale(0.7);
-    filter: brightness(2.2) drop-shadow(0 0 18px rgba(255, 248, 196, 0.95));
+    filter: brightness(2.2) drop-shadow(0 0 18px rgba(var(--rgb-accent), 0.95));
   }
   100% {
     opacity: 0;
     transform: translate(0, calc(var(--card-size) * -3.6)) scale(0.2);
-    filter: brightness(2.8) drop-shadow(0 0 32px rgba(255, 248, 196, 0.5));
+    filter: brightness(2.8) drop-shadow(0 0 32px rgba(var(--rgb-accent), 0.5));
   }
 }
 /* up 席（盤面上端）: 中央方向 = 下方向（translateY が正） */
@@ -612,17 +647,17 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   0% {
     opacity: 1;
     transform: translate(0, 0) scale(1);
-    filter: brightness(1) drop-shadow(0 0 0 rgba(255, 248, 196, 0));
+    filter: brightness(1) drop-shadow(0 0 0 rgba(var(--rgb-accent), 0));
   }
   40% {
     opacity: 1;
     transform: translate(0, calc(var(--card-size) * 1.6)) scale(0.7);
-    filter: brightness(2.2) drop-shadow(0 0 18px rgba(255, 248, 196, 0.95));
+    filter: brightness(2.2) drop-shadow(0 0 18px rgba(var(--rgb-accent), 0.95));
   }
   100% {
     opacity: 0;
     transform: translate(0, calc(var(--card-size) * 3.6)) scale(0.2);
-    filter: brightness(2.8) drop-shadow(0 0 32px rgba(255, 248, 196, 0.5));
+    filter: brightness(2.8) drop-shadow(0 0 32px rgba(var(--rgb-accent), 0.5));
   }
 }
 /* left 席（盤面左端）: 中央方向 = 右方向（translateX が正） */
@@ -630,17 +665,17 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   0% {
     opacity: 1;
     transform: translate(0, 0) scale(1);
-    filter: brightness(1) drop-shadow(0 0 0 rgba(255, 248, 196, 0));
+    filter: brightness(1) drop-shadow(0 0 0 rgba(var(--rgb-accent), 0));
   }
   40% {
     opacity: 1;
     transform: translate(calc(var(--card-size) * 1.6), 0) scale(0.7);
-    filter: brightness(2.2) drop-shadow(0 0 18px rgba(255, 248, 196, 0.95));
+    filter: brightness(2.2) drop-shadow(0 0 18px rgba(var(--rgb-accent), 0.95));
   }
   100% {
     opacity: 0;
     transform: translate(calc(var(--card-size) * 3.6), 0) scale(0.2);
-    filter: brightness(2.8) drop-shadow(0 0 32px rgba(255, 248, 196, 0.5));
+    filter: brightness(2.8) drop-shadow(0 0 32px rgba(var(--rgb-accent), 0.5));
   }
 }
 /* right 席（盤面右端）: 中央方向 = 左方向（translateX が負） */
@@ -648,17 +683,17 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   0% {
     opacity: 1;
     transform: translate(0, 0) scale(1);
-    filter: brightness(1) drop-shadow(0 0 0 rgba(255, 248, 196, 0));
+    filter: brightness(1) drop-shadow(0 0 0 rgba(var(--rgb-accent), 0));
   }
   40% {
     opacity: 1;
     transform: translate(calc(var(--card-size) * -1.6), 0) scale(0.7);
-    filter: brightness(2.2) drop-shadow(0 0 18px rgba(255, 248, 196, 0.95));
+    filter: brightness(2.2) drop-shadow(0 0 18px rgba(var(--rgb-accent), 0.95));
   }
   100% {
     opacity: 0;
     transform: translate(calc(var(--card-size) * -3.6), 0) scale(0.2);
-    filter: brightness(2.8) drop-shadow(0 0 32px rgba(255, 248, 196, 0.5));
+    filter: brightness(2.8) drop-shadow(0 0 32px rgba(var(--rgb-accent), 0.5));
   }
 }
 
@@ -719,7 +754,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   content: '';
   width: calc(var(--card-size) * var(--card-scale));
   height: calc(var(--card-size) * var(--card-scale));
-  border: 1px dashed rgba(255, 255, 255, 0.15);
+  border: 1px dashed rgba(var(--rgb-white), 0.15);
   border-radius: var(--radius-sm);
 }
 
@@ -730,51 +765,51 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   height: calc(var(--card-size) * var(--card-scale));
   /* border の太さと角丸はカードの実寸（card-size × card-scale）に比例。
      基準: card-size 72px × card-scale 1.0 のとき border ≈ 1px, radius ≈ 8px。 */
-  border: calc(var(--card-size) * var(--card-scale) * 0.014) solid #000;
+  border: calc(var(--card-size) * var(--card-scale) * 0.014) solid rgb(var(--rgb-black));
   border-radius: calc(var(--card-size) * var(--card-scale) * 0.11);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 3px 8px rgba(var(--rgb-black), 0.45);
   user-select: none;
   overflow: hidden;
 }
 
-.card-red    { background: radial-gradient(ellipse at top, #ff7d8a, #c92238); }
-.card-green  { background: radial-gradient(ellipse at top, #6de2a0, #1d8e58); }
-.card-yellow { background: radial-gradient(ellipse at top, #ffe478, #d0a000); }
-.card-purple { background: radial-gradient(ellipse at top, #c98cff, #6a2adc); }
-.card-blue   { background: radial-gradient(ellipse at top, #6dd6ff, #1c84c0); }
+.card-red    { background: radial-gradient(ellipse at top, var(--card-red-hi), var(--card-red-lo)); }
+.card-green  { background: radial-gradient(ellipse at top, var(--card-green-hi), var(--card-green-lo)); }
+.card-yellow { background: radial-gradient(ellipse at top, var(--card-yellow-hi), var(--card-yellow-lo)); }
+.card-purple { background: radial-gradient(ellipse at top, var(--card-purple-hi), var(--card-purple-lo)); }
+.card-blue   { background: radial-gradient(ellipse at top, var(--card-blue-hi), var(--card-blue-lo)); }
 
 .card-crystal {
   width: 78%;
   height: 78%;
   pointer-events: none;
   transition: transform 0.2s;
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6));
+  filter: drop-shadow(0 1px 1px rgba(var(--rgb-black), 0.6));
 }
 
 .crystal-tint {
-  fill: rgba(0, 0, 0, 0.1);
+  fill: rgba(var(--rgb-black), 0.1);
   stroke: none;
 }
 
 .crystal-strokes {
   fill: none;
-  stroke: #000;
+  stroke: rgb(var(--rgb-black));
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .crystal-outline {
   fill: none;
-  stroke: #000;
+  stroke: rgb(var(--rgb-black));
   stroke-width: 3;
   stroke-linejoin: round;
 }
 
 .crystal-edge {
-  stroke: #000;
+  stroke: rgb(var(--rgb-black));
   stroke-width: 1.8;
   stroke-linecap: round;
 }
@@ -789,19 +824,19 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 .card-facedown {
   background:
-    radial-gradient(circle at 50% 30%, rgba(255, 248, 196, 0.18), transparent 60%),
-    linear-gradient(180deg, #1c2660, #0a1230);
+    radial-gradient(circle at 50% 30%, rgba(var(--rgb-accent), 0.18), transparent 60%),
+    linear-gradient(180deg, var(--facedown-hi), var(--facedown-lo));
 }
-.card-facedown .crystal-tint { fill: rgba(255, 248, 196, 0.04); }
-.card-facedown .crystal-outline { stroke: rgba(255, 248, 196, 0.65); }
-.card-facedown .crystal-edge { stroke: rgba(255, 248, 196, 0.5); }
-.card-facedown .crystal-edge-inner { stroke: rgba(255, 248, 196, 0.3); }
+.card-facedown .crystal-tint { fill: rgba(var(--rgb-accent), 0.04); }
+.card-facedown .crystal-outline { stroke: rgba(var(--rgb-accent), 0.65); }
+.card-facedown .crystal-edge { stroke: rgba(var(--rgb-accent), 0.5); }
+.card-facedown .crystal-edge-inner { stroke: rgba(var(--rgb-accent), 0.3); }
 
 .card-emphasized {
   outline: 3px solid var(--accent-strong);
   outline-offset: 2px;
   transform: translateY(-2px);
-  box-shadow: 0 0 18px rgba(255, 210, 77, 0.55), 0 3px 10px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0 18px rgba(var(--rgb-accent-strong), 0.55), 0 3px 10px rgba(var(--rgb-black), 0.6);
 }
 
 /* ---------- center area (枠なし、内側に得点+場) ---------- */
@@ -859,8 +894,8 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 .field-pair {
-  background: rgba(6, 10, 31, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(var(--rgb-bg-deep), 0.4);
+  border: 1px solid rgba(var(--rgb-white), 0.08);
   border-radius: var(--radius);
   padding: 5px;
   display: flex;
@@ -874,7 +909,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   cursor: pointer;
   outline: 2px solid var(--accent-strong);
   outline-offset: 1px;
-  background: rgba(255, 210, 77, 0.08);
+  background: rgba(var(--rgb-accent-strong), 0.08);
 }
 
 /* field-pair-cards / field-pair-empty は外形寸法を完全に一致させる。
@@ -895,7 +930,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   content: '';
   width: 100%;
   height: 100%;
-  border: 1px dashed rgba(255, 255, 255, 0.15);
+  border: 1px dashed rgba(var(--rgb-white), 0.15);
   border-radius: var(--radius-sm);
 }
 
@@ -922,7 +957,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   font-weight: 800;
   font-size: calc(var(--card-size) * 0.32);
   color: var(--accent);
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+  text-shadow: 0 2px 4px rgba(var(--rgb-black), 0.6);
   z-index: 2;
 }
 
@@ -982,9 +1017,8 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   padding: 2px;
   border-radius: 10px;
   cursor: pointer;
-  transition: transform 0.1s, border-color 0.15s;
+  transition: border-color 0.15s;
 }
-.hand-card-btn:hover { transform: translateY(-2px); }
 .hand-card-btn.selected { border-color: var(--accent-strong); }
 
 .btn {
@@ -996,9 +1030,9 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   cursor: pointer;
   font-weight: 600;
   font-size: 12px;
-  transition: transform 0.1s, background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s;
 }
-.btn:hover { background: var(--bg-elev2); transform: translateY(-1px); }
+.btn:hover { background: var(--bg-elev2); }
 .btn:disabled,
 .btn[aria-disabled='true'] {
   opacity: 0.45;
@@ -1014,8 +1048,8 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 .btn-primary:hover { background: linear-gradient(135deg, #ffe17a, var(--accent-warm)); }
 .btn-secondary { background: var(--bg-elev2); }
-.btn-ghost { background: transparent; border-color: rgba(255, 255, 255, 0.18); color: var(--text-dim); }
-.btn-ghost:hover { background: rgba(255, 255, 255, 0.06); }
+.btn-ghost { background: transparent; border-color: rgba(var(--rgb-white), 0.18); color: var(--text-dim); }
+.btn-ghost:hover { background: rgba(var(--rgb-white), 0.06); }
 
 .badge {
   font-size: 10px;
@@ -1024,11 +1058,11 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   font-weight: 700;
   letter-spacing: 0.05em;
 }
-.badge-warning { background: var(--warn); color: #fff; }
+.badge-warning { background: var(--warn); color: rgb(var(--rgb-white)); }
 
 /* ---------- log panel ---------- */
 .log-panel {
-  background: linear-gradient(180deg, rgba(6, 10, 31, 0.7), rgba(14, 21, 56, 0.7));
+  background: linear-gradient(180deg, rgba(var(--rgb-bg-deep), 0.7), rgba(var(--rgb-bg-mid), 0.7));
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   padding: 4px 8px;
@@ -1065,22 +1099,22 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   align-items: start;
 }
 .log-entry-emphasize {
-  background: rgba(255, 210, 77, 0.08);
+  background: rgba(var(--rgb-accent-strong), 0.08);
   color: var(--accent);
   font-weight: 600;
 }
 .log-entry-system {
-  background: rgba(77, 201, 255, 0.07);
-  border-left: 2px solid var(--blue);
+  background: rgba(var(--rgb-info), 0.07);
+  border-left: 2px solid var(--info);
   padding-left: 6px;
   color: var(--text);
   font-weight: 600;
 }
 .log-entry-system .log-heading {
-  color: var(--blue);
+  color: var(--info);
 }
 .log-entry-system.log-entry-emphasize {
-  background: rgba(255, 210, 77, 0.12);
+  background: rgba(var(--rgb-accent-strong), 0.12);
   color: var(--accent-strong);
   border-left-color: var(--accent-strong);
 }
@@ -1121,8 +1155,8 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   gap: 6px;
   padding: 6px;
   border-radius: var(--radius-sm);
-  background: rgba(6, 10, 31, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(var(--rgb-bg-deep), 0.4);
+  border: 1px solid rgba(var(--rgb-white), 0.08);
   min-width: 0;
   transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
 }
@@ -1130,16 +1164,16 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 /* 未選択時は黄色系の点滅枠で「ここを選んでください」ことを強調 */
 .gift-bar-row-unselected {
   border-color: var(--accent-strong);
-  background: rgba(255, 210, 77, 0.07);
+  background: rgba(var(--rgb-accent-strong), 0.07);
   animation: gift-row-pulse 1.6s ease-in-out infinite;
 }
 
 @keyframes gift-row-pulse {
   0%, 100% {
-    box-shadow: 0 0 0 0 rgba(255, 210, 77, 0.0);
+    box-shadow: 0 0 0 0 rgba(var(--rgb-accent-strong), 0.0);
   }
   50% {
-    box-shadow: 0 0 0 3px rgba(255, 210, 77, 0.28);
+    box-shadow: 0 0 0 3px rgba(var(--rgb-accent-strong), 0.28);
   }
 }
 
@@ -1171,7 +1205,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 .btn-target.selected {
   border-color: var(--accent-strong);
-  background: rgba(255, 210, 77, 0.14);
+  background: rgba(var(--rgb-accent-strong), 0.14);
   color: var(--accent);
 }
 
