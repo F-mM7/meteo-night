@@ -46,6 +46,12 @@ describe('selectors.placeableCards', () => {
     expect(placeableCards(s)).toEqual([]);
   });
 
+  it('awaitingAdditionalActionChoice では空配列（種類選択中は手元カード不要）', () => {
+    const base = setupGame({ seed: 42 });
+    const s: GameState = { ...base, phase: 'awaitingAdditionalActionChoice' };
+    expect(placeableCards(s)).toEqual([]);
+  });
+
   it('awaitingGiftPlacement では先頭バッチの cards を返す', () => {
     const base = setupGame({ seed: 42 });
     const cards = [makeCard('g1'), makeCard('g2', 'yellow')];
@@ -77,6 +83,22 @@ describe('selectors.interactiveSlotsForActor', () => {
     const s: GameState = {
       ...base,
       phase: 'awaitingAdditionalDiscard',
+      players: base.players.map((p, i) =>
+        i === 0 ? { ...p, board: { slots } } : p
+      ),
+    };
+    expect(interactiveSlotsForActor(s, 0)).toEqual([0, 1, 3, 4]);
+  });
+
+  it('awaitingAdditionalActionChoice でも stack>0 のスロットのみ（最上段クリックで取り除き）', () => {
+    const base = setupGame({ seed: 42 });
+    const player = base.players[0];
+    const slots = player.board.slots.map((s, i) =>
+      i === 2 ? { stack: [] } : s
+    );
+    const s: GameState = {
+      ...base,
+      phase: 'awaitingAdditionalActionChoice',
       players: base.players.map((p, i) =>
         i === 0 ? { ...p, board: { slots } } : p
       ),
@@ -128,6 +150,15 @@ describe('selectors.makePlacementAction', () => {
   it('awaitingAdditionalDiscard は DISCARD_TOP を返す', () => {
     const base = setupGame({ seed: 42 });
     const s: GameState = { ...base, phase: 'awaitingAdditionalDiscard' };
+    expect(makePlacementAction(s, 1, null)).toEqual({
+      type: 'DISCARD_TOP',
+      slotIndex: 1,
+    });
+  });
+
+  it('awaitingAdditionalActionChoice も DISCARD_TOP を返す（種類選択フェーズからの直接取り除き）', () => {
+    const base = setupGame({ seed: 42 });
+    const s: GameState = { ...base, phase: 'awaitingAdditionalActionChoice' };
     expect(makePlacementAction(s, 1, null)).toEqual({
       type: 'DISCARD_TOP',
       slotIndex: 1,

@@ -279,7 +279,15 @@ function handlePlaceAdditionalDraw(state: GameState, slotIndex: number): GameSta
 }
 
 function handleDiscardTop(state: GameState, slotIndex: number): GameState {
-  if (state.phase !== 'awaitingAdditionalDiscard') return state;
+  // 通常の取り除きフェーズに加え、流星魔法後の種類選択フェーズからの直接クリックも受理する。
+  // （UI ではスロット最上段クリックで 1 アクションとして捨札する。AI は従来どおり
+  //  CHOOSE_ADDITIONAL_DISCARD 経由で awaitingAdditionalDiscard を通るため後方互換。）
+  if (
+    state.phase !== 'awaitingAdditionalDiscard' &&
+    state.phase !== 'awaitingAdditionalActionChoice'
+  ) {
+    return state;
+  }
   const player = getCurrentPlayer(state);
   const result = popTopFromSlot(player.board, slotIndex);
   if (!result.card) return state;

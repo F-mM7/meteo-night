@@ -37,7 +37,7 @@ const BOARD_TOTAL_RATIO = SEAT_LONG_RATIO + STACK_MAX_SPAN_RATIO * 2;
 // アクション領域に必要な高さ: ActionPanel + hand-zone + padding
 //   = base(80) + cardSize * 1.2
 //   gift-bar は 3 列 × 2 行（最大 6 個）を前提とし、2 行で約 162px。
-//   ActionPanel(awaitingGiftSelection 中は action-buttons が空で約 24px) +
+//   ActionPanel(操作メッセージ 1 行で約 24px) +
 //   gap/padding(~18px) と合わせて約 204px を要するため、MIN を 220 に確保。
 const ACTION_BASE_HEIGHT = 80;
 const ACTION_CARD_RATIO = 1.2;

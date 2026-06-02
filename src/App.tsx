@@ -43,6 +43,11 @@ export default function App() {
   const interactivePairs = fieldInteractive
     ? state.field.map((p, i) => (p ? i : -1)).filter((i) => i >= 0)
     : [];
+  // 山札は通常ドロー（awaitingDraw）に加え、流星魔法後の追加アクション選択でも引ける。
+  const canDrawAdditional = state.deck.length > 0 || state.discardPile.length > 0;
+  const deckInteractive =
+    fieldInteractive ||
+    (isYourTurn && state.phase === 'awaitingAdditionalActionChoice' && canDrawAdditional);
 
   const cardsToPlace = isYourActor ? placeableCards(state) : [];
   const { selectedCard, setSelectedCardId } = usePlacementSelection(cardsToPlace);
@@ -59,8 +64,12 @@ export default function App() {
   };
 
   const handleDeckClick = () => {
-    if (!isYourTurn || state.phase !== 'awaitingDraw') return;
-    dispatch({ type: 'DRAW_FROM_DECK' });
+    if (!isYourTurn) return;
+    if (state.phase === 'awaitingDraw') {
+      dispatch({ type: 'DRAW_FROM_DECK' });
+    } else if (state.phase === 'awaitingAdditionalActionChoice') {
+      dispatch({ type: 'CHOOSE_ADDITIONAL_DRAW' });
+    }
   };
 
   const seatedOpponents = useMemo(() => {
@@ -201,7 +210,7 @@ export default function App() {
               interactivePairs={interactivePairs}
               onPairClick={handlePairClick}
               onDeckClick={handleDeckClick}
-              canDrawFromDeck={fieldInteractive}
+              canDrawFromDeck={deckInteractive}
               topPlayer={seatedOpponents.top}
               leftPlayer={seatedOpponents.left}
               rightPlayer={seatedOpponents.right}
@@ -241,7 +250,6 @@ export default function App() {
             state={state}
             isYourTurn={isYourTurn}
             youId={you}
-            dispatch={dispatch}
             rightSlot={giftConfirmSlot}
           />
           {showGiftBar ? (

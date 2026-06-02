@@ -50,6 +50,13 @@ const PLACEMENT_PHASES: Partial<Record<Phase, PlacementPhaseConfig>> = {
     getInteractiveSlots: allSlotIndices,
     makeAction: (_, slotIndex) => ({ type: 'PLACE_ADDITIONAL_DRAW', slotIndex }),
   },
+  // 流星魔法後の種類選択フェーズ。スロット最上段クリックを「取り除き」に直結させ、
+  // ボタンを介さず 1 クリックで捨札できるようにする（山札クリック＝ドローは App 側で処理）。
+  awaitingAdditionalActionChoice: {
+    getCards: () => [],
+    getInteractiveSlots: nonEmptySlotIndices,
+    makeAction: (_, slotIndex) => ({ type: 'DISCARD_TOP', slotIndex }),
+  },
   awaitingAdditionalDiscard: {
     getCards: () => [],
     getInteractiveSlots: nonEmptySlotIndices,

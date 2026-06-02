@@ -1,11 +1,10 @@
 import type { ReactNode } from 'react';
-import type { Action, GameState } from '../game/types';
+import type { GameState } from '../game/types';
 
 interface Props {
   state: GameState;
   isYourTurn: boolean;
   youId: number;
-  dispatch: (action: Action) => void;
   rightSlot?: ReactNode;
 }
 
@@ -37,7 +36,7 @@ function describePhase(state: GameState, isYourTurn: boolean, youId: number): st
     case 'resolvingCombos':
       return '連鎖判定中...';
     case 'awaitingAdditionalActionChoice':
-      return '流星魔法発動！ 追加アクションを選んでください';
+      return '流星魔法発動！ 山札をクリックして1枚引く、またはスロット最上段をクリックして取り除く';
     case 'awaitingPlaceAdditionalDraw':
       return '引いたカードを置くスロットを選んでください';
     case 'awaitingAdditionalDiscard':
@@ -53,14 +52,9 @@ export function ActionPanel({
   state,
   isYourTurn,
   youId,
-  dispatch,
   rightSlot,
 }: Props) {
   const message = describePhase(state, isYourTurn, youId);
-  // 山札と捨札が両方空のときはドロー不可（補充元が無いため）。
-  const canDrawAdditional = state.deck.length > 0 || state.discardPile.length > 0;
-  // 全スロットが空のときは取り除き不可。smartAI / actionSpace と同じガード条件。
-  const canDiscard = state.players[youId].board.slots.some((s) => s.stack.length > 0);
 
   return (
     <section className="action-panel" aria-label="操作パネル">
@@ -68,28 +62,6 @@ export function ActionPanel({
         {state.endTriggered && <span className="badge badge-warning">最終ラウンド</span>}
         <span className="action-message-text">{message}</span>
         {rightSlot}
-      </div>
-      <div className="action-buttons">
-        {state.phase === 'awaitingAdditionalActionChoice' && isYourTurn && (
-          <>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => dispatch({ type: 'CHOOSE_ADDITIONAL_DRAW' })}
-              disabled={!canDrawAdditional}
-            >
-              山札から1枚引いて配置
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => dispatch({ type: 'CHOOSE_ADDITIONAL_DISCARD' })}
-              disabled={!canDiscard}
-            >
-              スロット最上段を1枚捨札
-            </button>
-          </>
-        )}
       </div>
     </section>
   );
