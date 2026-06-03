@@ -38,11 +38,6 @@
   --card-purple: #773ea0;  --card-purple-pale: #a078bc;
   --card-blue:   #2d8fbb;  --card-blue-pale:   #6cb1cf;
 
-  /* ===== 先手マーカー（金） ===== */
-  --marker-hi: #fff0a8;
-  --marker-lo: #d99220;
-  --marker-text: #2a1a00;
-
   /* ===== 裏向きカード（紺） ===== */
   --facedown-hi: #1c2660;
   --facedown-lo: #0a1230;
@@ -520,36 +515,41 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   z-index: 3;
   width: calc(var(--card-size) * 0.55);
   height: calc(var(--card-size) * 0.55);
-  border-radius: 50%;
+  /* カード赤より色相を桃側へずらしたピンク赤。縁取りは黒。 */
+  background: #d2426e;
+  border: calc(var(--card-size) * 0.035) solid rgb(var(--rgb-black));
+  border-radius: calc(var(--card-size) * 0.1);
+  box-shadow: 0 2px 4px rgba(var(--rgb-black), 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at 30% 30%, var(--marker-hi), var(--marker-lo));
-  box-shadow: 0 0 8px rgba(var(--rgb-accent-strong), 0.6), 0 2px 4px rgba(var(--rgb-black), 0.5);
-  font-weight: 800;
-  font-size: calc(var(--card-size) * 0.2);
-  color: var(--marker-text);
-  letter-spacing: 0.04em;
+  overflow: hidden;
+}
+.start-marker-crest {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 
+/* top(CPU-2)・right(CPU-3) は対面/側面でスロットの並びが逆に見えるため、1-2 枚目境界は ＋ 側。 */
 .start-marker-top {
   top: calc(var(--card-size) * 0.05);
-  left: calc(50% + var(--card-size) * 1.4);
+  left: calc(50% + (var(--card-size) + var(--gap)) * 1.5);
   transform: translateX(-50%);
 }
 .start-marker-bottom {
   bottom: calc(var(--card-size) * 0.05);
-  left: calc(50% + var(--card-size) * 1.4);
+  left: calc(50% - (var(--card-size) + var(--gap)) * 1.5);
   transform: translateX(-50%);
 }
 .start-marker-left {
   left: calc(var(--card-size) * 0.05);
-  top: calc(50% + var(--card-size) * 1.4);
+  top: calc(50% - (var(--card-size) + var(--gap)) * 1.5);
   transform: translateY(-50%);
 }
 .start-marker-right {
   right: calc(var(--card-size) * 0.05);
-  top: calc(50% + var(--card-size) * 1.4);
+  top: calc(50% + (var(--card-size) + var(--gap)) * 1.5);
   transform: translateY(-50%);
 }
 

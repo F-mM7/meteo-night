@@ -114,10 +114,32 @@ const LINK_TICKS = [
   ...linkTicks(FAR, FAR - CORNER_GAP, FAR - CORNER_GAP, FAR),                                 // 右下
 ];
 
+// 円環: 外＝楕円・内＝楕円を evenodd で抜いた環。45° 回転で右上-左下を太く・左上-右下を細く。
+const RING_D =
+  'M23.5,50 a26.5,29.5 0 1,0 53,0 a26.5,29.5 0 1,0 -53,0 Z M24.5,50 a25.5,22.5 0 1,0 51,0 a25.5,22.5 0 1,0 -51,0 Z';
+
+// back とスタートプレイヤーマーカーで共通の中央エンブレム（淡青の円環＋金の流星十字）。
+// viewBox 0 0 100 100 を前提に、親 <svg> の中へ置いて使う。
+export function CrestEmblem() {
+  const star = useId();
+  return (
+    <>
+      <defs>
+        <radialGradient id={star} cx="0.5" cy="0.5" r="0.5">
+          <stop offset="0" stopColor="#f6e042" />
+          <stop offset="0.55" stopColor="#f9ee95" />
+          <stop offset="1" stopColor="#ffffff" />
+        </radialGradient>
+      </defs>
+      <path className="crest-ring" fillRule="evenodd" transform="rotate(45 50 50)" d={RING_D} />
+      <path className="crest-star" d={STAR_D} fill={`url(#${star})`} />
+    </>
+  );
+}
+
 export function MeteoCrest() {
   // 複数の裏向きカードが同時に並ぶため、グラデーション ID をインスタンスごとに一意化する
   const uid = useId();
-  const star = `${uid}s`;
   const panel = `${uid}p`;
   return (
     <svg className="card-back-crest" viewBox="0 0 100 100" aria-hidden>
@@ -126,11 +148,6 @@ export function MeteoCrest() {
           <stop offset="0" stopColor="#331d58" />
           <stop offset="0.55" stopColor="#180e2c" />
           <stop offset="1" stopColor="#000000" />
-        </radialGradient>
-        <radialGradient id={star} cx="0.5" cy="0.5" r="0.5">
-          <stop offset="0" stopColor="#f6e042" />
-          <stop offset="0.55" stopColor="#f9ee95" />
-          <stop offset="1" stopColor="#ffffff" />
         </radialGradient>
       </defs>
       <rect x="-1" y="-1" width="102" height="102" fill={`url(#${panel})`} />
@@ -156,14 +173,7 @@ export function MeteoCrest() {
       {LINK_TICKS.map((s, i) => (
         <line key={`k${i}`} className="crest-line" x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} />
       ))}
-      {/* 円環: 外＝楕円・内＝楕円を evenodd で抜いた環。45° 回転で右上-左下を太く・左上-右下を細く。 */}
-      <path
-        className="crest-ring"
-        fillRule="evenodd"
-        transform="rotate(45 50 50)"
-        d="M23.5,50 a26.5,29.5 0 1,0 53,0 a26.5,29.5 0 1,0 -53,0 Z M24.5,50 a25.5,22.5 0 1,0 51,0 a25.5,22.5 0 1,0 -51,0 Z"
-      />
-      <path className="crest-star" d={STAR_D} fill={`url(#${star})`} />
+      <CrestEmblem />
     </svg>
   );
 }

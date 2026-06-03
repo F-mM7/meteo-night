@@ -1,3 +1,5 @@
+import { CrestEmblem } from './CardView';
+
 interface Props {
   position: 'top' | 'bottom' | 'left' | 'right';
 }
@@ -9,9 +11,14 @@ export function StartPlayerMarker({ position }: Props) {
       aria-label="スタートプレイヤー"
       title="スタートプレイヤー"
     >
-      <span className="start-marker-symbol" aria-hidden>
-        SP
-      </span>
+      <svg
+        className="start-marker-crest"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="xMidYMid meet"
+        aria-hidden
+      >
+        <CrestEmblem />
+      </svg>
     </div>
   );
 }
