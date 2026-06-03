@@ -86,6 +86,9 @@ html, body, #root {
   padding: 0;
   height: 100%;
   overflow: hidden;
+  /* overflow: hidden だけではモバイル（特に iOS Safari）で引っ張り更新やバウンスにより
+     ページ自体が動くため、overscroll を抑止してページのスクロールを完全に禁止する。 */
+  overscroll-behavior: none;
 }
 
 body {
