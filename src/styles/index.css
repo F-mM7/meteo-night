@@ -110,15 +110,32 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   z-index: 0;
 }
 
-/* 個々の星。位置(left/top %)・サイズ(px)・不透明度は BgStars.tsx が乱数で inline 付与する。
-   タイルの繰り返しを使わず画面全体へ一意配置するため、継ぎ目（繰り返し）が一切出ない。 */
+/* 天の川：画面を斜めに横切る淡い光の帯。個々の星には分解せず、霞として 1 枚重ねる。 */
+.bg-milkyway {
+  position: absolute;
+  inset: -30%;
+  background: radial-gradient(
+    ellipse 70% 18% at 50% 50%,
+    rgba(var(--rgb-milkyway), 0.06),
+    rgba(var(--rgb-milkyway), 0.025) 45%,
+    transparent 72%
+  );
+  transform: rotate(-24deg);
+}
+
+/* 個々の星。位置(left/top %)・サイズ(px)・不透明度・色(--c)・グロー(--glow)は
+   BgStars.tsx が等級分布と B−V から計算して inline 付与する。タイル繰り返しを使わず
+   画面全体へ一意配置するため継ぎ目が一切出ない。大きさの差ではなく芯＋グローのにじみで
+   明るさを表す（実際の星は点で、見かけの大小は回折・眼内散乱によるにじみだから）。 */
 .bg-star {
   position: absolute;
   border-radius: 50%;
-  background: rgb(var(--rgb-white));
+  background: var(--c, #fff);
 }
-.bg-star-warm {
-  background: rgb(var(--rgb-accent));
+/* 明るい星のみ：芯＋丸いグロー。十字スパイクは肉眼の空には出ないため使わない。 */
+.bg-star.is-bright {
+  background: radial-gradient(circle, #fff 0%, var(--c) 55%, transparent 100%);
+  box-shadow: 0 0 var(--glow, 0) var(--c);
 }
 
 /* ---------- header ---------- */
