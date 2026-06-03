@@ -31,12 +31,12 @@
   --info: rgb(var(--rgb-info));
   --warn: #ff4d6d;
 
-  /* ===== 星のかけら 5 色（hi = グラデ上部の明色 / lo = 下部の暗色） ===== */
-  --card-red-hi: #ff7d8a;     --card-red-lo: #c92238;
-  --card-green-hi: #6de2a0;   --card-green-lo: #1d8e58;
-  --card-yellow-hi: #ffe478;  --card-yellow-lo: #d0a000;
-  --card-purple-hi: #c98cff;  --card-purple-lo: #6a2adc;
-  --card-blue-hi: #6dd6ff;    --card-blue-lo: #1c84c0;
+  /* ===== 星のかけら 5 色（中心=参考絵柄の最彩度色 / 外周=同色相の明色。正方形状の放射グラデ） ===== */
+  --card-red:    #d23f3f;  --card-red-pale:    #e07979;
+  --card-green:  #68b032;  --card-green-pale:  #95c870;
+  --card-yellow: #efdb32;  --card-yellow-pale: #f4e670;
+  --card-purple: #773ea0;  --card-purple-pale: #a078bc;
+  --card-blue:   #2d8fbb;  --card-blue-pale:   #6cb1cf;
 
   /* ===== 先手マーカー（金） ===== */
   --marker-hi: #fff0a8;
@@ -782,9 +782,9 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   width: calc(var(--card-size) * var(--card-scale));
   height: calc(var(--card-size) * var(--card-scale));
   /* border の太さと角丸はカードの実寸（card-size × card-scale）に比例。
-     基準: card-size 72px × card-scale 1.0 のとき border ≈ 1px, radius ≈ 8px。 */
-  border: calc(var(--card-size) * var(--card-scale) * 0.014) solid rgb(var(--rgb-black));
-  border-radius: calc(var(--card-size) * var(--card-scale) * 0.11);
+     基準: card-size 72px × card-scale 1.0 のとき border ≈ 4.5px, radius ≈ 4.5px。 */
+  border: calc(var(--card-size) * var(--card-scale) * 0.0625) solid rgb(var(--rgb-black));
+  border-radius: calc(var(--card-size) * var(--card-scale) * 0.0625);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -793,11 +793,19 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   overflow: hidden;
 }
 
-.card-red    { background: radial-gradient(ellipse at top, var(--card-red-hi), var(--card-red-lo)); }
-.card-green  { background: radial-gradient(ellipse at top, var(--card-green-hi), var(--card-green-lo)); }
-.card-yellow { background: radial-gradient(ellipse at top, var(--card-yellow-hi), var(--card-yellow-lo)); }
-.card-purple { background: radial-gradient(ellipse at top, var(--card-purple-hi), var(--card-purple-lo)); }
-.card-blue   { background: radial-gradient(ellipse at top, var(--card-blue-hi), var(--card-blue-lo)); }
+/* 横・縦の linear-gradient を lighten 合成 → 等高線がカード辺と平行な「正方形状」の放射グラデになる。
+   各軸とも中央 20–80% は中心色を保持し、外周のみ同色相の明色へ（縁に近づくほど明るい）。 */
+.card-red,
+.card-green,
+.card-yellow,
+.card-purple,
+.card-blue { background-blend-mode: lighten; }
+
+.card-red    { background: linear-gradient(to right, var(--card-red-pale),    var(--card-red) 20% 80%,    var(--card-red-pale)),    linear-gradient(to bottom, var(--card-red-pale),    var(--card-red) 20% 80%,    var(--card-red-pale)); }
+.card-green  { background: linear-gradient(to right, var(--card-green-pale),  var(--card-green) 20% 80%,  var(--card-green-pale)),  linear-gradient(to bottom, var(--card-green-pale),  var(--card-green) 20% 80%,  var(--card-green-pale)); }
+.card-yellow { background: linear-gradient(to right, var(--card-yellow-pale), var(--card-yellow) 20% 80%, var(--card-yellow-pale)), linear-gradient(to bottom, var(--card-yellow-pale), var(--card-yellow) 20% 80%, var(--card-yellow-pale)); }
+.card-purple { background: linear-gradient(to right, var(--card-purple-pale), var(--card-purple) 20% 80%, var(--card-purple-pale)), linear-gradient(to bottom, var(--card-purple-pale), var(--card-purple) 20% 80%, var(--card-purple-pale)); }
+.card-blue   { background: linear-gradient(to right, var(--card-blue-pale),   var(--card-blue) 20% 80%,   var(--card-blue-pale)),   linear-gradient(to bottom, var(--card-blue-pale),   var(--card-blue) 20% 80%,   var(--card-blue-pale)); }
 
 .card-crystal {
   width: 78%;
@@ -841,40 +849,37 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 .seat-right .card-crystal { transform: rotate(-90deg); }
 
 .card-facedown {
-  background:
-    radial-gradient(circle at 50% 30%, rgba(var(--rgb-accent), 0.18), transparent 60%),
-    linear-gradient(180deg, var(--facedown-hi), var(--facedown-lo));
+  background: rgb(var(--rgb-white));   /* カードの縁は白（細め） */
+  border-color: rgb(var(--rgb-white));
+  /* 縁は白 5%。内側の黒正方形の角を直角に保つため border = radius にする。 */
+  border-width: calc(var(--card-size) * var(--card-scale) * 0.05);
+  border-radius: calc(var(--card-size) * var(--card-scale) * 0.05);
 }
-/* 裏面の紋章: 内枠・四隅の光珠・夜空の円盤・金の流星十字。
-   円盤と星のグラデーションは SVG 内 defs（イラスト固有色）。輪郭・枠・珠は既存トークンを流用。 */
+/* 裏面の紋章: 縁内側の黒い正方形パネル・四隅の光珠・天体の円盤・流星十字。
+   円盤と星のグラデーションは SVG 内 defs（イラスト固有色）。パネル・珠・輪郭は既存トークンを流用。 */
 .card-back-crest {
   width: 100%;
   height: 100%;
   pointer-events: none;
 }
-.crest-frame {
+/* 縁のすぐ内側の黒い正方形（角丸なし）。塗りは SVG 側で中央=暗紫→外周=黒の放射グラデ。 */
+.crest-line {                          /* 左上・右下隅から伸びる装飾線 */
   fill: none;
-  stroke: rgba(var(--rgb-white), 0.42);
-  stroke-width: 1.3;
+  stroke: rgba(var(--rgb-accent), 0.85);
+  stroke-width: 1.6;
+  stroke-linecap: round;
 }
-.crest-bead { fill: rgba(var(--rgb-accent), 0.85); }   /* 右上・左下に連なる主の光珠 */
-.crest-tick { fill: rgba(var(--rgb-white), 0.5); }      /* 左上・右下の控えめな点 */
-.crest-halo {
-  fill: none;
-  stroke: #c2c8ff;                 /* 円盤を縁取る青白い暈 */
-  stroke-opacity: 0.65;
-  stroke-width: 1.8;
-}
-.crest-disc-rim {
-  fill: none;
-  stroke: rgba(var(--rgb-black), 0.42);
-  stroke-width: 1;
+.crest-dot { fill: rgba(var(--rgb-accent), 0.85); }   /* 右上を結ぶ 90° 点弧 */
+.crest-ring {
+  /* 環状の塗り（縁取りなし・やや透過）。太さの対角変化はパスの内外楕円で付ける。 */
+  fill: #e6edff;                   /* 白に近い淡い青 */
+  fill-opacity: 0.9;
 }
 .crest-star {
-  stroke: rgba(var(--rgb-white), 0.92);
+  stroke: rgb(var(--rgb-black));
   stroke-width: 1.5;
   stroke-linejoin: round;
-  filter: drop-shadow(0 0 1.4px rgba(var(--rgb-accent-strong), 0.75));
+  filter: drop-shadow(0 0 1.4px rgba(var(--rgb-accent), 0.7));
 }
 
 .card-emphasized {
@@ -993,16 +998,20 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 .pile-interactive .card-facedown { outline: 2px solid var(--accent-strong); outline-offset: 1px; }
 .pile-stack { position: relative; }
 
+/* 残枚数バッジ: 裏面の紋章（中央の星）と重ならないよう下端のピルに収める */
 .deck-count {
   position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  left: 50%;
+  bottom: calc(var(--card-size) * 0.05);
+  transform: translateX(-50%);
+  padding: calc(var(--card-size) * 0.02) calc(var(--card-size) * 0.10);
+  border-radius: 999px;
+  background: rgba(var(--rgb-black), 0.62);
   font-weight: 800;
-  font-size: calc(var(--card-size) * 0.32);
+  font-size: calc(var(--card-size) * 0.21);
+  line-height: 1;
   color: var(--accent);
-  text-shadow: 0 2px 4px rgba(var(--rgb-black), 0.6);
+  text-shadow: 0 1px 2px rgba(var(--rgb-black), 0.7);
   z-index: 2;
 }
 

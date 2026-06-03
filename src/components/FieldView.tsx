@@ -1,5 +1,5 @@
 import type { FieldPair } from '../game/types';
-import { CardView } from './CardView';
+import { CardView, MeteoCrest } from './CardView';
 
 interface Props {
   field: [FieldPair, FieldPair];
@@ -52,6 +52,7 @@ export function FieldView({
       >
         <div className="pile-stack">
           <div className="card card-facedown">
+            <MeteoCrest />
             <span className="deck-count">{deckSize}</span>
           </div>
         </div>
