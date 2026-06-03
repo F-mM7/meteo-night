@@ -15,7 +15,7 @@
 - ⚠️ **レイテンシ**: LA=1 は 1 手 ~1 秒（中央値, ≥500ms が 73%）と重い。メインスレッドを止めないよう **Web Worker(`src/ai/aiWorker.ts`)で off-main-thread 実行**（`useGameLogic.ts` が非同期呼び出し＋世代ゲーティング＋同期フォールバック）。体感 OK 確認済み
 - ⚠️ vs smart は盲点を共有して測れない。 物差しは `_fast_bench.ts` / `_la_bench.ts`（候補 vs 現状）+ `elo-ladder.ts`
 - **旧版**: Gen-4-B(tempoFast LA=0, 最悪 1s)→ Gen-4-A(tempoAI 無制限探索, 21s 裾)→ Gen-3-X mcts。いずれも強さは LA=1 未満 or 同等
-- **未解決（探索アプローチは天井）**: 葉も horizon も尽きた。horizon=1 で一度突破したが lookahead=2（@1000 20%/@2500 14.6%）・opp=tempo（16.7%）はいずれも LA=1 未満＝**lookahead=1 が sweet spot**。NN 近似も前提 refuted。残る唯一のレバーは**人間棋譜の模倣学習**（凍結中・別路線・要対局記録）
+- **未解決（探索アプローチは天井）**: 葉も horizon も尽きた。horizon=1 で一度突破したが lookahead=2（@1000 20%/@2500 14.6%）・opp=tempo（16.7%）・終盤適応LA・budget2000（Gen-6, n=400 で 27.8% parity）はいずれも LA=1/budget1000 を超えず＝**lookahead=1 + budget1000 が sweet spot**。NN 近似も前提 refuted。残る唯一のレバーは**人間棋譜の模倣学習**（凍結中・別路線・要対局記録）
 - 🔄 **ゲーム設定 (2026-06-03)**: 山札 **120 枚（各色 24）**（旧 100 枚）。Gen-5 で重み再調整したが **現重み（chainReadyMult=10 / tempoChainW=50）が最適＝parity**（各色 20% の分布は 100 枚時と不変で最適点が動かない）。AI は山札サイズ非依存のため Gen-4-C 据置
 
 ### 試行中の方向性
@@ -61,6 +61,7 @@
 | **4-B** | レイテンシ有界化（時間予算 + 反復深化 + αβ + 置換表）| **完了・反映**：最悪 21s→1s、 強さは Gen-4-A 同等 |
 | **4-C** | **lookahead=1（horizon）+ Web Worker** | **完了・反映＝現状最強**：現 tempo に +8pt(33%)。 lookahead=2 以上・opp=tempo・NN は頭打ち＝探索アプローチ天井 |
 | **Gen-5** | ルール変更（山札 120 枚化）+ 重み再調整 | **完了**：現重み据置（parity, 各色 20% の分布不変）。 Gen-4-C を 120 枚で再検証・反映継続 |
+| Gen-6 | 終盤適応先読み(A) + 思考予算増(B) | **完了**：A 不発(終盤 LA=2 も配置探索を削り parity〜微悪)・B parity(budget2000 も n=400 で 27.8%)。据置＝探索アプローチ天井を再確認 |
 | 5 | 人間棋譜の模倣学習（self-play 天井を上位教師で破る）| 未着手・凍結中。 要対局記録 |
 
 ---
@@ -146,3 +147,4 @@ npx tsx ai/scripts/elo-ladder.ts --ais random,smart,mctsGen3X,tempo50 --games 0 
 | **Gen-4-C** | **lookahead=1 + Web Worker** | 現 tempo に +8pt(33%) ← 反映・**現状最強** |
 | ~~Gen-4 探索ラウンド~~ | LA=2 / opp=tempo / 学習価値 v1·v2·残差 / ギフト / 重み再tune | いずれも parity-下、 不採用＝**探索アプローチ天井**（CHANGELOG 参照）|
 | **Gen-5** | ルール変更（山札 120 枚化）+ 重み再調整 | 現重み据置（parity, 3 seed×2 horizon）＝AI 不変、 Gen-4-C 継続 |
+| ~~Gen-6~~ | 終盤適応先読み(A) / 思考予算増 budget2000(B) | A 不発・B parity(n=400, 27.8%)＝据置。探索系の主要レバー出尽くし |
