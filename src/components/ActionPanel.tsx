@@ -42,7 +42,7 @@ function describePhase(state: GameState, isYourTurn: boolean, youId: number): st
     case 'awaitingAdditionalDiscard':
       return '取り除くスロットを選んでください';
     case 'awaitingGiftSelection':
-      return 'カードを渡す相手を選んでください';
+      return '誰に渡す？';
     default:
       return '';
   }

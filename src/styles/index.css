@@ -56,7 +56,7 @@
   --btn-primary-grad:    linear-gradient(135deg, var(--accent-strong), var(--accent-warm));
   --btn-primary-grad-hi: linear-gradient(135deg, var(--accent-strong-hi), var(--accent-warm));
   --btn-primary-fg:      var(--accent-text);
-  /* 副アクション・選択肢（明るい紫）。secondary と target 未選択で共有 */
+  /* 副アクション（明るい紫）。.btn の地色と、配布先ボタン（btn-target）の hover で共有 */
   --btn-sub-bg:          rgb(var(--rgb-night-purple));
   --btn-sub-bg-hover:    rgb(var(--rgb-night-purple-hi));
   /* 手札選択の金枠 */
@@ -1165,11 +1165,11 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 /* ---------- gift bar (action-area inline) ---------- */
-/* 配布コンポーネントを横並びで表示する独立領域。決定ボタンは action-message 側に置く。
-   デフォルトは 3 列 × 2 行（最大 6 個）。7 個以上は `--gift-cols` を増やして
-   常に 2 行以内に収める（GiftBar.tsx から指定）。 */
+/* 配布コンポーネントを並べる独立領域。決定ボタンは action-message 側に置く。
+   デフォルトは 2 列 × 3 行（最大 6 個）。7 個以上は `--gift-cols` を増やして
+   常に 3 行以内に収める（GiftBar.tsx から指定）。 */
 .gift-bar {
-  --gift-cols: 3;
+  --gift-cols: 2;
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
@@ -1177,15 +1177,14 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   min-width: 0;
 }
 
-/* 各配布コンポーネントは上下2段: 上がカード、下が受領者選択肢。
-   幅は `--gift-cols` 等分。N≤6 は 3 列、N=7,8 は 4 列…と列数が増える。 */
+/* 各配布コンポーネントはカードアイコンと受領者ボタンを 1 列に横並びする。
+   幅は `--gift-cols` 等分。N≤6 は 2 列、N=7..9 は 3 列、N=10.. は 4 列…と列数が増える。 */
 .gift-bar-row {
   flex: 0 1 calc((100% - (var(--gift-cols) - 1) * 6px) / var(--gift-cols));
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   gap: 6px;
-  padding: 6px;
   border-radius: var(--radius-sm);
   background: rgba(var(--rgb-panel-purple), 0.55);
   min-width: 0;
@@ -1199,23 +1198,42 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   flex-shrink: 0;
 }
 
+/* 受領者ボタン群はカードの右隣で残り幅を占め、内部で等分する。 */
 .gift-bar-row-targets {
+  flex: 1 1 0;
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
   gap: 4px;
-  width: 100%;
+  min-width: 0;
 }
 
+/* 高さはカードアイコン（36px）に揃える。CPU-n の文字はボタン幅に追従して
+   伸縮させ（container query / cqw）、字間を詰めつつ収める。極端に長い名前は
+   親の overflow:hidden で切り詰める。 */
 .btn-target {
   flex: 1 1 0;
   min-width: 0;
-  padding: 4px 6px;
-  font-size: 11px;
+  height: 36px;
+  padding: 0 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  /* ラベル文字をボタン幅基準（cqw）で伸縮させるためのクエリコンテナ */
+  container-type: inline-size;
+  /* 未選択は暗い紫（panel-purple）を地にする。地のギフト行（同色 55%）より
+     明るく浮き、hover で副系の明るい紫まで持ち上げる。 */
+  background: rgb(var(--rgb-panel-purple));
+}
+.btn-target:hover { background: var(--btn-sub-bg); }
+/* 文字はボタン幅に追従（狭→8px / 広→14px でクランプ） */
+.btn-target-label {
+  font-size: clamp(8px, 24cqw, 14px);
 }
 .btn-target.selected {
   background: var(--btn-primary-grad);

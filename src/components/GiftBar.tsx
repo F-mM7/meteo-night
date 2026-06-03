@@ -9,10 +9,10 @@ interface Props {
   setTargets: React.Dispatch<React.SetStateAction<(number | null)[]>>;
 }
 
-// 高さを常に 2 行以内に抑えたいので、配布数 N に対して列数を
-// `max(3, ceil(N / 2))` で導出する（N≤6 は 3 列、N=7,8 は 4 列、…）。
-const GIFT_DEFAULT_COLS = 3;
-const GIFT_MAX_ROWS = 2;
+// 高さを常に 3 行以内に抑えたいので、配布数 N に対して列数を
+// `max(2, ceil(N / 3))` で導出する（N≤6 は 2 列、N=7..9 は 3 列、N=10.. は 4 列…）。
+const GIFT_DEFAULT_COLS = 2;
+const GIFT_MAX_ROWS = 3;
 
 export function GiftBar({ state, targets, setTargets }: Props) {
   const queue = state.turn.giftQueue;
@@ -46,7 +46,7 @@ export function GiftBar({ state, targets, setTargets }: Props) {
                   className={`btn btn-target${targets[idx] === p.id ? ' selected' : ''}`}
                   onClick={() => updateTarget(idx, p.id)}
                 >
-                  {p.name}
+                  <span className="btn-target-label">{p.name}</span>
                 </button>
               ))}
             </div>
