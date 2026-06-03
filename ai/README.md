@@ -16,6 +16,7 @@
 - ⚠️ vs smart は盲点を共有して測れない。 物差しは `_fast_bench.ts` / `_la_bench.ts`（候補 vs 現状）+ `elo-ladder.ts`
 - **旧版**: Gen-4-B(tempoFast LA=0, 最悪 1s)→ Gen-4-A(tempoAI 無制限探索, 21s 裾)→ Gen-3-X mcts。いずれも強さは LA=1 未満 or 同等
 - **未解決（探索アプローチは天井）**: 葉も horizon も尽きた。horizon=1 で一度突破したが lookahead=2（@1000 20%/@2500 14.6%）・opp=tempo（16.7%）はいずれも LA=1 未満＝**lookahead=1 が sweet spot**。NN 近似も前提 refuted。残る唯一のレバーは**人間棋譜の模倣学習**（凍結中・別路線・要対局記録）
+- 🔄 **ゲーム設定 (2026-06-03)**: 山札 **120 枚（各色 24）**（旧 100 枚）。Gen-5 で重み再調整したが **現重み（chainReadyMult=10 / tempoChainW=50）が最適＝parity**（各色 20% の分布は 100 枚時と不変で最適点が動かない）。AI は山札サイズ非依存のため Gen-4-C 据置
 
 ### 試行中の方向性
 
@@ -59,6 +60,7 @@
 | **4-A** | **tempoAI（ターン内完全読み + テンポ評価）** | **完了・ブラウザ反映**：vs Gen-3-X mcts ~55%。 多ターン連鎖計画を探索構造で実現＝「葉の天井」 突破 |
 | **4-B** | レイテンシ有界化（時間予算 + 反復深化 + αβ + 置換表）| **完了・反映**：最悪 21s→1s、 強さは Gen-4-A 同等 |
 | **4-C** | **lookahead=1（horizon）+ Web Worker** | **完了・反映＝現状最強**：現 tempo に +8pt(33%)。 lookahead=2 以上・opp=tempo・NN は頭打ち＝探索アプローチ天井 |
+| **Gen-5** | ルール変更（山札 120 枚化）+ 重み再調整 | **完了**：現重み据置（parity, 各色 20% の分布不変）。 Gen-4-C を 120 枚で再検証・反映継続 |
 | 5 | 人間棋譜の模倣学習（self-play 天井を上位教師で破る）| 未着手・凍結中。 要対局記録 |
 
 ---
@@ -143,3 +145,4 @@ npx tsx ai/scripts/elo-ladder.ts --ais random,smart,mctsGen3X,tempo50 --games 0 
 | **Gen-4-B** | 時間予算 + 反復深化 + αβ + 置換表 | 強さ同等・最悪 21s→1s ← 反映 |
 | **Gen-4-C** | **lookahead=1 + Web Worker** | 現 tempo に +8pt(33%) ← 反映・**現状最強** |
 | ~~Gen-4 探索ラウンド~~ | LA=2 / opp=tempo / 学習価値 v1·v2·残差 / ギフト / 重み再tune | いずれも parity-下、 不採用＝**探索アプローチ天井**（CHANGELOG 参照）|
+| **Gen-5** | ルール変更（山札 120 枚化）+ 重み再調整 | 現重み据置（parity, 3 seed×2 horizon）＝AI 不変、 Gen-4-C 継続 |

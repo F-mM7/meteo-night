@@ -12,11 +12,13 @@ disable-model-invocation: false
 
 ## 現在地（2026-06 時点・必ず最新は CHANGELOG で確認）
 
+> 🔄 **ルール (Gen-5, 2026-06-03)**: 山札 **120 枚（各色 24）**（旧 100 枚）。 重み再調整したが現重み最適（parity, 3 seed×2 horizon）＝AI は Gen-4-C 据置。 各色 20% の分布は不変なので最適点が動かない。
+
 - **現状最強 = tempoFast + lookahead=1（Gen-4-C）**: ターン内完全読み + テンポ評価 + 時間予算/反復深化/αβ/置換表に、**2-ply(相手手番を挟み次の自分の手番まで)先読み**を追加。現 tempoFast(LA=0) に有意勝ち(33%, n=300)。1 手 ~1 秒と重く **Web Worker(`src/ai/aiWorker.ts`)で off-main-thread 実行**。`src/ai/index.ts`→`tempoFastAI`(既定 LA=1) を export。
 - **強さ同等の素の版 = tempoAI（Gen-4-A）**: 同じ探索だがレイテンシ無制限（連鎖局面で最大 ~21 秒）。比較ベースラインに使う。
 - **構成**: 探索はほぼ完全（ターン内完全読み + 1-ply 先読み）、 葉 = `evaluateState`（`src/ai/evaluator.ts`）+ `multiColorChainReadiness * tempoChainW(50)`。 葉の改善も horizon の深掘りも一巡して頭打ち（下記 dead-end）＝**次の伸びしろは未踏の角度（人間評価・別アーキ等）に**。
 - **対象**: `src/ai/{tempoAI,tempoFastAI,evaluator}.ts`、`ai/scripts/{bench-self,_fast_bench,elo-ladder,_runner,stats}.ts`。
-- **既知の dead-end（＝同一構成の単純再試行は不要。別角度・大規模化・新手法は歓迎）**: NN priors（branching 5.1 で無効）、価値学習 v1/v2/残差（探索が葉の誤差に頑健で play は parity）、葉の重み再最適化（DEFAULT がほぼ最適・n=96 ではノイズを拾う）、多ターン連鎖**投影**（葉に貪欲ロールアウトを足す版＝弱い）、ギフト最適化、mcts ハイパラ、lookahead=2 / opp=tempo（予算内で頭打ち）。⚠️ **これらは「その構成」 が効かなかっただけ**：例えば価値学習を別の教師信号(shaped return)で／重み tune を ≥300-500 局/eval で／lookahead を別アーキ(turn-MCTS)で、 は別仮説として有効。理由は CHANGELOG（探索ラウンド 1〜3 + Gen-4-C + horizon 深掘り）。
+- **既知の dead-end（＝同一構成の単純再試行は不要。別角度・大規模化・新手法は歓迎）**: NN priors（branching 5.1 で無効）、価値学習 v1/v2/残差（探索が葉の誤差に頑健で play は parity）、葉の重み再最適化（DEFAULT がほぼ最適・n=96 ではノイズを拾う。 Gen-5 の 120 枚化後も再確認＝chainReadyMult/tempoChainW 上げは 3 seed×2 horizon で parity, 色分布不変）、多ターン連鎖**投影**（葉に貪欲ロールアウトを足す版＝弱い）、ギフト最適化、mcts ハイパラ、lookahead=2 / opp=tempo（予算内で頭打ち）。⚠️ **これらは「その構成」 が効かなかっただけ**：例えば価値学習を別の教師信号(shaped return)で／重み tune を ≥300-500 局/eval で／lookahead を別アーキ(turn-MCTS)で、 は別仮説として有効。理由は CHANGELOG（探索ラウンド 1〜3 + Gen-4-C + horizon 深掘り）。
 
 ## 前提
 
