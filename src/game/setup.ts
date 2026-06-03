@@ -10,7 +10,7 @@ import { COLORS } from './types';
 import { mulberry32, shuffle } from './rng';
 
 const DEFAULT_SLOTS = 5;
-const DEFAULT_CARDS_PER_COLOR = 20;
+const DEFAULT_CARDS_PER_COLOR = 24; // 5 色 × 24 = 120 枚（旧 20×5=100 から増量）
 
 function makeBoard(slots: number): PlayerBoard {
   return {
