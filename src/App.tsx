@@ -156,6 +156,27 @@ export default function App() {
 
   const { cardSize, layout, stackOffset, cssVars } = useBoardLayout(state, logVisible);
 
+  // モバイルの検索バー（アドレスバー）の出入りに合わせて、アプリ枠(.app-shell)を
+  // 実際に見えている範囲（visualViewport）へ正確に重ねる。レイアウトビューポートは
+  // 検索バーを含む最大高さに固定されるため、これをしないと枠が可視領域より大きく・
+  // 上方向へずれ、上端のヘッダーが検索バーの裏へ隠れることがある。
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const root = document.documentElement;
+    const sync = () => {
+      root.style.setProperty('--app-height', `${vv.height}px`);
+      root.style.setProperty('--app-offset', `${vv.offsetTop}px`);
+    };
+    sync();
+    vv.addEventListener('resize', sync);
+    vv.addEventListener('scroll', sync);
+    return () => {
+      vv.removeEventListener('resize', sync);
+      vv.removeEventListener('scroll', sync);
+    };
+  }, []);
+
   const discardedCardIdSet = useMemo(
     () => new Set(state.turn.discardedCardIds),
     [state.turn.discardedCardIds]

@@ -87,7 +87,11 @@ function calcDims(logVisible: boolean): BoardDims {
     };
   }
   const w = window.innerWidth;
-  const h = window.innerHeight;
+  // 枠（.app-shell）と同じく「検索バーを除いた実可視領域」の高さで盤面を解く。
+  // window.innerHeight はモバイルで検索バーを含む最大高さになることがあり、それで
+  // 解くと盤面・アクションが枠（可視領域）の下端からはみ出して切れるため、
+  // visualViewport.height を優先する（未対応環境は innerHeight にフォールバック）。
+  const h = window.visualViewport?.height ?? window.innerHeight;
 
   const availableW = w - APP_PADDING * 2;
   const availableH = h - HEADER_HEIGHT - APP_PADDING * 2;

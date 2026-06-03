@@ -107,13 +107,16 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 /* ---------- shell ---------- */
 .app-shell {
   position: relative;
-  /* 100vh はモバイルで検索バーを含む最大高さに固定されるため、検索バーの
-     出入りに追従する 100dvh を使い、JS 側の window.innerHeight ベースの寸法計算と
-     枠の高さを一致させる。dvh 非対応の古い環境向けに 100vh をフォールバックで先置き。 */
-  min-height: 100vh;
-  min-height: 100dvh;
+  /* モバイルの検索バー（アドレスバー）の出入りに枠を正確に追従させる。
+     レイアウトビューポート（100% / 100vh）は検索バーを含む最大高さに固定されるため、
+     これを枠に使うと検索バー表示時に枠が実際の可視領域より大きく・上方向へずれ、
+     上端のヘッダーが検索バーの裏へ回り込む。App 側が visualViewport から実可視領域の
+     高さ(--app-height)と上方向オフセット(--app-offset)を流し込み、枠を可視領域へ
+     ぴったり重ねる。JS 実行前・未対応環境は dvh（さらに古い環境は vh）でフォールバック。 */
   height: 100vh;
   height: 100dvh;
+  height: var(--app-height, 100dvh);
+  transform: translateY(var(--app-offset, 0px));
   display: flex;
   flex-direction: column;
   overflow: hidden;
