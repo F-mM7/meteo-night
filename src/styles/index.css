@@ -9,7 +9,6 @@
   --rgb-panel-purple: 40, 25, 60;     /* ギフト行・プレイヤーヘッダーに差す暗い紫（夜空の紫を暗くした同系色） */
   --rgb-accent: 255, 248, 196;        /* 淡い星明かりの黄白。流星の発光にも使用 */
   --rgb-accent-strong: 255, 210, 77;  /* 強い金。選択強調・脈動・先手マーカー発光 */
-  --rgb-info: 77, 201, 255;           /* 手番強調・システムログの青 */
   --rgb-black: 0, 0, 0;               /* 影 */
   --rgb-white: 255, 255, 255;         /* 星・ハイライト・破線 */
 
@@ -17,30 +16,34 @@
   --bg-deep: rgb(var(--rgb-bg-deep));
   --line: #2c3a7a;
 
-  /* ===== テキスト ===== */
-  --text: #f5f4ff;
-  --text-dim: #b5bcdf;
-  --text-mute: #8088b8;
-
   /* ===== アクセント・状態 ===== */
   --accent: rgb(var(--rgb-accent));
   --accent-strong: rgb(var(--rgb-accent-strong));
   --accent-strong-hi: #ffe17a;        /* プライマリボタン hover の明るい金 */
   --accent-warm: #ff9244;
-  --accent-text: #1a1300;             /* 金ボタン上に乗る暗文字 */
-  --info: rgb(var(--rgb-info));
-  --warn: #ff4d6d;
+  /* スタートプレイヤーマーカーの地。最終ラウンドの警告バッジにも流用する。
+     card-red と card-purple の中間の色相(314.6°)・彩度。 */
+  --marker: #cb49ab;
 
   /* ===== 星のかけら 5 色（中心=参考絵柄の最彩度色 / 外周=同色相の明色。正方形状の放射グラデ） ===== */
-  --card-red:    #d23f3f;  --card-red-pale:    #e07979;
-  --card-green:  #68b032;  --card-green-pale:  #95c870;
-  --card-yellow: #efdb32;  --card-yellow-pale: #f4e670;
-  --card-purple: #773ea0;  --card-purple-pale: #a078bc;
-  --card-blue:   #2d8fbb;  --card-blue-pale:   #6cb1cf;
+  --card-red:    #c9263a;  --card-red-pale:    #d66f7c;
+  --card-green:  #34a63b;  --card-green-pale:  #6cc472;
+  --card-yellow: #e9c115;  --card-yellow-pale: #e4ce70;
+  --card-purple: #6a388a;  --card-purple-pale: #9565b4;
+  --card-blue:   #159dcd;  --card-blue-pale:   #5abcde;
 
   /* ===== 裏向きカード（紺） ===== */
   --facedown-hi: #1c2660;
   --facedown-lo: #0a1230;
+
+  /* ===== 裏面紋章のイラスト固有色（CardView.tsx の SVG defs から参照） ===== */
+  --crest-star-core:  #f6e042;  /* 流星十字グラデ 中心の金（外周の白は --rgb-white を流用） */
+  --crest-star-mid:   #f9ee95;  /* 流星十字グラデ 中間の淡黄 */
+  --crest-panel-core: #331d58;  /* 裏面パネルグラデ 中心の暗紫（外周の黒は --rgb-black を流用） */
+  --crest-panel-mid:  #180e2c;  /* 裏面パネルグラデ 中間の濃紫 */
+
+  /* ===== 予約色（未使用。削除しないこと） ===== */
+  --sample: #895b8a;            /* 未使用。削除しないこと */
 
   /* ===== 影 ===== */
   --shadow-card: 0 4px 14px rgba(var(--rgb-black), 0.4), 0 2px 4px rgba(var(--rgb-black), 0.3);
@@ -50,7 +53,7 @@
   /* 主アクション（金グラデ） */
   --btn-primary-grad:    linear-gradient(135deg, var(--accent-strong), var(--accent-warm));
   --btn-primary-grad-hi: linear-gradient(135deg, var(--accent-strong-hi), var(--accent-warm));
-  --btn-primary-fg:      var(--accent-text);
+  --btn-primary-fg:      rgb(var(--rgb-black));
   /* 副アクション（明るい紫）。.btn の地色と、配布先ボタン（btn-target）の hover で共有 */
   --btn-sub-bg:          rgb(var(--rgb-night-purple));
   --btn-sub-bg-hover:    rgb(var(--rgb-night-purple-hi));
@@ -93,7 +96,7 @@ body {
     radial-gradient(ellipse 130% 100% at 50% 118%, rgba(var(--rgb-night-purple), 0.9), transparent 80%),
     var(--bg-deep);
   background-attachment: fixed;
-  color: var(--text);
+  color: rgb(var(--rgb-white));
 }
 
 button { font-family: inherit; }
@@ -181,14 +184,14 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   align-items: center;
   justify-content: center;
   padding: 0;
-  color: var(--text-dim);
+  color: rgb(var(--rgb-white));
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .hamburger-btn:hover,
 .hamburger-btn[aria-expanded='true'] {
   background: var(--ctrl-hover-bg);
-  color: var(--text);
+  color: rgb(var(--rgb-white));
   border-color: var(--ctrl-focus-border);
 }
 
@@ -224,7 +227,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   gap: 10px;
   min-height: 28px;
   font-size: 12px;
-  color: var(--text-dim);
+  color: rgb(var(--rgb-white));
 }
 
 .header-menu-label { letter-spacing: 0.08em; white-space: nowrap; }
@@ -248,7 +251,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 .stepper-btn {
   background: transparent;
-  color: var(--text-dim);
+  color: rgb(var(--rgb-white));
   border: 0;
   width: 22px;
   font-size: 14px;
@@ -265,7 +268,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 .stepper-btn:hover:not(:disabled) {
   background: var(--ctrl-hover-bg);
-  color: var(--text);
+  color: rgb(var(--rgb-white));
 }
 
 .stepper-btn:active:not(:disabled) {
@@ -287,7 +290,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 .stepper-input {
   background: transparent;
-  color: var(--text);
+  color: rgb(var(--rgb-white));
   border: 0;
   padding: 4px 4px;
   font-size: 12px;
@@ -486,16 +489,17 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   align-items: center;
   justify-content: center;
   gap: calc(var(--card-size) * 0.03);
-  padding: calc(var(--card-size) * 0.08) calc(var(--card-size) * 0.18);
+  padding: calc(var(--card-size) * 0.08) calc(var(--card-size) * 0.06);
+  width: calc(var(--card-size) * 1);   /* 4 枚のサイズを統一（名前長に依らない固定幅） */
   border-radius: var(--radius-sm);
-  background: rgba(var(--rgb-panel-purple), 0.7);
+  background: rgba(var(--rgb-black), 0.9);
   white-space: nowrap;
   transition: background 0.2s;
 }
 
 /* ターンプレイヤー強調。通常（暗い紫）→ 手番中（明るい紫）の色変化だけで示す。 */
 .player-header-card.header-current {
-  background: rgba(var(--rgb-night-purple), 0.7);
+  background: rgba(var(--rgb-night-purple), 0.9);
 }
 
 .player-name {
@@ -515,8 +519,8 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   z-index: 3;
   width: calc(var(--card-size) * 0.55);
   height: calc(var(--card-size) * 0.55);
-  /* カード赤より色相を桃側へずらしたピンク赤。縁取りは黒。 */
-  background: #d2426e;
+  /* カード赤より色相を桃側へずらしたピンク赤。縁取りは黒。最終ラウンドバッジと共通（--marker）。 */
+  background: var(--marker);
   border: calc(var(--card-size) * 0.035) solid rgb(var(--rgb-black));
   border-radius: calc(var(--card-size) * 0.1);
   box-shadow: 0 2px 4px rgba(var(--rgb-black), 0.5);
@@ -878,7 +882,8 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 .crest-dot { fill: rgba(var(--rgb-accent), 0.85); }   /* 右上を結ぶ 90° 点弧 */
 .crest-ring {
   /* 環状の塗り（縁取りなし・やや透過）。太さの対角変化はパスの内外楕円で付ける。 */
-  fill: #e6edff;                   /* 白に近い淡い青 */
+  fill: rgb(var(--rgb-white));
+
   fill-opacity: 0.9;
 }
 .crest-star {
@@ -915,22 +920,22 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   z-index: 2;
 }
 .center-area .pos-top {
-  top: calc(var(--card-size) * 0.05);
+  top: calc(var(--card-size) * 0.2);
   left: 50%;
   transform: translateX(-50%);
 }
 .center-area .pos-bottom {
-  bottom: calc(var(--card-size) * 0.05);
+  bottom: calc(var(--card-size) * 0.2);
   left: 50%;
   transform: translateX(-50%);
 }
 .center-area .pos-left {
-  left: calc(var(--card-size) * 0.05);
+  left: calc(var(--card-size) * 0.2);
   top: 50%;
   transform: translateY(-50%);
 }
 .center-area .pos-right {
-  right: calc(var(--card-size) * 0.05);
+  right: calc(var(--card-size) * 0.2);
   top: 50%;
   transform: translateY(-50%);
 }
@@ -1076,7 +1081,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 .btn {
   border: 1px solid transparent;
   background: var(--btn-sub-bg);
-  color: var(--text);
+  color: rgb(var(--rgb-white));
   padding: 6px 12px;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -1106,7 +1111,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   font-weight: 700;
   letter-spacing: 0.05em;
 }
-.badge-warning { background: var(--warn); color: rgb(var(--rgb-white)); }
+.badge-warning { background: var(--marker); color: rgb(var(--rgb-white)); }
 
 /* ---------- log panel ---------- */
 .log-panel {
@@ -1123,7 +1128,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 .log-panel h3 {
   font-size: 10px;
   letter-spacing: 0.16em;
-  color: var(--text-dim);
+  color: rgb(var(--rgb-white));
   margin-bottom: 2px;
 }
 
@@ -1142,7 +1147,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   gap: 6px;
   padding: 3px 6px;
   border-radius: 4px;
-  color: var(--text-dim);
+  color: rgb(var(--rgb-white));
   align-items: start;
 }
 .log-entry-emphasize {
@@ -1151,14 +1156,14 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   font-weight: 600;
 }
 .log-entry-system {
-  background: rgba(var(--rgb-info), 0.07);
-  border-left: 2px solid var(--info);
+  background: rgba(var(--rgb-white), 0.05);  /* 中立の薄敷き。青みは左罫線と見出しで示す */
+  border-left: 2px solid var(--card-blue-pale);
   padding-left: 6px;
-  color: var(--text);
+  color: rgb(var(--rgb-white));
   font-weight: 600;
 }
 .log-entry-system .log-heading {
-  color: var(--info);
+  color: var(--card-blue-pale);
 }
 .log-entry-system.log-entry-emphasize {
   background: rgba(var(--rgb-accent-strong), 0.12);
@@ -1169,7 +1174,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   color: var(--accent-strong);
 }
 .log-heading {
-  color: var(--text-mute);
+  color: rgb(var(--rgb-white));
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;

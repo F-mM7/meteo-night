@@ -126,9 +126,9 @@ export function CrestEmblem() {
     <>
       <defs>
         <radialGradient id={star} cx="0.5" cy="0.5" r="0.5">
-          <stop offset="0" stopColor="#f6e042" />
-          <stop offset="0.55" stopColor="#f9ee95" />
-          <stop offset="1" stopColor="#ffffff" />
+          <stop offset="0" style={{ stopColor: 'var(--crest-star-core)' }} />
+          <stop offset="0.55" style={{ stopColor: 'var(--crest-star-mid)' }} />
+          <stop offset="1" style={{ stopColor: 'rgb(var(--rgb-white))' }} />
         </radialGradient>
       </defs>
       <path className="crest-ring" fillRule="evenodd" transform="rotate(45 50 50)" d={RING_D} />
@@ -145,9 +145,9 @@ export function MeteoCrest() {
     <svg className="card-back-crest" viewBox="0 0 100 100" aria-hidden>
       <defs>
         <radialGradient id={panel} gradientUnits="userSpaceOnUse" cx="50" cy="50" r="58">
-          <stop offset="0" stopColor="#331d58" />
-          <stop offset="0.55" stopColor="#180e2c" />
-          <stop offset="1" stopColor="#000000" />
+          <stop offset="0" style={{ stopColor: 'var(--crest-panel-core)' }} />
+          <stop offset="0.55" style={{ stopColor: 'var(--crest-panel-mid)' }} />
+          <stop offset="1" style={{ stopColor: 'rgb(var(--rgb-black))' }} />
         </radialGradient>
       </defs>
       <rect x="-1" y="-1" width="102" height="102" fill={`url(#${panel})`} />
