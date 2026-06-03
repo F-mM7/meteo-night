@@ -126,8 +126,8 @@ export function CrestEmblem() {
     <>
       <defs>
         <radialGradient id={star} cx="0.5" cy="0.5" r="0.5">
-          <stop offset="0" style={{ stopColor: 'var(--crest-star-core)' }} />
-          <stop offset="0.55" style={{ stopColor: 'var(--crest-star-mid)' }} />
+          <stop offset="0" style={{ stopColor: 'rgb(var(--rgb-crest-star-core))' }} />
+          <stop offset="0.55" style={{ stopColor: 'rgb(var(--rgb-crest-star-mid))' }} />
           <stop offset="1" style={{ stopColor: 'rgb(var(--rgb-white))' }} />
         </radialGradient>
       </defs>
@@ -145,8 +145,8 @@ export function MeteoCrest() {
     <svg className="card-back-crest" viewBox="0 0 100 100" aria-hidden>
       <defs>
         <radialGradient id={panel} gradientUnits="userSpaceOnUse" cx="50" cy="50" r="58">
-          <stop offset="0" style={{ stopColor: 'var(--crest-panel-core)' }} />
-          <stop offset="0.55" style={{ stopColor: 'var(--crest-panel-mid)' }} />
+          <stop offset="0" style={{ stopColor: 'rgb(var(--rgb-crest-panel-core))' }} />
+          <stop offset="0.55" style={{ stopColor: 'rgb(var(--rgb-crest-panel-mid))' }} />
           <stop offset="1" style={{ stopColor: 'rgb(var(--rgb-black))' }} />
         </radialGradient>
       </defs>

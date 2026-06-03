@@ -3,66 +3,48 @@
 
   /* ===== 生の色（RGB 成分）: 透明度違いで再利用するため R,G,B で保持し、
      不透明版は rgb()、半透明版は rgba(var(--rgb-x), a) で 1 つの出所から参照する ===== */
-  --rgb-bg-deep: 0, 0, 0;             /* 最深背景 = 完全な黒 */
-  --rgb-night-purple: 72, 45, 110;    /* 夜空にほのかに差す紫。副系ボタンにも使用 */
-  --rgb-night-purple-hi: 92, 62, 138; /* 副系ボタン hover の明るい紫 */
-  --rgb-panel-purple: 40, 25, 60;     /* ギフト行・プレイヤーヘッダーに差す暗い紫（夜空の紫を暗くした同系色） */
+  --rgb-night-purple: 45, 49, 110;    /* 夜空にほのかに差す紫（色相は card-purple と blue の中間）。副系ボタンにも使用 */
+  --rgb-night-purple-hi: 62, 67, 138; /* 副系ボタン hover の明るい紫（色相は night-purple に統一） */
   --rgb-accent: 255, 248, 196;        /* 淡い星明かりの黄白。流星の発光にも使用 */
   --rgb-accent-strong: 255, 210, 77;  /* 強い金。選択強調・脈動・先手マーカー発光 */
   --rgb-black: 0, 0, 0;               /* 影 */
   --rgb-white: 255, 255, 255;         /* 星・ハイライト・破線 */
-
-  /* ===== 背景・罫線 ===== */
-  --bg-deep: rgb(var(--rgb-bg-deep));
-  --line: #2c3a7a;
+  --rgb-milkyway: 210, 220, 255;      /* 天の川の霞 */
 
   /* ===== アクセント・状態 ===== */
-  --accent: rgb(var(--rgb-accent));
-  --accent-strong: rgb(var(--rgb-accent-strong));
-  --accent-strong-hi: #ffe17a;        /* プライマリボタン hover の明るい金 */
-  --accent-warm: #ff9244;
+  --rgb-accent-strong-hi: 255, 225, 122;        /* プライマリボタン hover の明るい金 */
+  --rgb-accent-warm: 255, 146, 68;
   /* スタートプレイヤーマーカーの地。最終ラウンドの警告バッジにも流用する。
-     card-red と card-purple の中間の色相(314.6°)・彩度。 */
-  --marker: #cb49ab;
+     card-red の明度を下げた深い赤（H/S は card-red と同じ、L を 0.68 倍）。 */
+  --rgb-marker: 137, 26, 39;
 
   /* ===== 星のかけら 5 色（中心=参考絵柄の最彩度色 / 外周=同色相の明色。正方形状の放射グラデ） ===== */
-  --card-red:    #c9263a;  --card-red-pale:    #d66f7c;
-  --card-green:  #34a63b;  --card-green-pale:  #6cc472;
-  --card-yellow: #e9c115;  --card-yellow-pale: #e4ce70;
-  --card-purple: #6a388a;  --card-purple-pale: #9565b4;
-  --card-blue:   #159dcd;  --card-blue-pale:   #5abcde;
-
-  /* ===== 裏向きカード（紺） ===== */
-  --facedown-hi: #1c2660;
-  --facedown-lo: #0a1230;
+  --rgb-card-red:    201, 38, 58;  --rgb-card-red-pale:    214, 111, 124;
+  --rgb-card-green:  52, 166, 59;  --rgb-card-green-pale:  108, 196, 114;
+  --rgb-card-yellow: 233, 193, 21;  --rgb-card-yellow-pale: 228, 206, 112;
+  --rgb-card-purple: 106, 56, 138;  --rgb-card-purple-pale: 149, 101, 180;
+  --rgb-card-blue:   21, 157, 205;  --rgb-card-blue-pale:   90, 188, 222;
 
   /* ===== 裏面紋章のイラスト固有色（CardView.tsx の SVG defs から参照） ===== */
-  --crest-star-core:  #f6e042;  /* 流星十字グラデ 中心の金（外周の白は --rgb-white を流用） */
-  --crest-star-mid:   #f9ee95;  /* 流星十字グラデ 中間の淡黄 */
-  --crest-panel-core: #331d58;  /* 裏面パネルグラデ 中心の暗紫（外周の黒は --rgb-black を流用） */
-  --crest-panel-mid:  #180e2c;  /* 裏面パネルグラデ 中間の濃紫 */
-
-  /* ===== 予約色（未使用。削除しないこと） ===== */
-  --sample: #895b8a;            /* 未使用。削除しないこと */
-
-  /* ===== 影 ===== */
-  --shadow-card: 0 4px 14px rgba(var(--rgb-black), 0.4), 0 2px 4px rgba(var(--rgb-black), 0.3);
-  --shadow-elev: 0 6px 24px rgba(var(--rgb-black), 0.45);
+  --rgb-crest-star-core:  246, 224, 66;  /* 流星十字グラデ 中心の金（外周の白は --rgb-white を流用） */
+  --rgb-crest-star-mid:   249, 238, 149;  /* 流星十字グラデ 中間の淡黄 */
+  --rgb-crest-panel-core: 29, 33, 88;  /* 裏面パネルグラデ 中心の暗紫＋ギフト行・配布先ボタンにも流用（色相は night-purple に統一。外周の黒は --rgb-black を流用） */
+  --rgb-crest-panel-mid:  14, 16, 44;  /* 裏面パネルグラデ 中間の濃紫（色相は night-purple に統一） */
 
   /* ===== ボタンの役割別トークン（intent → 既存の生色/別名を参照） ===== */
   /* 主アクション（金グラデ） */
-  --btn-primary-grad:    linear-gradient(135deg, var(--accent-strong), var(--accent-warm));
-  --btn-primary-grad-hi: linear-gradient(135deg, var(--accent-strong-hi), var(--accent-warm));
+  --btn-primary-grad:    linear-gradient(135deg, rgb(var(--rgb-accent-strong)), rgb(var(--rgb-accent-warm)));
+  --btn-primary-grad-hi: linear-gradient(135deg, rgb(var(--rgb-accent-strong-hi)), rgb(var(--rgb-accent-warm)));
   --btn-primary-fg:      rgb(var(--rgb-black));
   /* 副アクション（明るい紫）。.btn の地色と、配布先ボタン（btn-target）の hover で共有 */
   --btn-sub-bg:          rgb(var(--rgb-night-purple));
   --btn-sub-bg-hover:    rgb(var(--rgb-night-purple-hi));
   /* 手札選択の金枠 */
-  --btn-selected-border: var(--accent-strong);
+  --btn-selected-border: rgb(var(--rgb-accent-strong));
   /* 透明コントロール系（hamburger / stepper）の状態色 */
   --ctrl-hover-bg:       rgba(var(--rgb-white), 0.08);
   --ctrl-active-bg:      rgba(var(--rgb-white), 0.14);
-  --ctrl-focus-border:   var(--accent-strong);
+  --ctrl-focus-border:   rgb(var(--rgb-accent-strong));
 
   /* ===== 形状・寸法（色ではない） ===== */
   --radius: 12px;
@@ -94,7 +76,7 @@ body {
   /* 黒をベースに、下方（地平線側）からほのかな紫を差して明るくし夜空の深みを出す。 */
   background:
     radial-gradient(ellipse 130% 100% at 50% 118%, rgba(var(--rgb-night-purple), 0.9), transparent 80%),
-    var(--bg-deep);
+    rgb(var(--rgb-black));
   background-attachment: fixed;
   color: rgb(var(--rgb-white));
 }
@@ -148,14 +130,14 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   gap: 10px;
   padding: 4px 10px;
   height: 36px;
-  background: rgba(var(--rgb-bg-deep), 0.9);
+  background: rgba(var(--rgb-black), 0.9);
   flex-shrink: 0;
 }
 
 .app-title {
   font-size: 15px;
   line-height: var(--header-control-height);
-  background: linear-gradient(135deg, rgb(var(--rgb-white)), var(--accent-strong));
+  background: linear-gradient(135deg, rgb(var(--rgb-white)), rgb(var(--rgb-accent-strong)));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -175,7 +157,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 .hamburger-btn {
   background: transparent;
-  border: 1px solid var(--line);
+  border: none;
   border-radius: var(--radius-sm);
   width: var(--header-control-height);
   height: var(--header-control-height);
@@ -185,14 +167,13 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   justify-content: center;
   padding: 0;
   color: rgb(var(--rgb-white));
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .hamburger-btn:hover,
 .hamburger-btn[aria-expanded='true'] {
   background: var(--ctrl-hover-bg);
   color: rgb(var(--rgb-white));
-  border-color: var(--ctrl-focus-border);
 }
 
 .hamburger-icon {
@@ -211,9 +192,8 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   right: 0;
   min-width: 220px;
   padding: 10px;
-  background: rgba(var(--rgb-bg-deep), 0.9);
+  background: rgba(var(--rgb-black), 0.9);
   border-radius: var(--radius-sm);
-  box-shadow: 0 8px 24px rgba(var(--rgb-black), 0.45);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -233,16 +213,16 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 .header-menu-label { letter-spacing: 0.08em; white-space: nowrap; }
 
 .header-menu-toggle { cursor: pointer; flex-direction: row-reverse; }
-.header-menu-toggle input { accent-color: var(--accent-strong); }
+.header-menu-toggle input { accent-color: rgb(var(--rgb-accent-strong)); }
 
 .stepper {
   display: inline-flex;
   align-items: stretch;
   background: transparent;
-  border: 1px solid var(--line);
+  border: 1px solid rgb(var(--rgb-white));
   border-radius: var(--radius-sm);
   overflow: hidden;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease;
 }
 
 .stepper:focus-within {
@@ -281,11 +261,11 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 .stepper-btn + .stepper-input {
-  border-left: 1px solid var(--line);
+  border-left: 1px solid rgb(var(--rgb-white));
 }
 
 .stepper-input + .stepper-btn {
-  border-left: 1px solid var(--line);
+  border-left: 1px solid rgb(var(--rgb-white));
 }
 
 .stepper-input {
@@ -408,9 +388,8 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   gap: 6px;
   /* 状態によらず常に同じ高さを確保し、伸び縮みさせない。 */
   height: var(--action-height);
-  background: rgba(var(--rgb-bg-deep), 0.9);
+  background: rgba(var(--rgb-black), 0.9);
   border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-elev);
   padding: 6px 10px;
 }
 
@@ -511,7 +490,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   font-weight: 700;
   font-size: calc(var(--card-size) * 0.26);
   line-height: 1.1;
-  color: var(--accent);
+  color: rgb(var(--rgb-accent));
 }
 /* ---------- start player marker ---------- */
 .start-marker {
@@ -520,10 +499,9 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   width: calc(var(--card-size) * 0.55);
   height: calc(var(--card-size) * 0.55);
   /* カード赤より色相を桃側へずらしたピンク赤。縁取りは黒。最終ラウンドバッジと共通（--marker）。 */
-  background: var(--marker);
+  background: rgb(var(--rgb-marker));
   border: calc(var(--card-size) * 0.035) solid rgb(var(--rgb-black));
   border-radius: calc(var(--card-size) * 0.1);
-  box-shadow: 0 2px 4px rgba(var(--rgb-black), 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -606,9 +584,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   transition: top 0.18s ease-out, bottom 0.18s ease-out, left 0.18s ease-out, right 0.18s ease-out;
 }
 
-.slot-stack-top .card {
-  filter: drop-shadow(0 4px 8px rgba(var(--rgb-black), 0.5));
-}
 
 .slot-stack-fading,
 .slot-stack-launching {
@@ -762,7 +737,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   cursor: pointer;
 }
 .slot-interactive .slot-stack {
-  outline: 2px solid var(--accent-strong);
+  outline: 2px solid rgb(var(--rgb-accent-strong));
   outline-offset: 4px;
   border-radius: 6px;
 }
@@ -798,7 +773,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 3px 8px rgba(var(--rgb-black), 0.45);
   user-select: none;
   overflow: hidden;
 }
@@ -811,11 +785,11 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 .card-purple,
 .card-blue { background-blend-mode: lighten; }
 
-.card-red    { background: linear-gradient(to right, var(--card-red-pale),    var(--card-red) 20% 80%,    var(--card-red-pale)),    linear-gradient(to bottom, var(--card-red-pale),    var(--card-red) 20% 80%,    var(--card-red-pale)); }
-.card-green  { background: linear-gradient(to right, var(--card-green-pale),  var(--card-green) 20% 80%,  var(--card-green-pale)),  linear-gradient(to bottom, var(--card-green-pale),  var(--card-green) 20% 80%,  var(--card-green-pale)); }
-.card-yellow { background: linear-gradient(to right, var(--card-yellow-pale), var(--card-yellow) 20% 80%, var(--card-yellow-pale)), linear-gradient(to bottom, var(--card-yellow-pale), var(--card-yellow) 20% 80%, var(--card-yellow-pale)); }
-.card-purple { background: linear-gradient(to right, var(--card-purple-pale), var(--card-purple) 20% 80%, var(--card-purple-pale)), linear-gradient(to bottom, var(--card-purple-pale), var(--card-purple) 20% 80%, var(--card-purple-pale)); }
-.card-blue   { background: linear-gradient(to right, var(--card-blue-pale),   var(--card-blue) 20% 80%,   var(--card-blue-pale)),   linear-gradient(to bottom, var(--card-blue-pale),   var(--card-blue) 20% 80%,   var(--card-blue-pale)); }
+.card-red    { background: linear-gradient(to right, rgb(var(--rgb-card-red-pale)),    rgb(var(--rgb-card-red)) 20% 80%,    rgb(var(--rgb-card-red-pale))),    linear-gradient(to bottom, rgb(var(--rgb-card-red-pale)),    rgb(var(--rgb-card-red)) 20% 80%,    rgb(var(--rgb-card-red-pale))); }
+.card-green  { background: linear-gradient(to right, rgb(var(--rgb-card-green-pale)),  rgb(var(--rgb-card-green)) 20% 80%,  rgb(var(--rgb-card-green-pale))),  linear-gradient(to bottom, rgb(var(--rgb-card-green-pale)),  rgb(var(--rgb-card-green)) 20% 80%,  rgb(var(--rgb-card-green-pale))); }
+.card-yellow { background: linear-gradient(to right, rgb(var(--rgb-card-yellow-pale)), rgb(var(--rgb-card-yellow)) 20% 80%, rgb(var(--rgb-card-yellow-pale))), linear-gradient(to bottom, rgb(var(--rgb-card-yellow-pale)), rgb(var(--rgb-card-yellow)) 20% 80%, rgb(var(--rgb-card-yellow-pale))); }
+.card-purple { background: linear-gradient(to right, rgb(var(--rgb-card-purple-pale)), rgb(var(--rgb-card-purple)) 20% 80%, rgb(var(--rgb-card-purple-pale))), linear-gradient(to bottom, rgb(var(--rgb-card-purple-pale)), rgb(var(--rgb-card-purple)) 20% 80%, rgb(var(--rgb-card-purple-pale))); }
+.card-blue   { background: linear-gradient(to right, rgb(var(--rgb-card-blue-pale)),   rgb(var(--rgb-card-blue)) 20% 80%,   rgb(var(--rgb-card-blue-pale))),   linear-gradient(to bottom, rgb(var(--rgb-card-blue-pale)),   rgb(var(--rgb-card-blue)) 20% 80%,   rgb(var(--rgb-card-blue-pale))); }
 
 .card-crystal {
   width: 78%;
@@ -894,10 +868,10 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 .card-emphasized {
-  outline: 3px solid var(--accent-strong);
+  outline: 3px solid rgb(var(--rgb-accent-strong));
   outline-offset: 2px;
   transform: translateY(-2px);
-  box-shadow: 0 0 18px rgba(var(--rgb-accent-strong), 0.55), 0 3px 10px rgba(var(--rgb-black), 0.6);
+  box-shadow: 0 0 18px rgba(var(--rgb-accent-strong), 0.55);
 }
 
 /* ---------- center area (枠なし、内側に得点+場) ---------- */
@@ -955,7 +929,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 .field-pair {
-  background: rgba(var(--rgb-bg-deep), 0.4);
+  background: rgba(var(--rgb-black), 0.4);
   border: 1px solid rgba(var(--rgb-white), 0.08);
   border-radius: var(--radius);
   padding: 5px;
@@ -968,7 +942,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 .field-pair-interactive {
   cursor: pointer;
-  outline: 2px solid var(--accent-strong);
+  outline: 2px solid rgb(var(--rgb-accent-strong));
   outline-offset: 1px;
   background: rgba(var(--rgb-accent-strong), 0.08);
 }
@@ -1006,7 +980,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 .pile-interactive { cursor: pointer; }
-.pile-interactive .card-facedown { outline: 2px solid var(--accent-strong); outline-offset: 1px; }
+.pile-interactive .card-facedown { outline: 2px solid rgb(var(--rgb-accent-strong)); outline-offset: 1px; }
 .pile-stack { position: relative; }
 
 /* 残枚数バッジ: 裏面の紋章（中央の星）と重ならないよう下端のピルに収める */
@@ -1021,8 +995,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   font-weight: 800;
   font-size: calc(var(--card-size) * 0.21);
   line-height: 1;
-  color: var(--accent);
-  text-shadow: 0 1px 2px rgba(var(--rgb-black), 0.7);
+  color: rgb(var(--rgb-accent));
   z-index: 2;
 }
 
@@ -1034,7 +1007,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 .action-message {
   font-weight: 600;
   margin-bottom: 4px;
-  color: var(--accent);
+  color: rgb(var(--rgb-accent));
   min-height: 16px;
   font-size: 13px;
   display: flex;
@@ -1065,7 +1038,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 .hand-label {
   font-size: 11px;
-  color: var(--accent);
+  color: rgb(var(--rgb-accent));
 }
 
 .hand-card-btn {
@@ -1111,18 +1084,17 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   font-weight: 700;
   letter-spacing: 0.05em;
 }
-.badge-warning { background: var(--marker); color: rgb(var(--rgb-white)); }
+.badge-warning { background: rgb(var(--rgb-marker)); color: rgb(var(--rgb-white)); }
 
 /* ---------- log panel ---------- */
 .log-panel {
-  background: rgba(var(--rgb-bg-deep), 0.9);
+  background: rgba(var(--rgb-black), 0.9);
   border-radius: var(--radius-sm);
   padding: 4px 8px;
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 50px;
-  box-shadow: var(--shadow-elev);
 }
 
 .log-panel h3 {
@@ -1152,26 +1124,26 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 .log-entry-emphasize {
   background: rgba(var(--rgb-accent-strong), 0.08);
-  color: var(--accent);
+  color: rgb(var(--rgb-accent));
   font-weight: 600;
 }
 .log-entry-system {
   background: rgba(var(--rgb-white), 0.05);  /* 中立の薄敷き。青みは左罫線と見出しで示す */
-  border-left: 2px solid var(--card-blue-pale);
+  border-left: 2px solid rgb(var(--rgb-card-blue-pale));
   padding-left: 6px;
   color: rgb(var(--rgb-white));
   font-weight: 600;
 }
 .log-entry-system .log-heading {
-  color: var(--card-blue-pale);
+  color: rgb(var(--rgb-card-blue-pale));
 }
 .log-entry-system.log-entry-emphasize {
   background: rgba(var(--rgb-accent-strong), 0.12);
-  color: var(--accent-strong);
-  border-left-color: var(--accent-strong);
+  color: rgb(var(--rgb-accent-strong));
+  border-left-color: rgb(var(--rgb-accent-strong));
 }
 .log-entry-system.log-entry-emphasize .log-heading {
-  color: var(--accent-strong);
+  color: rgb(var(--rgb-accent-strong));
 }
 .log-heading {
   color: rgb(var(--rgb-white));
@@ -1206,7 +1178,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   align-items: center;
   gap: 6px;
   border-radius: var(--radius-sm);
-  background: rgba(var(--rgb-panel-purple), 0.55);
+  background: rgba(var(--rgb-crest-panel-core), 0.55);
   min-width: 0;
 }
 
@@ -1248,7 +1220,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   container-type: inline-size;
   /* 未選択は暗い紫（panel-purple）を地にする。地のギフト行（同色 55%）より
      明るく浮き、hover で副系の明るい紫まで持ち上げる。 */
-  background: rgb(var(--rgb-panel-purple));
+  background: rgb(var(--rgb-crest-panel-core));
 }
 .btn-target:hover { background: var(--btn-sub-bg); }
 /* 文字はボタン幅に追従（狭→8px / 広→14px でクランプ） */
