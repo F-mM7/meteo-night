@@ -35,12 +35,8 @@ export function GiftBar({ state, targets, setTargets }: Props) {
     <div className="gift-bar" role="region" aria-label="星のかけらを渡す" style={barStyle}>
       {queue.map((combo, idx) => {
         const card = combo.cards[0];
-        const unselected = targets[idx] == null;
         return (
-          <div
-            key={idx}
-            className={`gift-bar-row${unselected ? ' gift-bar-row-unselected' : ''}`}
-          >
+          <div key={idx} className="gift-bar-row">
             <CardView card={card} />
             <div className="gift-bar-row-targets">
               {otherPlayers.map((p) => (

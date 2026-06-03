@@ -4,9 +4,9 @@
   /* ===== 生の色（RGB 成分）: 透明度違いで再利用するため R,G,B で保持し、
      不透明版は rgb()、半透明版は rgba(var(--rgb-x), a) で 1 つの出所から参照する ===== */
   --rgb-bg-deep: 0, 0, 0;             /* 最深背景 = 完全な黒 */
-  --rgb-bg-mid: 14, 21, 56;
-  --rgb-bg-elev2: 35, 47, 108;
-  --rgb-night-purple: 72, 45, 110;    /* 夜空にほのかに差す紫 */
+  --rgb-night-purple: 72, 45, 110;    /* 夜空にほのかに差す紫。副系ボタンにも使用 */
+  --rgb-night-purple-hi: 92, 62, 138; /* 副系ボタン hover の明るい紫 */
+  --rgb-panel-purple: 40, 25, 60;     /* ギフト行・プレイヤーヘッダーに差す暗い紫（夜空の紫を暗くした同系色） */
   --rgb-accent: 255, 248, 196;        /* 淡い星明かりの黄白。流星の発光にも使用 */
   --rgb-accent-strong: 255, 210, 77;  /* 強い金。選択強調・脈動・先手マーカー発光 */
   --rgb-info: 77, 201, 255;           /* 手番強調・システムログの青 */
@@ -15,9 +15,6 @@
 
   /* ===== 背景・罫線 ===== */
   --bg-deep: rgb(var(--rgb-bg-deep));
-  --bg-mid: rgb(var(--rgb-bg-mid));
-  --bg-elev: #1a2353;
-  --bg-elev2: rgb(var(--rgb-bg-elev2));
   --line: #2c3a7a;
 
   /* ===== テキスト ===== */
@@ -41,14 +38,9 @@
   --card-purple-hi: #c98cff;  --card-purple-lo: #6a2adc;
   --card-blue-hi: #6dd6ff;    --card-blue-lo: #1c84c0;
 
-  /* ===== 手番プレイヤー強調（夜空シアン青グラデ） ===== */
-  --current-hi: rgba(120, 145, 230, 0.95);
-  --current-lo: rgba(45, 65, 155, 0.95);
-
   /* ===== 先手マーカー（金） ===== */
   --marker-hi: #fff0a8;
   --marker-lo: #d99220;
-  --marker-edge: #6a4900;
   --marker-text: #2a1a00;
 
   /* ===== 裏向きカード（紺） ===== */
@@ -58,6 +50,21 @@
   /* ===== 影 ===== */
   --shadow-card: 0 4px 14px rgba(var(--rgb-black), 0.4), 0 2px 4px rgba(var(--rgb-black), 0.3);
   --shadow-elev: 0 6px 24px rgba(var(--rgb-black), 0.45);
+
+  /* ===== ボタンの役割別トークン（intent → 既存の生色/別名を参照） ===== */
+  /* 主アクション（金グラデ） */
+  --btn-primary-grad:    linear-gradient(135deg, var(--accent-strong), var(--accent-warm));
+  --btn-primary-grad-hi: linear-gradient(135deg, var(--accent-strong-hi), var(--accent-warm));
+  --btn-primary-fg:      var(--accent-text);
+  /* 副アクション・選択肢（明るい紫）。secondary と target 未選択で共有 */
+  --btn-sub-bg:          rgb(var(--rgb-night-purple));
+  --btn-sub-bg-hover:    rgb(var(--rgb-night-purple-hi));
+  /* 手札選択の金枠 */
+  --btn-selected-border: var(--accent-strong);
+  /* 透明コントロール系（hamburger / stepper）の状態色 */
+  --ctrl-hover-bg:       rgba(var(--rgb-white), 0.08);
+  --ctrl-active-bg:      rgba(var(--rgb-white), 0.14);
+  --ctrl-focus-border:   var(--accent-strong);
 
   /* ===== 形状・寸法（色ではない） ===== */
   --radius: 12px;
@@ -174,9 +181,9 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 .hamburger-btn:hover,
 .hamburger-btn[aria-expanded='true'] {
-  background: rgba(var(--rgb-white), 0.08);
+  background: var(--ctrl-hover-bg);
   color: var(--text);
-  border-color: var(--accent-strong);
+  border-color: var(--ctrl-focus-border);
 }
 
 .hamburger-icon {
@@ -195,8 +202,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   right: 0;
   min-width: 220px;
   padding: 10px;
-  background: var(--bg-elev);
-  border: 1px solid var(--line);
+  background: rgba(var(--rgb-bg-deep), 0.9);
   border-radius: var(--radius-sm);
   box-shadow: 0 8px 24px rgba(var(--rgb-black), 0.45);
   display: flex;
@@ -210,19 +216,20 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-height: 28px;
   font-size: 12px;
   color: var(--text-dim);
 }
 
-.header-menu-label { letter-spacing: 0.08em; }
+.header-menu-label { letter-spacing: 0.08em; white-space: nowrap; }
 
-.header-menu-toggle { cursor: pointer; }
+.header-menu-toggle { cursor: pointer; flex-direction: row-reverse; }
 .header-menu-toggle input { accent-color: var(--accent-strong); }
 
 .stepper {
   display: inline-flex;
   align-items: stretch;
-  background: var(--bg-elev);
+  background: transparent;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   overflow: hidden;
@@ -230,7 +237,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 .stepper:focus-within {
-  border-color: var(--accent-strong);
+  border-color: var(--ctrl-focus-border);
 }
 
 .stepper-btn {
@@ -251,12 +258,12 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 .stepper-btn:hover:not(:disabled) {
-  background: rgba(var(--rgb-white), 0.08);
+  background: var(--ctrl-hover-bg);
   color: var(--text);
 }
 
 .stepper-btn:active:not(:disabled) {
-  background: rgba(var(--rgb-white), 0.14);
+  background: var(--ctrl-active-bg);
 }
 
 .stepper-btn:disabled {
@@ -475,18 +482,14 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   gap: calc(var(--card-size) * 0.03);
   padding: calc(var(--card-size) * 0.08) calc(var(--card-size) * 0.18);
   border-radius: var(--radius-sm);
-  background: linear-gradient(180deg, rgba(var(--rgb-bg-elev2), 0.7), rgba(var(--rgb-bg-mid), 0.7));
-  border: 1px solid var(--line);
+  background: rgba(var(--rgb-panel-purple), 0.7);
   white-space: nowrap;
-  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  transition: background 0.2s;
 }
 
-/* ターンプレイヤー強調。アクション選択強調（黄系 = --accent-strong）と区別するため
-   ゲームの夜空テーマに合うシアン青系を使う。 */
+/* ターンプレイヤー強調。通常（暗い紫）→ 手番中（明るい紫）の色変化だけで示す。 */
 .player-header-card.header-current {
-  background: linear-gradient(180deg, var(--current-hi), var(--current-lo));
-  border-color: var(--info);
-  box-shadow: 0 0 14px rgba(var(--rgb-info), 0.55), 0 2px 6px rgba(var(--rgb-black), 0.5);
+  background: rgba(var(--rgb-night-purple), 0.7);
 }
 
 .player-name {
@@ -511,7 +514,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   align-items: center;
   justify-content: center;
   background: radial-gradient(circle at 30% 30%, var(--marker-hi), var(--marker-lo));
-  border: 2px solid var(--marker-edge);
   box-shadow: 0 0 8px rgba(var(--rgb-accent-strong), 0.6), 0 2px 4px rgba(var(--rgb-black), 0.5);
   font-weight: 800;
   font-size: calc(var(--card-size) * 0.2);
@@ -838,10 +840,37 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
     radial-gradient(circle at 50% 30%, rgba(var(--rgb-accent), 0.18), transparent 60%),
     linear-gradient(180deg, var(--facedown-hi), var(--facedown-lo));
 }
-.card-facedown .crystal-tint { fill: rgba(var(--rgb-accent), 0.04); }
-.card-facedown .crystal-outline { stroke: rgba(var(--rgb-accent), 0.65); }
-.card-facedown .crystal-edge { stroke: rgba(var(--rgb-accent), 0.5); }
-.card-facedown .crystal-edge-inner { stroke: rgba(var(--rgb-accent), 0.3); }
+/* 裏面の紋章: 内枠・四隅の光珠・夜空の円盤・金の流星十字。
+   円盤と星のグラデーションは SVG 内 defs（イラスト固有色）。輪郭・枠・珠は既存トークンを流用。 */
+.card-back-crest {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.crest-frame {
+  fill: none;
+  stroke: rgba(var(--rgb-white), 0.42);
+  stroke-width: 1.3;
+}
+.crest-bead { fill: rgba(var(--rgb-accent), 0.85); }   /* 右上・左下に連なる主の光珠 */
+.crest-tick { fill: rgba(var(--rgb-white), 0.5); }      /* 左上・右下の控えめな点 */
+.crest-halo {
+  fill: none;
+  stroke: #c2c8ff;                 /* 円盤を縁取る青白い暈 */
+  stroke-opacity: 0.65;
+  stroke-width: 1.8;
+}
+.crest-disc-rim {
+  fill: none;
+  stroke: rgba(var(--rgb-black), 0.42);
+  stroke-width: 1;
+}
+.crest-star {
+  stroke: rgba(var(--rgb-white), 0.92);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 1.4px rgba(var(--rgb-accent-strong), 0.75));
+}
 
 .card-emphasized {
   outline: 3px solid var(--accent-strong);
@@ -1022,11 +1051,11 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   cursor: pointer;
   transition: border-color 0.15s;
 }
-.hand-card-btn.selected { border-color: var(--accent-strong); }
+.hand-card-btn.selected { border-color: var(--btn-selected-border); }
 
 .btn {
-  border: 1px solid var(--line);
-  background: var(--bg-elev);
+  border: 1px solid transparent;
+  background: var(--btn-sub-bg);
   color: var(--text);
   padding: 6px 12px;
   border-radius: var(--radius-sm);
@@ -1035,7 +1064,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   font-size: 12px;
   transition: background 0.15s, border-color 0.15s;
 }
-.btn:hover { background: var(--bg-elev2); }
+.btn:hover { background: var(--btn-sub-bg-hover); }
 .btn:disabled,
 .btn[aria-disabled='true'] {
   opacity: 0.45;
@@ -1045,12 +1074,10 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--accent-strong), var(--accent-warm));
-  border-color: var(--accent-strong);
-  color: var(--accent-text);
+  background: var(--btn-primary-grad);
+  color: var(--btn-primary-fg);
 }
-.btn-primary:hover { background: linear-gradient(135deg, var(--accent-strong-hi), var(--accent-warm)); }
-.btn-secondary { background: var(--bg-elev2); }
+.btn-primary:hover { background: var(--btn-primary-grad-hi); }
 
 .badge {
   font-size: 10px;
@@ -1063,8 +1090,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 /* ---------- log panel ---------- */
 .log-panel {
-  background: linear-gradient(180deg, rgba(var(--rgb-bg-deep), 0.7), rgba(var(--rgb-bg-mid), 0.7));
-  border: 1px solid var(--line);
+  background: rgba(var(--rgb-bg-deep), 0.9);
   border-radius: var(--radius-sm);
   padding: 4px 8px;
   flex: 1;
@@ -1156,26 +1182,8 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   gap: 6px;
   padding: 6px;
   border-radius: var(--radius-sm);
-  background: rgba(var(--rgb-bg-deep), 0.4);
-  border: 1px solid rgba(var(--rgb-white), 0.08);
+  background: rgba(var(--rgb-panel-purple), 0.55);
   min-width: 0;
-  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
-}
-
-/* 未選択時は黄色系の点滅枠で「ここを選んでください」ことを強調 */
-.gift-bar-row-unselected {
-  border-color: var(--accent-strong);
-  background: rgba(var(--rgb-accent-strong), 0.07);
-  animation: gift-row-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes gift-row-pulse {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(var(--rgb-accent-strong), 0.0);
-  }
-  50% {
-    box-shadow: 0 0 0 3px rgba(var(--rgb-accent-strong), 0.28);
-  }
 }
 
 .gift-bar-row .card {
@@ -1205,10 +1213,10 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   text-overflow: ellipsis;
 }
 .btn-target.selected {
-  border-color: var(--accent-strong);
-  background: rgba(var(--rgb-accent-strong), 0.14);
-  color: var(--accent);
+  background: var(--btn-primary-grad);
+  color: var(--btn-primary-fg);
 }
+.btn-target.selected:hover { background: var(--btn-primary-grad-hi); }
 
 /* 決定 / ランダムに配布 ボタンを横並びで右上に配置 */
 .gift-confirm-actions {
