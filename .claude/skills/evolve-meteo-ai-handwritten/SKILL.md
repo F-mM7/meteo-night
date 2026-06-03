@@ -1,6 +1,6 @@
 ---
 name: evolve-meteo-ai-handwritten
-description: 星を放つ夜 (MeteoNight) の CPU AI を 1 イテレーション進化させる唯一の AI 進化スキル。現状最強は tempoFastAI（手書きの探索 + 評価関数、NN ではない）。探索（自分の手番のターン内完全読み）はほぼ完全で、葉（ターン終了局面）の評価が律速。物差しは必ず smart 非依存（候補 vs 現状最強 + Elo はしご）。NN/AlphaZero は本ゲームの低分岐で頭打ちと実証済みのため対象外。
+description: 星を放つ夜 (MeteoNight) の CPU AI を 1 イテレーション進化させる唯一の AI 進化スキル。現状最強は tempoFastAI（手書きの探索 + 評価関数、NN ではない）。探索（自分の手番のターン内完全読み）はほぼ完全で、葉（ターン終了局面）の評価が律速。物差しは必ず smart 非依存（候補 vs 現状最強 + Elo はしご、最終は人間体感）。強化は打ち止めにせず、低 EV でも新角度・大掛かり・不確実な仮説を執拗に試す（既知の同一 dead-end のみ回避。NN/AlphaZero 等は低天井実証済みだが別角度なら可）。
 disable-model-invocation: false
 ---
 
@@ -8,13 +8,15 @@ disable-model-invocation: false
 
 `ai/CHANGELOG.md` の「Gen-N」を 1 つ進めるための標準ワークフロー。**1 イテレーション = 1 改善仮説**（複数同時投入は禁止）。
 
+> **方針: 強化は打ち止めにしない。** 期待値が低くても、 新角度・大掛かり・不確実な仮説を執拗に試し続け、 より強い AI を目指す。 ただし (1) **既知の dead-end（下記）の同一構成は再試行しない**（別角度・より大規模・新アーキテクチャは可）、 (2) **必ず物差し（smart 非依存ベンチ + Elo + 最終は人間体感）で客観評価**し「強くなった気」 は採らない。 過去に天井（葉）を新しい次元（horizon=lookahead）で破った前例があるため、 頭打ちに見えても別次元を探し続ける。
+
 ## 現在地（2026-06 時点・必ず最新は CHANGELOG で確認）
 
 - **現状最強 = tempoFast + lookahead=1（Gen-4-C）**: ターン内完全読み + テンポ評価 + 時間予算/反復深化/αβ/置換表に、**2-ply(相手手番を挟み次の自分の手番まで)先読み**を追加。現 tempoFast(LA=0) に有意勝ち(33%, n=300)。1 手 ~1 秒と重く **Web Worker(`src/ai/aiWorker.ts`)で off-main-thread 実行**。`src/ai/index.ts`→`tempoFastAI`(既定 LA=1) を export。
 - **強さ同等の素の版 = tempoAI（Gen-4-A）**: 同じ探索だがレイテンシ無制限（連鎖局面で最大 ~21 秒）。比較ベースラインに使う。
-- **探索はほぼ完全 → 伸びしろは「葉（ターン終了局面）の評価」**。葉 = `evaluateState`（`src/ai/evaluator.ts`）+ `multiColorChainReadiness * tempoChainW(50)`。
+- **構成**: 探索はほぼ完全（ターン内完全読み + 1-ply 先読み）、 葉 = `evaluateState`（`src/ai/evaluator.ts`）+ `multiColorChainReadiness * tempoChainW(50)`。 葉の改善も horizon の深掘りも一巡して頭打ち（下記 dead-end）＝**次の伸びしろは未踏の角度（人間評価・別アーキ等）に**。
 - **対象**: `src/ai/{tempoAI,tempoFastAI,evaluator}.ts`、`ai/scripts/{bench-self,_fast_bench,elo-ladder,_runner,stats}.ts`。
-- **対象外＝「葉の改善」 は実証済み天井（着手しない）**: NN priors（branching 5.1 で無効）、価値学習 v1/v2/残差（探索が葉の誤差に頑健で play は parity）、葉の重み再最適化（DEFAULT がほぼ最適）、多ターン連鎖**投影**（葉に貪欲ロールアウトを足す版＝弱い）、ギフト最適化、mcts ハイパラ。⚠️ **ただし「葉」 の天井であって horizon の天井ではない**: 実際に lookahead 探索する手は効く（**Gen-4-C で lookahead=1 が現 tempo に 33% 勝ち**）。理由は CHANGELOG（探索ラウンド 1〜3 + Gen-4-C）。
+- **既知の dead-end（＝同一構成の単純再試行は不要。別角度・大規模化・新手法は歓迎）**: NN priors（branching 5.1 で無効）、価値学習 v1/v2/残差（探索が葉の誤差に頑健で play は parity）、葉の重み再最適化（DEFAULT がほぼ最適・n=96 ではノイズを拾う）、多ターン連鎖**投影**（葉に貪欲ロールアウトを足す版＝弱い）、ギフト最適化、mcts ハイパラ、lookahead=2 / opp=tempo（予算内で頭打ち）。⚠️ **これらは「その構成」 が効かなかっただけ**：例えば価値学習を別の教師信号(shaped return)で／重み tune を ≥300-500 局/eval で／lookahead を別アーキ(turn-MCTS)で、 は別仮説として有効。理由は CHANGELOG（探索ラウンド 1〜3 + Gen-4-C + horizon 深掘り）。
 
 ## 前提
 
@@ -50,16 +52,18 @@ npx tsx ai/scripts/elo-ladder.ts --ais random,smart,mctsGen3X,tempo50 --games 0 
 
 - 評価関数の重み比較は `tempoFastAI` の `weights` オプション経由（`evaluator.ts` を編集せず options で渡す）。
 
-### 3. 改善仮説の立案（horizon が伸びしろ・葉は天井）
+### 3. 改善仮説の立案（天井でも執拗に新角度を試す）
 
-`ai/README.md` / CHANGELOG の「今後」を読む。**「葉の改善」 は天井**（重み/投影/残差/価値学習すべて parity。上の「対象外」 参照）だが、**「読みの地平(horizon)」 は効く**と判明（Gen-4-C で lookahead=1 が +8pt）。残るリード:
+`ai/README.md` / CHANGELOG の「今後」を読む。葉（評価）の改善と horizon の深掘り（lookahead=2/opp=tempo）は parity で頭打ちと判明済み（lookahead=1 だけが効いた）。**だが打ち止めにはしない**——既知の同一構成（上記 dead-end）は避けつつ、 新角度・大掛かり・不確実な仮説を継続的に試す。 候補（期待値の高い順。 ただし全て不確実）:
 
-- **（本命）lookahead を深く/賢く**: lookahead=2、 相手モデルを smart→tempo（より正確）等。horizon に伸びしろ。ただし計算が重い → Web Worker 前提、 1 手の予算配分に注意（過去 budget 不足の 2-ply は逆効果だった）。
-- **NN で深い先読みを安く近似**: 「深い lookahead の結果」 を予測する価値ネット（policy prior でも葉置換でもなく horizon の近似）。lookahead が効くと分かった今、 NN がここで初めて意味を持つ。
-- **（高コスト・別路線）人間棋譜の模倣学習**: self-play の天井を上位教師で破る。要・対局記録。
-- **（小・未検証）終盤レース計時の専用評価**: スコアが 20 点近傍の勝敗判定を専用化。期待値は小さめ。
+1. **人間評価で弱点特定（最優先・最安・要ユーザー）**: 物差しが全て「vs tempo」＝自己参照で、 自己対戦では見えない弱点がありうる（旧「vs smart は錯覚」 と同型）。 ユーザーが現 AI と数局打ち、 下手な箇所（発火タイミング/妨害/複数連鎖ボーナス/終盤レース計時/山札管理 等）を具体化 → それを的にした改良。 **人間に効く改善の唯一の安価な道**。
+2. **人間棋譜の模倣学習（最高天井・大コスト）**: 強い人間を上位教師に self-play の天井を破る。 要・対局記録 + 学習。
+3. **より賢く安い相手モデルでの lookahead**: 先読みの相手を `smart` でなく `tempoFast@極小budget` 等に（2-ply 精度向上を狙う）。
+4. **終盤レース計時の専用評価**: 20 点近傍で「誰が先に到達するか」 を明示モデル化（「点でなく勝ちに行く」 LA=1 の本質を終盤で先鋭化）。
+5. **別アーキテクチャ**: ターン単位 MCTS（各ノード＝完全ターン解をサンプリングで多ターン先読み）、 outcome 接地の value を別定式化（残差でなく shaped return 等）、 ほか。
+6. **既知 dead-end の「別角度」 再挑戦**: 価値学習を別の教師信号で／重み最適化を ≥300-500 局/eval の高精度で、 等（同一構成の単純再試行は不可）。
 
-仮説と **期待勝率向上幅** を事前に文章化（事後バイアス防止）。
+仮説と **期待勝率向上幅** を事前に文章化（事後バイアス防止）。 **低 EV でも、 物差しで客観評価しながら回し続ける**。
 
 ### 4. 実装
 
@@ -104,7 +108,7 @@ npx tsx ai/scripts/elo-ladder.ts --ais random,smart,mctsGen3X,tempo50 --games 0 
 - 毎回ステップ 0（ルール変更チェック）を実行。スキップ禁止
 - 1 イテレーション = 1 仮説
 - **物差しは必ず smart 非依存（候補 vs 現状最強 + Elo）。vs-smart は盲点指標なので禁止**
-- **探索は完全 → 葉評価が律速**。改善はそこに集中
+- **強化は打ち止めにしない**。葉も horizon(LA=1) も探索したが、頭打ちに見えても新次元（人間評価/模倣・別アーキ・大規模化）を執拗に試す（既知 dead-end の同一再試行のみ避ける）
 - レイテンシはメインスレッド同期前提。時間予算で最悪値を有界化する
 - 採用判定は数字で客観的に。「なんとなく強くなった気がする」は不採用
 - 計測結果は CHANGELOG に必ず残す

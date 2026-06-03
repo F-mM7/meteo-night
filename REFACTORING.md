@@ -6,7 +6,7 @@
 
 - **規模**: `src/` 47 ファイル（約 6,259 行、うちテスト 4）、`ai/scripts/` 33 ファイル（約 7,221 行）。
 - **体制**:
-  - ブラウザ CPU は **`tempoFastAI`**（`src/ai/index.ts:4` が re-export、`useGameLogic.ts:86` が呼ぶ）。探索（自分の手番のターン内完全読み）はほぼ完全で、**葉＝`evaluateState`（`src/ai/evaluator.ts`）の評価が律速**。
+  - ブラウザ CPU は **`tempoFastAI`（lookahead=1, Gen-4-C）**（`src/ai/index.ts:4` が re-export）。1 手 ~1 秒のため **`src/ai/aiWorker.ts`（Web Worker）で実行**し `useGameLogic` が非同期に呼ぶ（同期 `decideAction` はフォールバック）。探索は深さ的にほぼ天井（lookahead=2 は parity-下）、**葉＝`evaluateState` の評価も全 tune が parity ＝強さは実用天井**。
   - `mctsAI` / `smartAI` / `tempoAI` / `chainRushAI` はブラウザから到達せず、**ベンチ専用のベースライン**に後退した。
   - **NN（`neuralAI` / `ai/scripts/nn/*` / `bench-neural` 等、約 2,875 行）は方針上保留**。生きている経路から到達不能なまま残る（→ 末尾「保留」）。
 - **主要負債（現役コード）**:
@@ -20,7 +20,7 @@
 
 UX 直結と、後続リファクタの安全網。単独で着手可能。
 
-- **CPU 探索の同期ブロック解消** — `useGameLogic.ts:85-93` は AI 手番で `decideAction` を effect 本体で**同期実行**し、`dispatch` だけを `timer.set(…, cpuSpeed)` で遅らせている。`tempoFastAI` の 1 秒有界化後も同期ブロック構造は不変。さらに依存配列に `cpuSpeed` が入る（`:93`）ため、速度スライダー操作のたびに同一 state で再探索する。→ 探索を `timer.set` のコールバック内へ移し、起動トリガーの依存から `cpuSpeed` を外す（遅延値は ref 経由）。本格非ブロック化は Web Worker 化（別工数）。**工数 小（Worker 化は中）**
+- ~~**CPU 探索の同期ブロック解消**~~ → **完了（Gen-4-C, 2026-06）**: `src/ai/aiWorker.ts` を新設し、`useGameLogic` が CPU 手番の `decideAction` を **Web Worker で非同期実行**（世代ゲーティングで古い応答を破棄、生成不可時は同期 `decideAction` フォールバック）。lookahead=1 で 1 手 ~1 秒だが UI は非ブロック。`cpuSpeed` は `effectDelay`（表示テンポ）にリネーム済み。**残課題（小）**: effect 依存配列に `effectDelay` が残り、スライダー操作で同一 state を再探索する（worker 経由で非ブロックなので実害小。気になれば遅延値を ref 化して依存から外す）。
 - **エンジン最複雑部のテスト追加** — `src/game/__tests__/` は combo/scoring/selectors/flow の 4 本のみで、連鎖収束（`reducer.ts:63` `resolveChainStep`）・得点確定と終局（`reducer.ts:113` `finalizeTurnAfterCombos`）・贈与の検証/自動配置（`reducer.ts:306` `validateAssignments`）が無テスト。→ seed 固定の 1 ターン完走統合テスト＋ `validateAssignments` の境界（重複 comboIndex 拒否・自分宛て拒否・枚数一致）＋連鎖収束テスト。**工数 中**
 - **`hasNoMoreTurns` のテスト固定** — `engine.ts:121-133` の 12 行モジュロ算術（`rawEnd === 0 ? n : rawEnd` 特殊ケース）が `reducer.ts:360`（最終ラウンドの贈与自動配置＝ゲーム結果に直結）を駆動するのに無テスト。→ endTrigger 位置・current 位置・対象 player を網羅する表駆動テスト。**工数 小**
 
@@ -119,7 +119,7 @@ UX 直結と、後続リファクタの安全網。単独で着手可能。
 着手前に計測や方針決定が要るもの。
 
 - **`tempoFast` の TT キー文字列生成** — `tempoFastAI.ts:338` が反復深化の各ノードで `observationKey`（重い）＋文字列連結。→ `observationKey` の WeakMap メモ化等。**プロファイルで律速確認後に着手。**
-- **`tempoFast` の `opponentModel`/`lookahead` 経路の整理** — ブラウザ既定は `lookaheadTurns=0`/`opponentModel='smart'` 固定で、`decideTempoOpponent`(`:446-493`) と `advanceToMyTurn` の mcts/tempo 分岐(`:232-257`)はベンチ専用（`tempoFast` の `mctsAI` 依存の唯一理由）。→ `_la_bench` の lookahead 検証が**不採用確定したら**約 120 行削除＋`mctsAI` 依存除去。
+- **`tempoFast` の `opponentModel='mcts'/'tempo'` 経路の整理** — **ブラウザ既定は `lookaheadTurns=1`/`opponentModel='smart'`（Gen-4-C で LA=1 採用）**。lookahead 検証は決着済み（LA=1 採用、LA=2 と opp=tempo/mcts は parity-下で**不採用確定**＝CHANGELOG「Gen-4 探索ラウンド」「horizon 深掘り」）。よって `decideTempoOpponent` と `advanceToMyTurn` の mcts/tempo 分岐は配信経路でもベンチでも今後使わない（`tempoFast` の `mctsAI` 依存の唯一理由）。→ 約 120 行削除＋`mctsAI` 依存除去が**着手可能**。
 - **React `state` 全体依存の useMemo** — `App.tsx:36-38`（`[state, you]`）・`useBoardLayout.ts:138`（`globalMaxStack` の依存と参照のズレ）・`App.tsx:46`。→ 依存を絞る。実害軽微。
 - **`Phase` の判別共用体化（長期）** — `types.ts:27-39`(10 文字列 union)＋`:58-71`(フラットな `TurnState`)で不正状態が型表現可能、各ハンドラの `if(!card) return state` 防御を要する。`turnEnd` 幽霊フェーズ（`types.ts:36-38`、コメントは明記済み）も同時に型分離。→ まず不変条件のスモークテスト（小）、判別共用体移行は長期（大）。`pendingDraw` 等が広範に直接参照され影響大。
 
@@ -129,7 +129,7 @@ UX 直結と、後続リファクタの安全網。単独で着手可能。
 
 | WU | 内容 | 工数 | 優先度 | 依存 |
 |---|------|------|--------|------|
-| 1 | CPU 非ブロック化 + エンジンテスト | 小〜中 | 高 | なし |
+| 1 | CPU 非ブロック化（**Web Worker で完了**）+ エンジンテスト（未） | 小〜中 | 高 | なし |
 | 2 | ゲームコア（actors/ranking）集約 | 中 | 高 | なし（WU-4 の前提）|
 | 3 | src/ai 共通ヘルパ集約（tempo 重複排除）| 中 | 高〜中 | WU-2 と連動 |
 | 4 | ベンチ/スクリプト基盤の一本化 | 小〜中 | 中 | WU-2 |

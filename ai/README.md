@@ -15,88 +15,33 @@
 - ⚠️ **レイテンシ**: LA=1 は 1 手 ~1 秒（中央値, ≥500ms が 73%）と重い。メインスレッドを止めないよう **Web Worker(`src/ai/aiWorker.ts`)で off-main-thread 実行**（`useGameLogic.ts` が非同期呼び出し＋世代ゲーティング＋同期フォールバック）。体感 OK 確認済み
 - ⚠️ vs smart は盲点を共有して測れない。 物差しは `_fast_bench.ts` / `_la_bench.ts`（候補 vs 現状）+ `elo-ladder.ts`
 - **旧版**: Gen-4-B(tempoFast LA=0, 最悪 1s)→ Gen-4-A(tempoAI 無制限探索, 21s 裾)→ Gen-3-X mcts。いずれも強さは LA=1 未満 or 同等
-- **未解決 / 次フロンティア**: 葉の改善は天井だが **horizon に伸びしろ**あり。次は lookahead=2 / 相手モデル tempo / **NN で深い先読みを安く近似**（NN がここで初めて意味を持つ）。人間棋譜の模倣は別の高コスト路線
+- **未解決（探索アプローチは天井）**: 葉も horizon も尽きた。horizon=1 で一度突破したが lookahead=2（@1000 20%/@2500 14.6%）・opp=tempo（16.7%）はいずれも LA=1 未満＝**lookahead=1 が sweet spot**。NN 近似も前提 refuted。残る唯一のレバーは**人間棋譜の模倣学習**（凍結中・別路線・要対局記録）
 
 ### 試行中の方向性
 
 | 方向 | 現状 | スキル |
 |---|---|---|
-| AI 進化（手書き探索 + 評価関数。現 tempoFast LA=1）| **葉の改善は天井**(重み/多ターン投影/残差すべて parity)だが、**horizon=lookahead=1 で突破**(Gen-4-C, 現 tempo に 33%)。Web Worker で ~1 秒思考を off-thread 化。次フロンティア=深い先読み/NN で先読み近似 | `evolve-meteo-ai-handwritten`（唯一の AI 進化スキル）|
+| AI 進化（手書き探索 + 評価関数。現 tempoFast LA=1）| **葉の改善は天井**(重み/多ターン投影/残差すべて parity)だが、**horizon=lookahead=1 で突破**(Gen-4-C, 現 tempo に 33%)。Web Worker で ~1 秒思考を off-thread 化。ただし lookahead=2/opp=tempo は parity-下＝LA=1 が sweet spot で**探索も天井**。残るは人間棋譜模倣のみ | `evolve-meteo-ai-handwritten`（唯一の AI 進化スキル）|
 | ~~NN AI（AlphaZero 風）~~ | **対象外＝実証済みの行き止まり**: branching 5.1 で priors 無効、hand-eval に value/priors とも勝てず az-v1〜v10 + 価値学習 v1/v2 が全敗。スキル `evolve-meteo-ai-neural` は削除（経緯は CHANGELOG） | （削除済み）|
 
-### NN 系の最強モデル
-- **az-v7**（vs smart x3 で勝率 **8%**、avgScore 5.38、 1 手 ~8 ms）
-- 学習設定: K6 (mean-field 解消) + 5000 games AlphaZero (batch=16)
-- ブラウザ反映なし（Gen-3-F に届かないため）
+### 強化の到達点（詳細は CHANGELOG）
 
-### 新方向: 最強 AI（93.5% 超え）を目指す路線（2026-05-28〜）
+- 歴代: Gen-3-O mcts(vs smart 93.5%) → 根本診断で「vs smart は強さの錯覚」 と判明 → **Gen-4-A tempoAI が mcts に ~55% で圧勝**（探索構造の変更＝自分の手番をターン内完全読み）→ Gen-4-B（レイテンシ有界化）→ **Gen-4-C（lookahead=1 + Web Worker）= 現状最強**。
+- 天井: 葉（評価）の改善は全 parity、 horizon は lookahead=1 が sweet spot（=2 以上は頭打ち）。 残るレバーは人間棋譜の模倣（凍結中）のみ。
 
-手書き AI は Gen-3-O (93.5%) でグリッドサーチ系の伸び代をほぼ使い切った。 残る本命は NN priors:
+### NN（AlphaZero）路線 — 対象外（実証済みの行き止まり）
 
-- **A 路線（評価関数 feature 追加, Gen-3-R）**: 4 新 feature を追加したが、 別セッションの Gen-3-Q（21 次元 ES）でも私の ES でも不採用。 既存 17 weights と役割が重複し効果なし
-- **B 路線（ハイブリッド NN, Gen-3-S）**: policy-only NN + Gen-3-F leaf value。 **検証完了 → 低天井で棄却**
-  - 未学習 52% → 蒸留後 55%（CI 重複、 有意改善なし）。 mctsAI 93.5% に遠く及ばず
-  - 原因（実測確定）: **平均合法手数 5.1**（`_branching-factor.ts`）と小さく、 mctsAI の UCT1+全手展開で十分尽くせる。 NN prior は囲碁級の高分岐ゲームでこそ効くもので本 game では出番がない
-  - 副産物: batch 探索バグ発見（K11/K12 の speedup 結論を無効化）、 ブラウザ側 neuralAI も policy-only 対応済み
-- C 路線（純粋 AlphaZero / 新 architecture）: 同じ理由で ROI 低い
-
-### 現時点の総括（最強 AI を目指す上での到達点）
-
-- **最強は heuristic mctsAI (Gen-3-O, 93.5%)**。 NN は priors（Gen-3-S）も value（az-v1〜v10）も hand-tuned evaluator に勝てない
-- 93.5% 超えの残レバー: ①非線形 leaf value、 ②ギフト選択フェーズ（構造的弱点）、 ③より深い探索（伸び代小）。 いずれも難度高
-- NN 系は本 game の構造（低分岐 + 既に優秀な評価関数）と相性が悪いことが判明
-
-### GPU 環境
-- **ハードウェア**: NVIDIA RTX 4080 (16 GB VRAM)、 WSL2 経由で利用可
-- **依存関係**: CUDA 11.8 runtime ライブラリ + cuDNN 8.9.2（インストール済み）→ 詳細は `docs/GPU_SETUP.md`
-- **tfjs-node-gpu 4.22.0**: GPU 認識成功、 13.5 GB VRAM 利用可
-- `ai/scripts/nn/{model,train,neuralMcts}.ts` は `@tensorflow/tfjs-node-gpu` を使用
-- **Gen-3-K11 実装**: `--parallel-games N` で並列 self-play 実装（後に不要と判明）
-- ⚠️ **Gen-3-K12 撤回（Gen-3-S）**: `--mcts-batch 100` の「1.5x speedup」 は **誤り**
-  - `decideActionNeural` の batch 探索は batchSize が大きいと木を降りないバグがあった（`_verify-search.ts` で実証）
-  - mcts-batch=100 が速かったのは探索が空回りしていたから。 正しい上限は **`--mcts-batch 8`**
-  - プロファイルで NN predict の 3 ms 固定オーバーヘッドを発見したこと自体は有効
-  - 開発中は `CUDA_VISIBLE_DEVICES=-1` で CPU 実行しても同等速度
-
-### ブラウザ統合の準備状況（Gen-3-K9）
-
-NN 学習の最強モデルが Gen-3-F に届いていないため、ブラウザ反映は保留中。
-ただし「強いモデルができたら数手で反映できる」状態に整えてある:
-
-| 構成要素 | 状態 | 場所 |
-|---|---|---|
-| `@tensorflow/tfjs`（ブラウザ版）依存 | 追加済み（dependencies） | `package.json` |
-| `src/ai/neuralAI.ts` | 実装済み（NN-guided MCTS + 自動フォールバック） | tfjs.loadLayersModel 使用 |
-| 動的 import 経路 | `loadNeuralAI(url)` を `src/ai/index.ts` から export | tfjs は別 chunk、 呼ばない限り main chunk に混入しない |
-| placeholder モデル | `public/models/dummy/` に未学習版 (76 KB) 配置済み | 動作確認用 |
-| `train.ts --copy-to-public` | 学習後の自動コピー対応 | `public/models/active/` 等にコピー可 |
-
-**バンドルサイズ計測**（実測）:
-- baseline（mctsAI のみ）: JS 239 KB / gzip 75 KB
-- tfjs を main chunk に同梱した場合: JS 1.83 MB / gzip 327 KB
-- 現状（動的 import）: baseline と同じ。 `loadNeuralAI()` 呼び出し時のみ別 chunk として lazy load
-
-**強いモデル完成後の反映手順**:
-1. `npx tsx ai/scripts/nn/train.ts ... --copy-to-public public/models/active`
-2. UI 側（`App.tsx` / `useGameLogic.ts` 等）で `loadNeuralAI(\`${import.meta.env.BASE_URL}models/active/model.json\`)` を呼び、 得た `decideAction` を mctsAI の差し替えとして使う
-3. ロード前 / 失敗時は内部で mctsAI にフォールバックするため、 UI の崩れは起きない
+分岐因子 5.1 と小さく priors は無効、 hand-eval に value も priors も勝てない（az-v1〜v10 最高 vs smart 8%、 価値学習 v1/v2/残差も parity-下）。 NN 基盤（`src/ai/neuralAI.ts` + `@tensorflow/tfjs` 動的 import + GPU 環境）はコードに残るが**使用しない**。 GPU セットアップは `docs/GPU_SETUP.md`、 経緯・数値は CHANGELOG（Gen-3-K* / Gen-3-S / 根本診断）参照。
 
 ---
 
 ## 進化サイクルの始め方
 
-進化サイクルは目的に応じてスキルを使い分けます。
+唯一の AI 進化スキル: `.claude/skills/evolve-meteo-ai-handwritten/SKILL.md`（現 tempoFast の探索・評価の改善を 1 イテレーション進める。NN は対象外）。
 
-```text
-.claude/skills/
-  evolve-meteo-ai-handwritten/SKILL.md    手書き AI（smart / mcts / evaluator）の改善
-  evolve-meteo-ai-neural/SKILL.md         NN AI（AlphaZero）の学習・改善
-```
-
-両スキルとも:
 - **1 イテレーション = 1 仮説**
 - **Step 0: ルール変更チェック必須**
-- 結果は `ai/CHANGELOG.md` に追記
+- 物差しは **smart 非依存**（候補 vs 現状最強 + Elo）。結果は `ai/CHANGELOG.md` に追記
 
 ---
 
@@ -107,14 +52,14 @@ NN 学習の最強モデルが Gen-3-F に届いていないため、ブラウ�
 | 0 | 学習基盤（決定論 RNG・encoding・行動空間・self-play / bench CLI） | **完了 (Gen-0)** |
 | 1 | IS-MCTS（randomAI を rollout policy として利用） | **完了 (Gen-1)**：vs smart 56% |
 | 1-B | IS-MCTS の leaf 評価関数化（`evaluateState` を tanh 圧縮）| **完了 (Gen-2)**：vs smart 83.5% |
-| 2 | 評価関数の重み自動チューニング（(1+1)-ES） | **完了 (Gen-3-B〜F)**：vs smart 89.5% |
-| 2-extra | per-AI weights 構造（mcts/smart で別重み）| **完了 (Gen-3-J)**：構造採用、 ブラウザ DEFAULT は据置 |
-| 2-L | MCTS 探索ハイパラ `uctC` の grid 最適化 | **完了 (Gen-3-L)**：vs smart 92.0% |
-| 2-O | `uctC × iter` joint 2D grid search | **完了 (Gen-3-O)**：vs smart 93.5% |
+| 2 | 評価関数の重み自動チューニング + 探索ハイパラ grid | **完了 (Gen-3-B〜O)**：vs smart 93.5% |
 | 3 | AlphaZero 風 / ハイブリッド NN | **棄却 (Gen-3-S)**：分岐因子 5.1 で priors 無効、 NN は本 game と相性が悪い |
-| 3-診断 | 「vs smart は強さの錯覚」 を実証 | **完了**：mcts は size3 連鎖 88%・size5 0.1%、 物差しが盲点を共有 |
-| 3-X | **smart 非依存ベンチ確立 + `chainReadyMult=10` 採用** | **完了・ブラウザ反映**：vs baseline mcts 33.3% (>25%) で有意。 ただし改善は modest |
-| 4 | 多ターン連鎖計画（人間との差を埋める本命）| 未着手。 静的評価では不足、 探索構造 or outcome 接地 value が要 |
+| 3-診断 | 「vs smart は強さの錯覚」 を実証 | **完了**：物差しを smart 非依存に移行 |
+| 3-X | smart 非依存ベンチ確立 + `chainReadyMult=10` 採用 | 完了（後に tempo に置換）：vs baseline mcts 33.3% |
+| **4-A** | **tempoAI（ターン内完全読み + テンポ評価）** | **完了・ブラウザ反映**：vs Gen-3-X mcts ~55%。 多ターン連鎖計画を探索構造で実現＝「葉の天井」 突破 |
+| **4-B** | レイテンシ有界化（時間予算 + 反復深化 + αβ + 置換表）| **完了・反映**：最悪 21s→1s、 強さは Gen-4-A 同等 |
+| **4-C** | **lookahead=1（horizon）+ Web Worker** | **完了・反映＝現状最強**：現 tempo に +8pt(33%)。 lookahead=2 以上・opp=tempo・NN は頭打ち＝探索アプローチ天井 |
+| 5 | 人間棋譜の模倣学習（self-play 天井を上位教師で破る）| 未着手・凍結中。 要対局記録 |
 
 ---
 
@@ -126,85 +71,54 @@ ai/
   CHANGELOG.md        AI 各世代の変更と評価結果（最新は冒頭）
   tsconfig.json       Node.js 実行用 TS 設定
   scripts/
-    selfplay.ts       指定戦略で N 局回し結果集計
-    bench.ts          戦略を比較するベンチ（rotate / weights / mcts-weights 対応）
-    bench-neural.ts   NN モデル vs 既存戦略のベンチ
-    tune-es.ts        評価関数重みの (1+1)-ES チューナー
-    _runner.ts        共通の playOneGame ロジック
-    nn/
-      model.ts        NN 定義 (createModel / saveModel / loadModel)
-      dataset.ts      自己対戦データ生成 (mctsAI / neuralMcts)
-      neuralMcts.ts   NN 誘導 MCTS（PUCT + NN prior/value）
-      train.ts        AlphaZero ループ CLI (--selfplay mcts|neural)
-      _smoke-gpu.ts   GPU 動作確認用スクリプト
-  data/               自己対戦ログ・学習出力（gitignore）
-  models/             学習済みモデル（gitignore）
+    bench-self.ts     候補 vs baseline の smart 非依存ベンチ（現・主物差し）
+    _fast_bench.ts    tempoFast 系の強度ベンチ
+    _la_bench.ts      lookahead / 相手モデルの比較ベンチ
+    elo-ladder.ts     全 AI 総当たり Elo（物差し補強・intransitivity 検出）
+    _runner.ts        共通 playOneGame / playOneGameWithDeciders
+    _combo-stats.ts   連鎖統計、 stats.ts  Wilson CI 等
+    bench.ts / selfplay.ts / tune-es.ts          旧（vs smart 時代・参考）
+    bench-neural.ts / nn/                         NN 系（対象外・旧）
+  data/ models/       自己対戦ログ・学習出力（gitignore）
+src/ai/
+  index.ts            ブラウザ既定 decideAction を export（現 tempoFastAI）
+  tempoFastAI.ts      現状最強（Gen-4-C: lookahead=1 + 時間予算 + 置換表）
+  tempoAI.ts          Gen-4-A（無制限探索版・比較ベースライン）
+  aiWorker.ts         CPU AI を Web Worker で実行（UI 非ブロック）
+  evaluator.ts        評価関数 evaluateState + DEFAULT_WEIGHTS（chainReadyMult=10）
+  smartAI / mctsAI / randomAI / chainRushAI       旧・補助戦略
+  neuralAI.ts         NN 系（対象外・未使用）
 ```
 
 ゲームロジックは `src/game/` を直接 import します（学習環境と本番環境を完全に一致させるため）。
 
 ---
 
-## よく使うコマンド
-
-### ベンチ（手書き AI 系）
+## よく使うコマンド（物差しは smart 非依存）
 
 ```bash
-# 自己対戦バランス確認
-npx tsx ai/scripts/bench.ts --games 200 --strategies smart,smart,smart,smart --rotate --seed 1 --json
+# 偏りチェック / 候補 vs 現状最強（公平基準 25%・Wilson CI）
+npx tsx ai/scripts/_fast_bench.ts --base tempo --budget 1000 --games 48 --seed 31001
 
-# 現状ブラウザ CPU の強さ確認
-npx tsx ai/scripts/bench.ts --games 200 --strategies mcts,smart,smart,smart --rotate --seed 1001 --json
+# lookahead / 相手モデルの比較（候補 vs baseline、両者同 budget）
+npx tsx ai/scripts/_la_bench.ts --budget 1000 --lookahead 1 --opp smart --base-lookahead 0 --games 150 --seed 31001
 
-# JSON で得た重みを mcts のみに適用
-npx tsx ai/scripts/bench.ts --mcts-weights ai/data/tuned-weights-gen3X.json \
-  --games 200 --strategies mcts,smart,smart,smart --rotate --seed 1001 --json
+# 評価重み候補 vs baseline mcts（chainReadyMult 等の検証）
+npx tsx ai/scripts/bench-self.ts --cand '{"chainReadyMult":10}' --games 150 --seed 8001
+
+# 全 AI 総当たり Elo（相対強度・intransitivity 検出）
+npx tsx ai/scripts/elo-ladder.ts --ais random,smart,mctsGen3X,tempo50 --games 0 --mixed --mixed-games 12 --json
 ```
 
-### 評価関数重みの (1+1)-ES チューニング
-
-```bash
-npx tsx ai/scripts/tune-es.ts \
-  --gens 15 --games 50 --seed 1 --sigma 0.2 \
-  --init ai/data/tuned-weights-previous.json \
-  --out ai/data/tuned-weights-new.json
-```
-
-### NN 学習（GPU で動作中、 CPU でも同じコマンドで動く）
-
-```bash
-export LD_LIBRARY_PATH=/usr/local/cuda-11.8/lib64:${LD_LIBRARY_PATH}
-
-# Warm-up: mctsAI 自己対戦
-npx tsx ai/scripts/nn/train.ts --games 100 --iter 2 --batch 256 --epochs 3 --seed 1000 \
-  --selfplay mcts --out ai/models/az-vN-warm
-
-# AlphaZero ループ: neuralMcts 自己対戦 + 学習
-npx tsx ai/scripts/nn/train.ts --games 200 --iter 5 --batch 256 --epochs 3 --seed 2000 \
-  --selfplay neural --init ai/models/az-vN-warm --mcts-batch 16 \
-  --out ai/models/az-vN
-
-# Gen-3-S ハイブリッド蒸留: 強い mctsAI 自己対戦データで policy-only NN を学習
-npx tsx ai/scripts/nn/train.ts --games 200 --iter 1 --batch 256 --epochs 15 --seed 60000 \
-  --selfplay mcts --hybrid --hidden-units 256 --hidden-layers 3 \
-  --out ai/models/hybrid-distill-v1
-# 注: --mcts-batch は 8 以下に保つこと（大きいと探索が空回りする。 Gen-3-S 参照）
-```
-
-### NN モデルのベンチ
-
-```bash
-npx tsx ai/scripts/bench-neural.ts ai/models/az-vN \
-  --opponent smart --games 50 --seed 1001 --silent --json
-```
+⚠️ **vs-smart ベンチ**（`bench.ts --strategies mcts,smart,smart,smart`）は smart と評価関数が盲点を共有し検出力がないため**使わない**（根本診断参照）。NN 学習コマンドは対象外（旧情報は CHANGELOG / `docs/GPU_SETUP.md`）。
 
 ---
 
 ## 詳細ドキュメント
 
-- **進化サイクルの手順**: `.claude/skills/evolve-meteo-ai-handwritten/SKILL.md` / `.claude/skills/evolve-meteo-ai-neural/SKILL.md`
+- **進化サイクルの手順**: `.claude/skills/evolve-meteo-ai-handwritten/SKILL.md`（唯一の AI 進化スキル）
 - **全試行履歴と結果**: `ai/CHANGELOG.md`（最新が冒頭）
-- **GPU セットアップ手順**: `docs/GPU_SETUP.md`
+- **GPU セットアップ手順**（NN・対象外）: `docs/GPU_SETUP.md`
 - **ゲームルール**: `docs/RULES.md`
 
 ---
@@ -215,30 +129,17 @@ npx tsx ai/scripts/bench-neural.ts ai/models/az-vN \
 
 | Gen | 内容 | 結果 |
 |---|---|---|
-| **Gen-0** | 学習基盤構築 | 採用 |
-| **Gen-1** | IS-MCTS + random rollout | vs smart 56% |
-| **Gen-2** | leaf 評価関数化 | vs smart 83.5% ← ブラウザ反映 |
-| ~~Gen-3-A~~ | iter 400→1000 | 飽和、不採用 |
-| **Gen-3-B** | (1+1)-ES tune | vs smart 88.0% |
-| **Gen-3-B-2** | warm-start ES | vs smart 89.0% |
-| ~~Gen-3-C~~ | PUCT (progressive bias) | 短期 prior が悪手、不採用 -32.5pt |
-| ~~Gen-3-E~~ | selfNearEnd 特徴量追加 | 過学習、不採用 |
-| **Gen-3-F** | 本格 ES (100局/世代) | vs smart 89.5%、 1 手 2.10 ms ← ブラウザ反映 |
-| ~~Gen-3-G/G-2/H/I~~ | gift selection 改善 4 連敗 | 全て不採用、MCTS の構造的限界 |
-| **Gen-3-J** | per-AI weights 構造 | API 採用、 ブラウザ DEFAULT 据置 |
-| **Gen-3-K1〜K3** | AlphaZero パイプライン基盤 | コード採用、 モデル未達 |
-| **Gen-3-K4** | NN バッチ推論 (batch=16) | 学習速度 8x |
-| ~~Gen-3-K5~~ | NN 容量増 (77K params) | underfit、 不採用 |
-| ~~Gen-3-K6~~ | 多人数 value 出力 | 構造採用、 単独ではブラウザ未達 |
-| **az-v7** | K6 + 5000 games | vs smart 8%、 NN 系最強 |
-| ~~az-v8/v9~~ | virtual loss / tau 調整 | 大幅悪化、 不採用 |
-| ~~az-v10~~ | 1 から再学習 (6500 games) | 改善せず、 不採用 |
-| **Gen-3-L** | uctC grid search (√2 → 2.0) | vs smart 92.0% ← ブラウザ反映（後段 Gen-3-O で更新） |
-| ~~Gen-3-M~~ | leafEvalScale grid search | 現状 1500 が grid 内ピーク、不採用 |
-| ~~Gen-3-N~~ | iterations grid 再評価 (uctC=2.0 で) | 現状 400 が grid 内ピーク、不採用（coordinate-descent 解として確認） |
-| **Gen-3-O** | uctC × iter joint 2D grid | `(uctC, iter) = (1.7, 800)` で coordinate-descent 解を突破、 vs smart **93.5%** (CI 89.2-96.2%) ← **ブラウザ反映、現状最強** |
-| ~~Gen-3-P~~ | uctC × leafEvalScale joint 2D grid | `(1.7, 1500)` が依然 grid 内ピーク、不採用。`leafEvalScale=1500` は他軸に依存しないロバスト値 |
-| ~~Gen-3-Q~~ | 21 次元 ES tune（新 4 特徴量 + 既存 17）| 17 世代 sigma 早期収束、best = default。smart x3 fitness は天井（98%, avgScore 22.24）、 新特徴量は smart 相手では検出不能 |
-| ~~Gen-3-S~~ | mcts 自己対戦 fitness で 21 次元 ES | self-play では改善（+1.88 avgScore、新特徴量も非ゼロ化）も vs smart で -4.5〜-5pt 退行、不採用。Gen-3-J 現象（self-play 最適 ≠ vs smart 最適）を再確認 |
-| ~~Gen-3-T~~ | 終局評価を純粋勝敗(winLoss)化 | vs smart も head-to-head も中立（改善なし）、不採用。終局評価は到達頻度が低く実質無関係、「得点重視」是正の効きどころは途中評価の非線形化と判明 |
-| ~~Gen-3-U~~ | 自己得点項の非線形化（凸/凹 grid）| 線形(0)が両方向のピーク、不採用。現状の評価は得点差+tanh飽和で既に勝利位置を表現済み。手書き AI は Gen-3-O が実質天井と確定 |
+| **Gen-0〜2** | 学習基盤 / IS-MCTS / leaf 評価関数化 | vs smart 56%→83.5% ← ブラウザ反映 |
+| **Gen-3-B〜F** | (1+1)-ES 重み tune | vs smart 89.5%、 1 手 2.10 ms ← 反映 |
+| ~~Gen-3-C/E/G〜I~~ | PUCT / 特徴量追加 / gift 改善 | 不採用（短期 prior 悪手・過学習・MCTS 構造限界）|
+| **Gen-3-J** | per-AI weights 構造 | API 採用、 DEFAULT 据置 |
+| **Gen-3-K1〜K6 / az-v7** | AlphaZero パイプライン基盤 + 学習 | az-v7 が NN 系最強でも vs smart **8%**、 ブラウザ未達 |
+| ~~az-v8/v9/v10~~ | virtual loss / tau / 再学習 | 改善せず、 不採用 |
+| **Gen-3-L〜O** | uctC × iter grid | vs smart **93.5%** (Gen-3-O) ← 反映、 当時最強 |
+| ~~Gen-3-M/N/P/Q/S/T/U~~ | grid / ES / 終局評価 / 非線形化 | 不採用。**手書き評価（葉）の重み tune は Gen-3-O が天井**（※ horizon は別軸 — Gen-4 で突破）|
+| 3-診断 | 「vs smart は強さの錯覚」 実証 | mcts は size3 連鎖 88%・size5 0.1%、 物差しが盲点共有 → smart 非依存ベンチへ |
+| **Gen-3-X** | smart 非依存ベンチ + chainReadyMult=10 | vs baseline mcts 33.3% ← 反映（後に tempo に置換）|
+| **Gen-4-A** | **tempoAI（ターン内完全読み + テンポ評価）** | vs Gen-3-X mcts ~55% ← 反映。 探索構造の変更で「葉の天井」 を突破 |
+| **Gen-4-B** | 時間予算 + 反復深化 + αβ + 置換表 | 強さ同等・最悪 21s→1s ← 反映 |
+| **Gen-4-C** | **lookahead=1 + Web Worker** | 現 tempo に +8pt(33%) ← 反映・**現状最強** |
+| ~~Gen-4 探索ラウンド~~ | LA=2 / opp=tempo / 学習価値 v1·v2·残差 / ギフト / 重み再tune | いずれも parity-下、 不採用＝**探索アプローチ天井**（CHANGELOG 参照）|

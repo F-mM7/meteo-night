@@ -50,11 +50,16 @@ LA=1 は budget で 1 手 ~1 秒に有界だが**ほぼ毎手 ~1 秒**（中央�
 
 ### 採用
 - `src/ai/tempoFastAI.ts`: `DEFAULT_LOOKAHEAD_TURNS = 0 → 1`（相手モデルは既定 'smart'）。 `index.ts` 経由でブラウザ既定に。
-- 検証: tsc -b ✓ / vitest 33/33 ✓ / build ✓。 強さ確証 3 本目(seed 33001) もバックグラウンド確証中。
+- 検証: tsc -b ✓ / vitest 33/33 ✓ / build ✓。 強さは 3 seed プール（31001/32001/33001）n=450 で ~31%（CI 下限 ~27%）に確証済み。
 
-### 今後（horizon に伸びしろがあると判明）
-- **lookahead=2** や**より正確な相手モデル(tempo)**で更に伸びるか（重い → Web Worker 前提）。
-- **NN がここで初めて意味を持つ**: 「深い lookahead の結果」 を安く近似する価値ネット（policy prior でも葉置換でもなく horizon の近似）。 lookahead が効くと分かった今、 検討価値あり。
+### horizon 深掘りの結果（2026-06-03）: lookahead=1 が sweet spot、 深さ・相手モデルは頭打ち
+LA=1 採用後、 更なる horizon を検証（候補 vs 現 LA=1, smart 非依存, rotate）:
+- **lookahead=2 @budget1000: 20%（n=30, parity）/ @budget2500: 14.6%（n=48, 平均 15.3 vs 18.4）**。 予算を 2.5 倍にしても LA=2 は LA=1 を超えず、 むしろ相対的に悪化（20%→14.6%）＝LA=1 も増予算で 2-ply/配置を深め 3rd ply より有用。
+- **opp=tempo @1000: 16.7%（n=30, parity-下）**。 高コストな相手モデルは予算を食って逆効果。
+→ **lookahead=1 が horizon の sweet spot**。 3rd ply は配信予算でもそれ以上でも価値を出さない。 **「深い lookahead を NN で安く近似」 案は前提（深さが効く）が refuted＝不要**。
+
+### 最終結論: Gen-4-C(lookahead=1 + Web Worker) が探索アプローチの実用天井
+葉（評価）も horizon（読みの深さ）も尽きた。 horizon=1 で天井を一度破った（+8pt 確定）が、 それ以上は頭打ち。 NN は本 game で役割なし（priors=低分岐で無効 / value=探索が葉に頑健 / deep-lookahead 近似=深さが効かず不要）。 残る唯一のレバーは**強い人間の棋譜からの模倣学習**（self-play の天井を上位教師で破る・凍結中・要対局記録）のみ。
 
 ---
 
