@@ -104,8 +104,13 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 /* ---------- shell ---------- */
 .app-shell {
   position: relative;
+  /* 100vh はモバイルで検索バーを含む最大高さに固定されるため、検索バーの
+     出入りに追従する 100dvh を使い、JS 側の window.innerHeight ベースの寸法計算と
+     枠の高さを一致させる。dvh 非対応の古い環境向けに 100vh をフォールバックで先置き。 */
   min-height: 100vh;
+  min-height: 100dvh;
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;

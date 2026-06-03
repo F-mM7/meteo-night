@@ -132,7 +132,13 @@ export function useBoardLayout(state: GameState, logVisible: boolean): BoardLayo
     const update = () => setDims(calcDims(logVisible));
     update();
     window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
+    // iOS Safari 等では検索バーの出入りで resize が発火しないことがあるため、
+    // visualViewport の resize も購読して検索バーが動いた直後に寸法を再計算する。
+    window.visualViewport?.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('resize', update);
+    };
   }, [logVisible]);
 
   const globalMaxStack = useMemo(() => computeGlobalMaxStack(state), [state.players]);
