@@ -1,4 +1,4 @@
-export const COLORS = ['red', 'green', 'yellow', 'purple', 'blue'] as const;
+export const COLORS = ['red', 'green', 'purple', 'yellow', 'blue'] as const;
 export type Color = (typeof COLORS)[number];
 
 export interface Card {
