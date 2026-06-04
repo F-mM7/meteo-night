@@ -4,19 +4,20 @@
   /* ===== 生の色（RGB 成分）: 透明度違いで再利用するため R,G,B で保持し、
      不透明版は rgb()、半透明版は rgba(var(--rgb-x), a) で 1 つの出所から参照する ===== */
   --rgb-night-purple: 45, 49, 110;    /* 夜空にほのかに差す紫（色相は card-purple と blue の中間）。副系ボタンにも使用 */
-  --rgb-night-purple-hi: 62, 67, 138; /* 副系ボタン hover の明るい紫（色相は night-purple に統一） */
   --rgb-accent: 255, 248, 196;        /* 淡い星明かりの黄白。流星の発光にも使用 */
-  --rgb-accent-strong: 255, 210, 77;  /* 強い金。選択強調・脈動・先手マーカー発光 */
+  --rgb-accent-strong: 255, 210, 77;  /* 強い金。主ボタンの金グラデ・タイトル・トグル・ログ強調に使用 */
   --rgb-black: 0, 0, 0;               /* 影 */
   --rgb-white: 255, 255, 255;         /* 星・ハイライト・破線 */
   --rgb-milkyway: 210, 220, 255;      /* 天の川の霞 */
 
   /* ===== アクセント・状態 ===== */
-  --rgb-accent-strong-hi: 255, 225, 122;        /* プライマリボタン hover の明るい金 */
-  --rgb-accent-warm: 255, 146, 68;
+  /* 暖色のオレンジ。主ボタングラデの橙端に使用（色相は card-red×card-yellow の中点）。 */
+  --rgb-accent-warm: 255, 148, 68;
   /* スタートプレイヤーマーカーの地。最終ラウンドの警告バッジにも流用する。
      card-red の明度を下げた深い赤（H/S は card-red と同じ、L を 0.68 倍）。 */
   --rgb-marker: 137, 26, 39;
+  /* 選択枠・選択強調の色。色相は card-red×card-yellow の中点。視認性のため accent-warm より明度を上げた橙。 */
+  --rgb-selection: 255, 188, 138;
 
   /* ===== 星のかけら 5 色（中心=参考絵柄の最彩度色 / 外周=同色相の明色。正方形状の放射グラデ） ===== */
   --rgb-card-red:    201, 38, 58;  --rgb-card-red-pale:    214, 111, 124;
@@ -34,17 +35,15 @@
   /* ===== ボタンの役割別トークン（intent → 既存の生色/別名を参照） ===== */
   /* 主アクション（金グラデ） */
   --btn-primary-grad:    linear-gradient(135deg, rgb(var(--rgb-accent-strong)), rgb(var(--rgb-accent-warm)));
-  --btn-primary-grad-hi: linear-gradient(135deg, rgb(var(--rgb-accent-strong-hi)), rgb(var(--rgb-accent-warm)));
   --btn-primary-fg:      rgb(var(--rgb-black));
-  /* 副アクション（明るい紫）。.btn の地色と、配布先ボタン（btn-target）の hover で共有 */
+  /* 副アクション（紫）。.btn の地色。ホバーは共通の brightness ルールで持ち上げる */
   --btn-sub-bg:          rgb(var(--rgb-night-purple));
-  --btn-sub-bg-hover:    rgb(var(--rgb-night-purple-hi));
-  /* 手札選択の金枠 */
-  --btn-selected-border: rgb(var(--rgb-accent-strong));
+  /* 手札選択の枠（選択枠色） */
+  --btn-selected-border: rgb(var(--rgb-selection));
   /* 透明コントロール系（hamburger / stepper）の状態色 */
   --ctrl-hover-bg:       rgba(var(--rgb-white), 0.08);
   --ctrl-active-bg:      rgba(var(--rgb-white), 0.14);
-  --ctrl-focus-border:   rgb(var(--rgb-accent-strong));
+  --ctrl-focus-border:   rgb(var(--rgb-selection));
 
   /* ===== 形状・寸法（色ではない） ===== */
   --radius: 12px;
@@ -184,13 +183,12 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   justify-content: center;
   padding: 0;
   color: rgb(var(--rgb-white));
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease;
 }
 
-.hamburger-btn:hover,
+/* メニュー展開中は下地を出して開いていることを示す（ホバーでの強調は行わない）。 */
 .hamburger-btn[aria-expanded='true'] {
   background: var(--ctrl-hover-bg);
-  color: rgb(var(--rgb-white));
 }
 
 .hamburger-icon {
@@ -259,13 +257,8 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   align-items: center;
   justify-content: center;
   padding: 0;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease;
   user-select: none;
-}
-
-.stepper-btn:hover:not(:disabled) {
-  background: var(--ctrl-hover-bg);
-  color: rgb(var(--rgb-white));
 }
 
 .stepper-btn:active:not(:disabled) {
@@ -584,7 +577,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   align-items: center;
   justify-content: center;
   cursor: default;
-  transition: filter 0.15s;
 }
 
 .slot-stack {
@@ -754,12 +746,9 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   cursor: pointer;
 }
 .slot-interactive .slot-stack {
-  outline: 2px solid rgb(var(--rgb-accent-strong));
+  outline: 2px solid rgb(var(--rgb-selection));
   outline-offset: 1px;
   border-radius: 6px;
-}
-.slot-interactive:hover {
-  filter: brightness(1.1);
 }
 
 .slot-empty {
@@ -886,10 +875,10 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 .card-emphasized {
-  outline: 3px solid rgb(var(--rgb-accent-strong));
+  outline: 3px solid rgb(var(--rgb-selection));
   outline-offset: 2px;
   transform: translateY(-2px);
-  box-shadow: 0 0 18px rgba(var(--rgb-accent-strong), 0.55);
+  box-shadow: 0 0 18px rgba(var(--rgb-selection), 0.55);
 }
 
 /* ---------- center area (枠なし、内側に得点+場) ---------- */
@@ -960,9 +949,9 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 
 .field-pair-interactive {
   cursor: pointer;
-  outline: 2px solid rgb(var(--rgb-accent-strong));
+  outline: 2px solid rgb(var(--rgb-selection));
   outline-offset: 1px;
-  background: rgba(var(--rgb-accent-strong), 0.08);
+  background: rgba(var(--rgb-selection), 0.08);
 }
 
 /* field-pair-cards / field-pair-empty は外形寸法を完全に一致させる。
@@ -998,7 +987,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
 }
 
 .pile-interactive { cursor: pointer; }
-.pile-interactive .card-facedown { outline: 2px solid rgb(var(--rgb-accent-strong)); outline-offset: 1px; }
+.pile-interactive .card-facedown { outline: 2px solid rgb(var(--rgb-selection)); outline-offset: 1px; }
 .pile-stack { position: relative; }
 
 /* 残枚数バッジ: 裏面の紋章（中央の星）と重ならないよう下端のピルに収める */
@@ -1078,9 +1067,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   cursor: pointer;
   font-weight: 600;
   font-size: 12px;
-  transition: background 0.15s, border-color 0.15s;
 }
-.btn:hover { background: var(--btn-sub-bg-hover); }
 .btn:disabled,
 .btn[aria-disabled='true'] {
   opacity: 0.45;
@@ -1093,7 +1080,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   background: var(--btn-primary-grad);
   color: var(--btn-primary-fg);
 }
-.btn-primary:hover { background: var(--btn-primary-grad-hi); }
 
 .badge {
   font-size: 10px;
@@ -1240,7 +1226,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
      明るく浮き、hover で副系の明るい紫まで持ち上げる。 */
   background: rgb(var(--rgb-crest-panel-core));
 }
-.btn-target:hover { background: var(--btn-sub-bg); }
 /* 文字はボタン幅に追従（狭→8px / 広→14px でクランプ） */
 .btn-target-label {
   font-size: clamp(8px, 24cqw, 14px);
@@ -1249,7 +1234,6 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: 0.02em; }
   background: var(--btn-primary-grad);
   color: var(--btn-primary-fg);
 }
-.btn-target.selected:hover { background: var(--btn-primary-grad-hi); }
 
 /* 決定 / ランダムに配布 ボタンを横並びで右上に配置 */
 .gift-confirm-actions {
