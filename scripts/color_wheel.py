@@ -157,38 +157,50 @@ def measure(xy, txt, anchor, align):
     return (b[0] - 3 * SS, b[1] - 2 * SS, b[2] + 3 * SS, b[3] + 2 * SS)
 
 
-# 外周（余白の多い点）から先に置くと、密集部のラベルが空きへ逃げやすい
+# 点そのものもラベル回避の対象に加える（ラベルが別の点へ重ならないように）
+placed.extend([(pp["x"] - rad, pp["y"] - rad, pp["x"] + rad, pp["y"] + rad) for pp in P])
+
+# 放射方向(0)を起点に ±15° 刻みで全方位へ広げる角度リスト
+ANGLE_STEPS = [0.0]
+for _k in range(1, 13):
+    ANGLE_STEPS += [_k * math.pi / 12, -_k * math.pi / 12]
+
+# 外周（余白の多い点）から先に置くと、密集部のラベルが空きへ逃げやすい。
+# 放射方向・近距離を優先し、空かなければ角度を全方位へ広げ、さらに距離を伸ばして探す。
 for p in sorted(P, key=lambda q: -math.hypot(q["x"] - cx, q["y"] - cy)):
     label = p["name"].replace("-", "\n")  # ハイフン区切りを改行に
-    hue, L, s = to_hls(p["rgb"])
-    ang = math.radians(hue - 90)
+    base = math.radians(to_hls(p["rgb"])[0] - 90)
     chosen = None
-    for extra in range(0, 150 * SS, 5 * SS):
-        for da in (0, 0.07, -0.07, 0.15, -0.15):
-            a = ang + da
+    for dist in range(rad + 9 * SS, 340 * SS, 5 * SS):
+        for da in ANGLE_STEPS:
+            a = base + da
             ox, oy = math.cos(a), math.sin(a)
-            lx = p["x"] + ox * (rad + 6 * SS + extra)
-            ly = p["y"] + oy * (rad + 6 * SS + extra)
-            ha = "lm" if ox > 0.2 else ("rm" if ox < -0.2 else "mm")
+            lx = p["x"] + ox * dist
+            ly = p["y"] + oy * dist
+            ha = "lm" if ox > 0.25 else ("rm" if ox < -0.25 else "mm")
             align = "left" if ha == "lm" else ("right" if ha == "rm" else "center")
             box = measure((lx, ly), label, ha, align)
+            # 画像端・上部タイトル・下部の注釈帯を避ける
+            if box[0] < 8 * SS or box[2] > W - 8 * SS or box[1] < 72 * SS or box[3] > 1860 * SS:
+                continue
             if not hits(box, placed):
-                chosen = (lx, ly, ha, align, box, extra)
+                chosen = (lx, ly, ha, align, box, a)
                 break
         if chosen:
             break
-    if not chosen:
-        ox, oy = math.cos(ang), math.sin(ang)
-        ha = "lm" if ox > 0.2 else ("rm" if ox < -0.2 else "mm")
+    if not chosen:  # どうしても空かなければ放射方向の至近へ
+        a = base
+        ox, oy = math.cos(a), math.sin(a)
+        lx, ly = p["x"] + ox * (rad + 9 * SS), p["y"] + oy * (rad + 9 * SS)
+        ha = "lm" if ox > 0.25 else ("rm" if ox < -0.25 else "mm")
         align = "left" if ha == "lm" else ("right" if ha == "rm" else "center")
-        lx, ly = p["x"] + ox * (rad + 6 * SS), p["y"] + oy * (rad + 6 * SS)
         box = measure((lx, ly), label, ha, align)
-        chosen = (lx, ly, ha, align, box, 0)
-    lx, ly, ha, align, box, extra = chosen
+        chosen = (lx, ly, ha, align, box, a)
+    lx, ly, ha, align, box, a = chosen
     placed.append(box)
-    if extra > 10 * SS:  # 点から離れたときだけ細い短い引き出し線
-        d.line([p["x"] + math.cos(ang) * rad, p["y"] + math.sin(ang) * rad, lx, ly],
-               fill=(105, 105, 112), width=1 * SS)
+    if math.hypot(lx - p["x"], ly - p["y"]) - rad > 16 * SS:  # 離れたら引き出し線
+        d.line([p["x"] + math.cos(a) * rad, p["y"] + math.sin(a) * rad, lx, ly],
+               fill=(110, 110, 118), width=1 * SS)
     d.text((lx, ly), label, font=fnt, fill=(246, 246, 246), anchor=ha, align=align,
            spacing=LSP, stroke_width=3 * SS, stroke_fill=(22, 22, 25))
 
