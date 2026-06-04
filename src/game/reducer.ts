@@ -45,7 +45,7 @@ function updatePlayer(state: GameState, playerId: number, fn: (p: Player) => Pla
 
 /**
  * 全プレイヤー・全スロット・全スタックを走査して card.id の一覧を返す。
- * `NEW_GAME` / `CLEAR_BOARDS_FOR_RESET` で「旧ゲームのカードを discard 由来扱いで
+ * `CLEAR_BOARDS_FOR_RESET` で「旧ゲームのカードを discard 由来扱いで
  * 外側フェードアウトさせる」ためにマーク対象 ID を集める用途に使う。
  */
 function collectAllBoardCardIds(state: GameState): string[] {
@@ -438,15 +438,10 @@ function handlePlaceGift(state: GameState, cardId: string, slotIndex: number): G
 export function reducer(state: GameState, action: Action): GameState {
   switch (action.type) {
     case 'NEW_GAME': {
-      // 新規ゲーム開始時に旧ゲームの場札・スロット内カードを
-      // 「discard 由来で消えた」とマークし、UI 側で外側へフェードアウトさせる。
-      // （未マークだとデフォルトで「魔法発動 = 中央吸い込み」扱いになるため）
-      const oldCardIds = collectAllBoardCardIds(state);
-      const next = setupGame(action.options);
-      return {
-        ...next,
-        turn: { ...next.turn, discardedCardIds: oldCardIds },
-      };
+      // 初期盤面を構築して返すだけ。旧ゲームのカードのフェードアウトは前段の
+      // CLEAR_BOARDS_FOR_RESET が担う（この時点で盤面は既に空のため、ここで
+      // 旧カードを集めてマークしても対象は常に空＝無効だった）。
+      return setupGame(action.options);
     }
     case 'CLEAR_BOARDS_FOR_RESET': {
       // 新規ゲーム開始の前段として、全プレイヤーのスロットを空にして

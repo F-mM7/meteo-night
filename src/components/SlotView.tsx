@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { Card, Slot } from '../game/types';
 import { CardView } from './CardView';
@@ -47,6 +47,13 @@ interface FadingCard {
    * リセット直後に同 ID のフェードが重なると key 衝突・誤った早期片付けが起きる。
    */
   seq: number;
+  /**
+   * フェード開始時点（カードがまだ積まれていた最後のフレーム）のスタックオフセット。
+   * 描画中の `stackOffset` は新規ゲームのリセット等で盤面全体の最大積み枚数が
+   * 変わると即座に再計算されるため、消えゆくカードの基準位置にそのまま使うと
+   * 消える直前に重なりが広がって見える。これを固定値として持たせて回避する。
+   */
+  offset: number;
 }
 
 const PLACE_DURATION_MS = 400;
@@ -74,6 +81,13 @@ export function SlotView({
   const prevStackRef = useRef<Card[]>(stack);
   const isInitialMountRef = useRef(true);
   const fadeSeqRef = useRef(0);
+  // 「1 フレーム前」の stackOffset を保持する。フェード開始を検知する useLayoutEffect が
+  // 走る時点では props の offset は既に新値（リセット後の広がった値）になっているため、
+  // 直前フレームの値を覚えておき、消えゆくカードの基準位置にはそちらを使う。
+  const prevOffsetRef = useRef(offset);
+  useEffect(() => {
+    prevOffsetRef.current = offset;
+  }, [offset]);
 
   useLayoutEffect(() => {
     const prev = prevStackRef.current;
@@ -97,6 +111,7 @@ export function SlotView({
         fromIdx: prev.indexOf(card),
         reason: discardedCardIds?.has(card.id) ? 'discard' : 'launch',
         seq: fadeSeqRef.current++,
+        offset: prevOffsetRef.current,
       }));
       const newSeqs = new Set(newFading.map((f) => f.seq));
       setFadingCards((curr) => [...curr, ...newFading]);
@@ -143,29 +158,28 @@ export function SlotView({
         className={`slot-stack slot-stack-${direction}`}
         style={{ width: `${stackWidth}px`, height: `${stackHeight}px` }}
       >
-        {stack.length === 0 && fadingCards.length === 0 ? (
-          <div
-            className="slot-empty"
-            style={cardPositionStyle(direction, 0, offset)}
-          />
-        ) : (
-          stack.map((card, i) => {
-            const isTop = i === stack.length - 1;
-            const isPlacing = placingCardIds.has(card.id);
-            const placingClass = isPlacing
-              ? ` slot-stack-placing slot-stack-place-${direction}`
-              : '';
-            return (
-              <div
-                key={card.id}
-                className={`slot-stack-card${isTop ? ' slot-stack-top' : ''}${placingClass}`}
-                style={{ ...cardPositionStyle(direction, i, offset), zIndex: i + 1 }}
-              >
-                <CardView card={card} />
-              </div>
-            );
-          })
-        )}
+        {/* 黒台座は常にスタックの底に敷き、その上にカードを重ねる。
+            カードがあれば覆われて見えず、退くと自然に台座が現れる（fade 後に出現する不自然さを防ぐ）。 */}
+        <div
+          className="slot-empty"
+          style={cardPositionStyle(direction, 0, offset)}
+        />
+        {stack.map((card, i) => {
+          const isTop = i === stack.length - 1;
+          const isPlacing = placingCardIds.has(card.id);
+          const placingClass = isPlacing
+            ? ` slot-stack-placing slot-stack-place-${direction}`
+            : '';
+          return (
+            <div
+              key={card.id}
+              className={`slot-stack-card${isTop ? ' slot-stack-top' : ''}${placingClass}`}
+              style={{ ...cardPositionStyle(direction, i, offset), zIndex: i + 1 }}
+            >
+              <CardView card={card} />
+            </div>
+          );
+        })}
         {fadingCards.map((f) => {
           const animClass =
             f.reason === 'launch'
@@ -175,7 +189,7 @@ export function SlotView({
             <div
               key={`fade-${f.seq}`}
               className={`slot-stack-card ${animClass}`}
-              style={{ ...cardPositionStyle(direction, f.fromIdx, offset), zIndex: 50 }}
+              style={{ ...cardPositionStyle(direction, f.fromIdx, f.offset), zIndex: 50 }}
             >
               <CardView card={f.card} />
             </div>
