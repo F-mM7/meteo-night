@@ -1,28 +1,18 @@
+<!-- カード裏／スタートプレイヤーマーカーの中央エンブレム（CrestEmblem）と同じ意匠:
+     白の円環＋金の流星十字（背景なし）。アプリ側のパス・配色を変えたらここも揃える。 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <defs>
-    <linearGradient id="rainbow" gradientUnits="userSpaceOnUse" x1="50" y1="8" x2="50" y2="92">
-      <stop offset="0%"   stop-color="#ff2d55"/>
-      <stop offset="17%"  stop-color="#ff8c00"/>
-      <stop offset="33%"  stop-color="#ffe000"/>
-      <stop offset="50%"  stop-color="#28d96c"/>
-      <stop offset="67%"  stop-color="#00b8ff"/>
-      <stop offset="83%"  stop-color="#5b6bff"/>
-      <stop offset="100%" stop-color="#c060ff"/>
-    </linearGradient>
+    <radialGradient id="mn-star" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0"    stop-color="rgb(246,224,66)"/>
+      <stop offset="0.55" stop-color="rgb(249,238,149)"/>
+      <stop offset="1"    stop-color="rgb(255,255,255)"/>
+    </radialGradient>
+    <filter id="mn-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="0" stdDeviation="1.4" flood-color="rgb(255,248,196)" flood-opacity="0.7"/>
+    </filter>
   </defs>
-  <polygon points="50,8 72,32 68,72 50,92 32,72 28,32" fill="#fff8c4" fill-opacity="0.1"/>
-  <g fill="none" stroke="url(#rainbow)" stroke-linejoin="round" stroke-linecap="round">
-    <polygon points="50,8 72,32 68,72 50,92 32,72 28,32" stroke-width="6"/>
-    <g stroke-width="4" stroke-opacity="0.85">
-      <line x1="50" y1="8" x2="50" y2="92"/>
-      <line x1="28" y1="32" x2="72" y2="32"/>
-      <line x1="32" y1="72" x2="68" y2="72"/>
-    </g>
-    <g stroke-width="3" stroke-opacity="0.6">
-      <line x1="50" y1="8" x2="28" y2="32"/>
-      <line x1="50" y1="8" x2="72" y2="32"/>
-      <line x1="50" y1="92" x2="32" y2="72"/>
-      <line x1="50" y1="92" x2="68" y2="72"/>
-    </g>
-  </g>
+  <path fill-rule="evenodd" fill="rgb(255,255,255)" fill-opacity="0.9" transform="rotate(45 50 50)"
+        d="M23.5,50 a26.5,29.5 0 1,0 53,0 a26.5,29.5 0 1,0 -53,0 Z M24.5,50 a25.5,22.5 0 1,0 51,0 a25.5,22.5 0 1,0 -51,0 Z"/>
+  <path filter="url(#mn-glow)" fill="url(#mn-star)" stroke="rgb(0,0,0)" stroke-width="1.5" stroke-linejoin="round"
+        d="M48.00,9.30 Q50,8 52.00,9.30 C50.60,37.79 61.01,49.40 86.70,48.00 Q88,50 86.70,52.00 C61.01,50.60 50.60,62.21 52.00,90.70 Q50,92 48.00,90.70 C49.40,62.21 38.99,50.60 13.30,52.00 Q12,50 13.30,48.00 C38.99,49.40 49.40,37.79 48.00,9.30Z"/>
 </svg>
