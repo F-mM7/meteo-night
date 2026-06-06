@@ -189,7 +189,6 @@ export function CardView({ card, emphasized, facedown }: Props) {
   return (
     <div
       className={`card card-${card.color}${emphasized ? ' card-emphasized' : ''}`}
-      title={COLOR_LABEL[card.color]}
       aria-label={`${COLOR_LABEL[card.color]}の星のかけら`}
     >
       <CrystalMark />

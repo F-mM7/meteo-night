@@ -9,7 +9,6 @@ export function StartPlayerMarker({ position }: Props) {
     <div
       className={`start-marker start-marker-${position}`}
       aria-label="スタートプレイヤー"
-      title="スタートプレイヤー"
     >
       <svg
         className="start-marker-crest"
