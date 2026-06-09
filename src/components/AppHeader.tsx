@@ -9,6 +9,11 @@ interface Props {
   logVisible: boolean;
   setLogVisible: (v: boolean) => void;
   onStartNewGame: () => void;
+  recordingEnabled: boolean;
+  setRecordingEnabled: (v: boolean) => void;
+  recordedGameCount: number;
+  onExportGames: () => void;
+  onClearGames: () => void;
 }
 
 const EFFECT_DELAY_STEP_MS = 50;
@@ -21,6 +26,11 @@ export function AppHeader({
   logVisible,
   setLogVisible,
   onStartNewGame,
+  recordingEnabled,
+  setRecordingEnabled,
+  recordedGameCount,
+  onExportGames,
+  onClearGames,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuWrapRef = useRef<HTMLDivElement | null>(null);
@@ -28,6 +38,13 @@ export function AppHeader({
   const clamp = (n: number) => (Number.isFinite(n) && n >= 0 ? n : 0);
   const decrement = () => setEffectDelay(clamp(effectDelay - EFFECT_DELAY_STEP_MS));
   const increment = () => setEffectDelay(clamp(effectDelay + EFFECT_DELAY_STEP_MS));
+
+  const handleClearGames = () => {
+    if (recordedGameCount === 0) return;
+    if (window.confirm(`記録した ${recordedGameCount} 局をすべて消去しますか？`)) {
+      onClearGames();
+    }
+  };
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -117,6 +134,35 @@ export function AppHeader({
               />
               ログ表示
             </label>
+            <label className="header-menu-item header-menu-toggle">
+              <input
+                type="checkbox"
+                checked={recordingEnabled}
+                onChange={(e) => setRecordingEnabled(e.target.checked)}
+              />
+              対局を記録
+            </label>
+            <div className="header-menu-item header-menu-record">
+              <span className="header-menu-label">記録: {recordedGameCount} 局</span>
+              <div className="record-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary record-btn"
+                  onClick={onExportGames}
+                  disabled={recordedGameCount === 0}
+                >
+                  書き出し
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary record-btn"
+                  onClick={handleClearGames}
+                  disabled={recordedGameCount === 0}
+                >
+                  消去
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

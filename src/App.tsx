@@ -28,6 +28,7 @@ export default function App() {
     setEffectDelay,
     logVisible,
     setLogVisible,
+    recording,
   } = useGameLogic();
   const you = 0;
   const player = state.players[you];
@@ -196,6 +197,11 @@ export default function App() {
         logVisible={logVisible}
         setLogVisible={setLogVisible}
         onStartNewGame={() => startNewGame()}
+        recordingEnabled={recording.enabled}
+        setRecordingEnabled={recording.setEnabled}
+        recordedGameCount={recording.gameCount}
+        onExportGames={recording.exportGames}
+        onClearGames={recording.clearGames}
       />
 
       <main className="app-main">

@@ -4,6 +4,7 @@ import { setupGame } from '../game/setup';
 import type { Action, GameState, SetupOptions } from '../game/types';
 import { decideAction } from '../ai';
 import { useTimeout } from './useTimeout';
+import { useGameRecorder } from './useGameRecorder';
 import { CARD_FADE_DURATION_MS } from './boardLayout';
 import type { AiWorkerRequest, AiWorkerResponse } from '../ai/aiWorker';
 
@@ -61,6 +62,16 @@ export function useGameLogic(initOptions?: SetupOptions) {
     initOptions,
     (opts) => setupGame(opts)
   );
+  const recorder = useGameRecorder();
+  // 全 dispatch を記録フックに通してから本来の dispatch を行うラッパー。
+  // 人間操作・AI 着手・連鎖解決・リセットのすべてをここに集約して記録漏れを防ぐ。
+  const recordingDispatch = useCallback(
+    (action: Action) => {
+      recorder.onAction(action);
+      dispatch(action);
+    },
+    [recorder.onAction]
+  );
   const [autoPilot, setAutoPilot] = useState(false);
   const [effectDelay, setEffectDelay] = useState<EffectDelay>(DEFAULT_EFFECT_DELAY_MS);
   const [logVisible, setLogVisible] = useState(false);
@@ -101,7 +112,7 @@ export function useGameLogic(initOptions?: SetupOptions) {
     // 配置/取り除きで `resolvingCombos` に入った場合、UI 側の演出が見えるよう
     // 少し待ってから自動で連鎖判定を起動する。AI/操作主体に関わらず常に走らせる。
     if (state.phase === 'resolvingCombos') {
-      timer.set(() => dispatch({ type: 'RESOLVE_COMBOS' }), normalizeDelay(effectDelay));
+      timer.set(() => recordingDispatch({ type: 'RESOLVE_COMBOS' }), normalizeDelay(effectDelay));
       return timer.clear;
     }
 
@@ -122,7 +133,7 @@ export function useGameLogic(initOptions?: SetupOptions) {
         return;
       }
       const remaining = Math.max(0, normalizeDelay(effectDelay) - (Date.now() - startedAt));
-      timer.set(() => dispatch(action), remaining);
+      timer.set(() => recordingDispatch(action), remaining);
     };
 
     const worker = ensureWorker();
@@ -154,20 +165,25 @@ export function useGameLogic(initOptions?: SetupOptions) {
     // フォールバック: ワーカー不可なら同期実行（メインスレッドをブロックしうる）。
     schedule(decideAction(state, actorId));
     return timer.clear;
-  }, [state, autoPilot, effectDelay, timer, ensureWorker]);
+  }, [state, autoPilot, effectDelay, timer, ensureWorker, recordingDispatch]);
+
+  // 各 dispatch 適用後の状態を記録フックへ通知する（対局開始の検出・終局時の保存）。
+  useEffect(() => {
+    recorder.onState(state);
+  }, [state, recorder.onState]);
 
   const startNewGame = (opts?: SetupOptions) => {
     // 2 段階で発火：(1) 全スロットを空にして外側フェードアウト、
     // (2) フェード完了後に実際の初期化を行い、新規カードが外側からフェードイン。
-    dispatch({ type: 'CLEAR_BOARDS_FOR_RESET' });
+    recordingDispatch({ type: 'CLEAR_BOARDS_FOR_RESET' });
     resetTimer.set(() => {
-      dispatch({ type: 'NEW_GAME', options: opts });
+      recordingDispatch({ type: 'NEW_GAME', options: opts });
     }, CARD_FADE_DURATION_MS);
   };
 
   const userDispatch = (action: Action) => {
     if (action.type !== 'NEW_GAME' && isAIDriven(state, autoPilot)) return;
-    dispatch(action);
+    recordingDispatch(action);
   };
 
   return {
@@ -180,5 +196,6 @@ export function useGameLogic(initOptions?: SetupOptions) {
     setEffectDelay,
     logVisible,
     setLogVisible,
+    recording: recorder,
   };
 }
