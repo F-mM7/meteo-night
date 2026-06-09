@@ -28,6 +28,213 @@
 
 ---
 
+## Gen-14 確定方針: 人間 BC policy の実プレイ診断（89局）→ 貪欲 BC は両生成構成で size5=0・序盤崩壊、expert iteration の種に使えず＝律速は人間データ量 (2026-06-09)
+
+確定方針「人間 policy の大規模学習」（メモリ `ai-strengthening-direction`）の次段。Gen-13 で構築した BC パイプラインを **89 局**（人間棋譜 4 ファイル）へ拡張し、2 段で検証: (1) BC policy が**実プレイで人間的カスケード（size5）を組むか**を診断（最優先ゲート）、(2) 組むなら**人間種付き expert iteration**（BC で対局生成→良局選抜→学習データ追加→再学習）で増幅。結論は **(1) で不通過＝(2) は bootstrap 不能**。
+
+### データ・予測（held-out, legal-masked top-1, ネット 256/3）
+89 局 → 人間決定 **2995 件**（うち配置 1657）。`gen-bc-data.ts` で生成。
+- **最良(epoch 26): 全体 37.2% / 配置 26.8%**、最終(epoch 79): 全体 32.3% / 配置 18.6%。ランダム基準 24.6%・E2 線形プロキシ配置 23.3%。
+- 配置予測は 65 局の ~24% から 26.8% へ微増（**データは効く**）が、**依然ほぼランダム＋線形と同水準**で、epoch 26 以降は**過学習**（train_acc 0.74 へ上昇する一方 held-out 配置は 18-25% へ劣化）。＝89 局では配置予測は model 容量でなく**データ量律速**（Gen-13 の裏取りを 89 局で再確認）。
+
+### 実プレイ診断（探索なし貪欲 BC＝合法手 argmax。gift は smartAI 委譲。`bc-play-eval.ts` / 新規 `bc-selfplay-probe.ts`）
+タスクが要求する**両生成構成**で size5 率（手番100あたり）を測定:
+
+| 構成 | size5 | size3 | 複数発火 | 平均スコア/席 | 20点到達 | 勝率 |
+|---|---|---|---|---|---|---|
+| A: BC 1席 vs tempoFast 3席（32局, budget60）| **0.0** | 14.2 | 2.8% | **1.78** | **0席** | 0/32 (CI 0-10.7%) |
+| B: BC 自己対戦 4席（24局）| **0.0**（合計0件）| 17.6 | – | 3.82 | **0/96席** | gameOver 0/24局 |
+| 参考 tempoFast（構成A相手）| 3.3 | 53.8 | 19.8% | 16.06 | 41席(30.9T) | – |
+| 参考 人間 | **8.1** | – | – | – | 29.9T | 55% |
+
+- **両構成で size5 = 0**（人間 8.1・現状AI 2.7-3.3 に全く届かない）。構成 B は強い tempoFast がいない＝速い決着が無く盤面が積み上がりうる条件でも、**24局×4席で size5 を 1 件も作れず**、20 点到達 0/96 席・**どの局も gameOver に至らず**（平均 57.4 ターンで山札枯渇により停止）。
+- **機序**: 貪欲な単一手 imitation は配置精度 ~26% の policy を 1 手ずつ展開するため **compounding error（distribution shift）で序盤に崩壊**し、平均スコア 1.78-3.82・20点到達 0 席＝**カスケードが起きる終盤の積層局面に到達しない**。size5=0 は「discharge skill が無い」以前に「組み上がる前に崩れる」。tempoFast が速く終わらせるからではなく（構成 B でも 0）、policy 自体がカスケードを構築できない。
+
+### 判定: Step 1 ゲート不通過 → expert iteration は実行せず（現データでは bootstrap 不能）
+expert iteration は「生成器が稀に目標挙動（size5）を出す→選抜で増幅」で回るが、**BC は 56 局（32+24）・数百手番で size5 を 1 件も産まず、勝ち局・gameOver 局も 0**＝選抜基準 (a)size5/複数発火・(b)勝ち局の**双方が空集合**。目標指標 size5 の分散がゼロ地点に張り付き、ratchet が原理的に起動しない。＝**人間種付き expert iteration は 89 局の貪欲 BC では bootstrap 不能**（実行しても noise を増幅するだけ）。タスクの分岐どおり Step 2 は実行せず、正直な結論を記録する。
+
+**律速は人間データ量**。Gen-7〜13 の「self-play で測れる強化は全て天井」に加え、**人間 BC も 89 局では実プレイ強度ほぼゼロ（貪欲展開で崩壊）**を実プレイで確定。深層 BC の配置予測は線形と同水準で頭打ち＝データ拡充が唯一の梃子。パイプライン（`gen-bc-data`→`train-policy-bc`→`bc-play-eval`/`bc-selfplay-probe`）はデータ増でそのままスケール可能で、人間棋譜が桁違いに増えた段階で再走すれば「greedy が崩壊しない閾値」を測れる。
+
+### 追試: 崩壊原因の切り分け掃引（早期停止/ネット縮小/温度）→ 全構成 size5=0 でデータ律速を確定（`bc-sweep.ts`）
+「現データでも試せる手は試す」方針で、崩壊が (i)過学習 (ii)容量過大 (iii)貪欲の決定性 のどれ由来かを未実施の安価な軸で切り分け（12局 vs tempoFast, budget40, 5構成）。**size5 は 5 構成すべて 0・勝率 0/12・20点到達 0/12席**で不変:
+
+| 構成 | size5/100手 | size3 | 平均スコア |
+|---|---|---|---|
+| baseline 256/3 e60 greedy（Gen-14同条件）| 0 | 12.5 | 1.33 |
+| 早期停止 256/3 e26 greedy | 0 | 7.2 | 0.67 |
+| 小+早停 64/2 e26 greedy | 0 | 6.2 | 0.58 |
+| baseline+温度 256/3 e60 temp0.8 | 0 | 12.1 | 0.92 |
+| 小+早停+温度 64/2 e26 temp0.8 | 0 | **20.8** | 1.92 |
+
+- **過学習(早期停止)・容量過大(縮小)・決定性(温度)のいずれも崩壊の主因でない**。早期停止はむしろ易しい決定（ドロー source 等）の学習が浅くなりスコア低下、温度サンプリングは小コンボ(size3)を増やす（20.8）が**5枚スタックの組み上げには一切至らない**。＝**崩壊 floor は配置精度~26% そのもの＝データ律速**を確定（単手精度が上がる＝データが増える以外に崩壊は解けない）。
+- 残レバー「BC を tempoFast 探索の prior に使う」は不採用: 探索は候補集合内で**評価最適手に絞る**ため出力は tempoFast 候補集合の最適化に収束し **size5 ≤ tempoFast(≈3) < 人間 8.1**（構造的に champion を超えない＝az-v7=8%・E2 prior=parity の系譜）。人間の多ターン構築を扱う角度は並行トラック（fiveChain/tempoChain＝目的志向カスケード評価）の領分。
+
+### 成果物・採用判定
+- 新規: `ai/scripts/nn/bc-selfplay-probe.ts`（BC 自己対戦のカスケード診断＋`--temp` 温度サンプリング。構成 B 用）・`ai/scripts/nn/bc-sweep.ts`（崩壊原因の切り分け掃引）。`bc-play-eval.ts` は前回 64局/budget150 の timeout を **games32/budget60 で完走**（240s）。
+- **champion 据置（Gen-4-C tempoFast LA=1）・ブラウザ非反映**。BC policy は実プレイ強度が無く採用対象外。現データ（89局）で BC からカスケードを引き出す手は出尽くし、**唯一の梃子は人間棋譜の桁違いの拡充**。
+
+---
+
+## Gen-13 探索: ES で静的特徴を「固定tempoFast撃破」適応度に進化 → parity（静的特徴に手設計の死角なしを確定）(2026-06-09)
+
+ユーザー方針「進化的アルゴリズムで動くAIを育てられるか」に対し、2段階計画の **Stage 1（安価な裏取り）**: 評価の静的特徴を ES で**多次元同時に**広く探索し、「私の手チューニング（個別スイープ）が全て parity だったのは探索が狭かっただけで、最適配合なら超えられるのでは」という死角を潰す。**適応度は自己参照でない目標**＝「tempoFast(DEFAULT) 3 席に 1 席で挑んだ勝率」（人間が同構造で 55% ＝到達可能と実証済み。`ai/scripts/eval-fitness.ts`）。
+
+### 手法（`ai/scripts/evolve-weights.ts`）
+(μ=4, λ=12)-ES, 20 世代。遺伝子=攻撃/構造系 11 特徴（reach各段・chainSeed・chainReadyMult・cascade2/3・pendingMult・overflow、初期=DEFAULT）。**世代内 CRN**（全個体+DEFAULTを同一40局で評価＝paired比較で選択ノイズ抑制）＋**世代間シード回転**（過適合防止）。fitness は LA=0/budget30 で 40 局（子プロセス並列）。σ は世代ごと焼きなまし。
+
+### 結果 — 適応度地形はフラット、最良個体は新規シードで蒸発
+- **世代推移に上昇トレンドなし**: 各世代の「best候補」は 30-40% だが、これは 12 個体の**最大値** vs DEFAULT 1 サンプルの比較（winner's curse の上方バイアス）。20 世代・σ 焼きなましでも best は ~32% で横ばい、cascade2/3 も小さいまま（コヒーレントな戦略を発見せず）。
+- **新規シード out-of-sample 検証（LA=0 budget30）が決定的**:
+| ES最良個体 | 学習適応度 | 新規 n=128 | 判定 |
+|---|---|---|---|
+| globalBest (gen3) | 16/40 (40%) | **21.1% (CI 14.9-29.0)** | parity（学習40%は winner's curse で蒸発）|
+| currentMean (収束) | – | **26.6% (CI 19.7-34.8)** | parity（公平25%そのもの）|
+
+→ **240 サンプル（20世代×12個体）の最運値ですら新規シードで 21%＝公平25%以下**。budget1000 LA=1 への escalate 不要（学習 budget の fresh で超えない＝葉特徴の最適点は horizon を跨ぐ[Gen-7]ので LA=1 でも超えない）。
+
+### 結論: 静的特徴は ES でも parity ＝手設計の死角なし
+私の個別スイープ（Gen-7/10/11）が parity だったのは探索が狭かったからではなく、**静的評価特徴の最適配合が原理的に champion を超えない**から、と多次元 ES で確定。GA/ES は「適応度の壁」を超えない（適応度=均衡自己対戦の勝敗は静的特徴で改善余地が無い）ことの実証でもある。**評価重みの進化は打ち止め**。
+
+### 含意: 静的評価も葉 shaping も尽き、残るは build policy（Stage 2）
+本 Gen-13（静的特徴 ES=parity）と並行して、ユーザーの **Gen-12（tempoLatticeAI: 人間戦略を葉 formation として明示符号化）も parity** に終わり「葉 shaping では多ターン計画を遂行できず、次は build policy」と結論。＝**評価/葉をどう設計しても多ターンのカスケード計画は遂行できない**を独立に二重確認。唯一の未踏角度は「多ターンのカスケード構築を明示的に計画する build policy / 新探索」のパラメータを ES/GA で進化させる Stage 2（評価でなく探索構造 side）。人間の size5≈8 の execution を AI が実現できるかが核。高難度・EV 不確実。
+
+### Stage 2 実施結果: build policy（多ターン構築の明示計画）を実装＋ES進化 → parity以下・execution の壁は破れず
+ユーザー指示で Stage 2 を実装。`src/ai/tempoBuildAI.ts`＝build/discharge の 2 相 policy: build 相は「装填層（下層に同色 3+）を報酬し**今ターンの発火・得点を罰す（発火遅延）**」、放電トリガ（場の最高スコア / 装填層数 / ターン）で通常 tempoFast 葉（発火・得点最大化）へ切替。パラメータ 6 個（buildLoadW/buildNearW/buildFirePenalty/buildStaticW/dischargeScore/dischargeLayers）を ES（`evolve-weights.ts --ai build`, gens12, 固定tempoFast撃破適応度, budget60）で進化。
+- **挙動は意図通り動く**: build 相で得点を遅延（5 点到達 24.8 vs tempoFast 14.8 ターン）し放電で追い上げる。**だが size5 は上がらない（≤2.4、人間 8.1 に全く届かない）**＝下層に同色 3+ を装填するには 3 つ揃えた瞬間に最上段で先に発火するため、構築経路が極めて狭く貪欲探索では辿れない。
+- **ES は build モードを実質 OFF にする方向へ収束**（globalBest: `dischargeLayers→0`＝常時放電＝tempoFast 化、収束 mean: `dischargeScore→5`＝ほぼ即放電）＝「build せず tempoFast のように振る舞え」が ES の答え。
+- **新規シード検証で決着**（LA=0 budget60, n=128）: globalBest（学習 40.6%）→ **24.2% (CI17.6-32.3) parity**（winner's curse で蒸発）、収束 mean → **14.1% (CI9.1-21.1) 有意に弱い**（build 機構が active だと有害）。
+
+→ **最適調律された build policy でも champion を超えず、人間の size5≈8 カスケードを execution できない**。発火が自動な本ゲームでは「下層装填」が構造的に困難で、tempoFast 系アーキテクチャ（1 ターン読み＋葉/policy 調整）の限界。**2 段階の進化計画（Stage1 静的特徴 / Stage2 build policy）は両段とも parity で完了**＝GA/ES でも self-play の天井は破れず。残るは現アーキテクチャ外（はるかに大量の人間データからの policy 学習、または人間との実対戦テスト）＝高コスト・要ユーザー。
+
+### 確定方針の第一歩: 人間 policy の behavioral cloning パイプライン構築 + PoC（律速＝データ量を裏取り）
+ユーザーが「コスト度外視で強くする＝**人間 policy の大規模学習**」を確定方針に（メモリ `ai-strengthening-direction`）。その (2)BC を実装: `ai/scripts/nn/gen-bc-data.ts`（65 局→人間決定 2218 件[配置 1221]の (encodeState 185次元, 行動ID 0-29, 合法手mask)）+ `train-policy-bc.ts`（深層 policy ネット 185→隠れ→30 softmax を tfjs-node で BC, ゲーム単位 train/test 分割, held-out **legal-masked top-1**）。
+- **結果（held-out, ネットサイズ 64/1〜256/3 を sweep）**: 全体 **33-36%**（ランダム 24.6%）＝易しい決定（ドロー source 等）は学習できる。だが**肝の配置予測は 21-26%＝E2 線形プロキシ(23.3%)とほぼ同等**（net サイズに依らず頭打ち、train_acc は 0.53 へ上昇＝過学習）。
+- **結論**: 65 局では深層 policy は配置で線形を超えられない＝**律速は model 容量でなく人間データ量**、と確定方針の前提を裏取り。パイプラインは完成・データ拡充でそのままスケール可能。次段（policy を Decider 化 → 対 tempoFast 検証 → RL fine-tune）は人間棋譜が桁違いに増えてから。物差し: `ai/scripts/nn/{gen-bc-data,train-policy-bc}.ts`。
+
+### 成果物（存置・再利用可）
+- `ai/scripts/eval-fitness.ts`（候補 vs 固定tempoFast の勝ち数を返す適応度評価器。`--ai weights|build`）・`evolve-weights.ts`（遺伝子セット切替の (μ,λ)-ES, 子プロセス並列 fitness）。将来の進化に再利用可能な物差し。
+- `src/ai/tempoBuildAI.ts`（Stage 2 の build/discharge policy。parity 以下・採用せず・browser 非配線。ヘッダに結果明記）。`ai/scripts/bench-variant.ts` に `--ai build` 追加（size5 等の挙動診断用）。
+
+---
+
+## Gen-12 候補: 人間戦略「size3 の1ターン5連鎖（4スロット完成・1捨て札・それ以外は発火させない）」の formation 葉項（tempoLatticeAI）→ 葉 shaping では多ターン計画を遂行できず据置・次は build policy (2026-06-09)
+
+ユーザー直伝の人間戦略を葉評価に**論理として**符号化した `tempoLatticeAI`。Gen-11 の E2（人間模倣）が「per-placement の条件付きロジットを学習して葉に注入」して失敗した（holdout 18% < evaluateState 27%＝単一局面プライアでは人間優位を捉えられない）のに対し、本案は**学習でなくユーザーの明示戦略（形の作り方）を直接ルール化**する別角度。**self-play では parity（＝champion 据置）だが、本戦略は self-play では測れない**（溜める戦略は 20 点レースに構造的に不利＝cascadeAI 4.9% / adaptiveBurst parity と同型の機序）。真の物差しはユーザーの対戦体感（未実施）。
+
+### 仮説
+「4 working スロットで多色（5色）の浅いカスケードを組み、1 スロットを捨て札置き場にして、最速で discharge する」を葉に formation 項として加えれば、(1) 人間のように大コンボ・効率寄りの挙動になり、(2) 人間相手に強くなりうる（self-play 勝率は parity 見込み）。
+
+### 変更（新規ファイルのみ。champion 系 tempoFast/evaluator/index は不変）
+- `src/ai/tempoLatticeAI.ts`: tempoFast の探索を複製し、葉に `formationW * formationScore`（`formationW=0` で champion 一致）。formationScore = **best-4-of-5 の working で下層 同色>=3 の装填層数（＝連鎖「数」potential, 線形）**＋色数＋発火寸前。当初 v1/v2 は「size4（同色4枚）」を狙う誤解釈で、連鎖の数を主役に組み直した（v3）。
+- `ai/scripts/bench-lattice.ts`: bench-adaptive 派生。候補 1 席 vs tempoFast 3 席で勝率＋コンボ分布＋ペース＋効率を同一対局比較（formationW=0 なら偏り25%の健全性確認）。
+
+### ベンチ（1席 vs 3席, LA0, budget120, n=16, seed74001。bench に1ターン発火回数ヒストグラム＝連鎖長分布を追加）
+- **健全性**: `formationW=0` → 勝率 29%（parity）＝champion 一致。
+- v3 formationW=100: 勝率19%(parity)、size5 3.4 vs 2.3・効率 2.32 vs 2.18・score 16.8 vs 15.8（やや大コンボ寄り・競争力維持）。
+- v3 formationW=280: 溜め込み（0発火61%）だが **5連鎖は完成せず**、score 14.8↓・効率 2.06↓。
+- **決定的所見（ヒストグラム/席）**: 狙いの「1ターン5連鎖(5+)」は tempoLattice でも champion でも稀で、**むしろ champion の方が多い**（per席 5+ ≈ champion 3 vs lattice 1）。formationW を上げると溜め込むだけで完成に至らず under-score。
+
+### 判定・次手
+self-play parity・**champion 据置・browser 未配線**。**葉 shaping（1ターン地平の探索を静的葉で nudge）では「組んでから一気に5連鎖」という多ターン計画を遂行できない**＝既知 dead-end「多ターン連鎖投影は弱い」の再確認。**次手＝人間の手順を直接ルール化した build policy**（4スロットに色割当・捨て札管理・5連鎖完成まで発火抑止・完成で発火する専用 AI。要・ユーザーの手の解説）。`tsc -b` / `vitest`（36 pass）通過。
+
+---
+
+## Gen-11 探索: 「可能性のある手法を全て」3本（選択的深化・人間模倣・分散削減）→ 全て適正budgetで parity・据置 (2026-06-09)
+
+Gen-10 で「人間優位の核 = lookahead の race-timing（champion が既に保持）」と判明した上で、ユーザー方針「可能性のある手法は全て試す」に基づき、self-play で未検証かつ非 dead-end の 3 手法を実装し**実体 champion tempoFast LA=1 @budget1000** と対戦（各 n=64, rotate, seed 91001..91064 でペア化, Wilson CI, 公平25%）。
+
+### E1: 選択的深化（`src/ai/tempoSelectiveAI.ts`）
+全幅 lookahead=2 が「枝を広げ過ぎて各枝が浅くなる」ため失敗（Gen-8: 20%）だったのを、**root の2パス**で width を絞って回避：Pass1 で全 root 手を LA=1 評価してランク付け→Pass2 で上位 topK=3 手だけを LA=2 で深掘り。
+→ **18.8% (CI 11.1-30.0%), parity**（点推定が 25% **未満**＝改善せず、むしろやや劣勢）。width を絞っても LA=2 は LA=1 を超えない＝**horizon の sweet-spot は LA=1 のまま**で、全幅 LA=2 の不調は「広さ」でなく相手モデル誤差＋ドロー分散の累積が本質と再確認。
+
+### E2: 人間模倣プライア（`src/ai/tempoHumanAI.ts` + `ai/scripts/learn-human-prior.ts` + `src/ai/humanFeatures.ts`）
+27 局の人間配置選択を条件付きロジット（successor 局面の効用を最大化）で学習し、その効用 w·φ を tempoFast の葉に加点。self-play 自己参照を抜ける唯一の道。**2段階の所見**：
+- **予測段階で頭打ち**: ホールドアウト人間配置 top-1 = **18.4% < evaluateState の 25.6%**（train 27.6%→過学習）。学習プライアは**既存評価を超える新情報を持たない**＝人間優位は単一配置の選好でなく多ターンの軌道（(A) の再確認）。
+- **self-play: 28.1% (CI 18.6-40.1%), parity**（27局プライア, budget1000）。
+
+#### 【追・人間データ65局で再検証 (2026-06-09)】prediction は改善・strength は不変（決定的）
+ユーザーが人間棋譜38局を追加（妥当性は replay で 38/38 一致確認、計65局・配置決定1221件・人間勝率55.3%）。65局で人間優位が一層鮮明＝**size5率 人間8.1 vs AI 2.7（3倍）・cascade率33% vs 10%・人間は20点へ29.9 vs AI 32.1ターンで先着**。E2 を65局で再学習すると予測が**逆転**: ホールドアウト人間配置 top-1 が **プライア 23.3% > evaluateState 15.9%**（27局では 18.4%<25.6% で負けていた）＝**データを増やせば既存評価に無い人間配置信号を学習できる**。
+だが**self-play 強度には全く転移せず**: humanPriorW スイープ(budget200, vs LA=1)で W=1000 が n=64 で 37.5%(CI26.7-49.7,有意)に見えたが、**新規128局で 17.2%(有意に弱い)へ反転、全プール192局で 24.0%(parity)＝seed運**（adaptiveBurst と同型）。適正 **budget1000 でも 31.3%(CI21.2-43.4) parity**、20点到達も速くならず(size5≈3<<人間8)。→ **配置予測が改善しても勝率は動かない**＝人間優位は単一配置の選好でなく多ターンのカスケード/race-timing にあり、単一局面プライアでは原理的に届かない、を**より多くのデータで確定**。残る gap は「AI が人間の size5≈8 のカスケードを execution できない」（cascade/adaptive/prior いずれも size5 を人間水準へ上げられず）＝1ターン読み + 単一局面評価という現アーキテクチャの限界の可能性。
+
+### E3: 分散削減 / 共通乱数（`src/ai/tempoCrnAI.ts`）
+expectimax の盲ドローサンプルを CRN 化し、兄弟候補手を**同一の山札実現**で比較（手の差を同じ未来上で推定＝識別を鋭く）。
+→ **28.1% (CI 18.6-40.1%), parity**。手の識別を鋭くしても勝率は動かない＝律速は手比較のノイズでなく**自己対戦の勝敗そのものの予測不能性**（Gen-8 機序）。
+
+### 統一的所見 — 全て parity（選択的深化はやや劣勢）、race-timing を再々確認
+3 手法とも champion に勝てず。全変種で**候補の手番効率は tempoFast LA=1 より高い**（2.0-2.27 vs ~1.8-1.9）のに、**tempoFast LA=1 の方が 20 点へ同等以上に速く到達**（例 crn: 候補37.8 vs tempo36.0 ターン）し勝率は並ぶ。size5 も候補が同等以上に出す（選択的深化は LA=2 で最大4.4）が勝ちに繋がらない。＝**champion の強さは race-timing（lookahead）にあり、効率・大コンボ・分散削減・人間模倣のいずれもそれを代替しない**。自己対戦で測れる全レバー（葉・horizon・予算・終盤適応・局面適応・選択的深化・分散削減・人間模倣・ML value・MCTS・ギフト）が出尽くし、残る唯一の梃子＝人間相対の学習は (a) データ希少 (b)「人間優位は単一局面でなく多ターン race-timing で単一局面模倣では捉えられない」(E2) の二重の壁。
+
+### 採用判定: **据置（Gen-4-C のまま）**。self-play 強化は包括的に天井と確定。
+
+### 成果物
+- **存置（物差し・再利用可）**: `bench-variant.ts`（変種汎用 self-play bench）、`learn-human-prior.ts` + `humanFeatures.ts`（人間配置の予測力分析。「既存評価が人間配置を既に捕捉」を再実行可能）。
+- **存置（parity 実験、他の非 champion AI と同様に保持）**: `tempoSelectiveAI.ts` / `tempoCrnAI.ts` / `tempoHumanAI.ts` / `humanPriorWeights.ts`。各ヘッダに parity の所見を明記済み。browser 非配線（champion は tempoFast のまま）。
+- **削除**: `ai/scripts/bench-selective.ts`（E1 サブエージェントが作成したが汎用 `bench-variant.ts` と重複）。
+
+---
+
+## Gen-10 探索: 後半爆発タイミングAI（adaptiveBurst, 局面適応の葉評価）→ 適正budgetで self-play parity・人間機序は再現せず・据置 (2026-06-08、2026-06-09 追検証)
+
+人間（最強CPUに約63%勝つ上位教師）の優位の正体を棋譜分析で「**序盤を犠牲にせず、盤面が育った後半に 5→20 点を一気に爆発**」と同定（人間は 5 点到達は AI より遅い 29 vs 25 ターンだが 20 点到達は速い 29 vs 32 ターン。誰かが 20 点に達した最終ラウンドで即終了するため後半の先着が勝つ）。先行で **cascadeAI**（序盤から大コンボを仕込む発火プレイアウト主軸）は立ち上がりが遅く対 tempoFast で **勝率 4.9%** と惨敗、静的な評価重み増強（reach 増 / cascade 特徴 / pendingMult 増を**常時**有効化）は全 parity。唯一未検証の角度＝**局面適応**（序盤は速く得点、後半だけ大コンボ重視へ切替）を実装で検証する。
+
+### 手法 — adaptiveBurstAI（`src/ai/adaptiveBurstAI.ts`, self-contained）
+探索は tempoAI/cascadeAI と同じ own-turn 完全読み（DFS+expectimax+αβ+反復深化+TT、lookahead なし）。**葉評価を局面適応**にする:
+- **序盤**（場の最高スコア < 閾値）: `DEFAULT_WEIGHTS`。これは **tempoFast の葉と完全に同一**で、序盤は現状最強と同じ速さで得点する（cascadeAI の轍＝立ち上がりの遅さを構造的に回避）。
+- **後半**（誰かが終了閾値 20 の手前＝既定 12 点に到達＝レース開始と判定）: `lateWeights`（reach4/5・縦積みカスケード `cascade2`/`cascade3plus`・当ターンのコンボ総得点 `pendingMult` を増強）。
+- burst 判定は **決定（手番）単位で 1 回**（root 局面の最高スコア）、探索全体で固定し regime を一貫させる。
+- cascadeAI の高コストな発火プレイアウト（boardFirePotential）は**意図的に不使用**: 葉ごとの重い playout は探索を浅くする（cascade の遅さの元凶）。後半の大コンボ重視は既存 `evaluateState` の reach/cascade/pending 項を後半だけ増強する**安価な重み切替**で表現する。
+
+### 評価（候補1席 vs tempoFast 3席, rotate, **budget=200ms 同条件**, Wilson CI, 公平25%）
+探索 regime を揃え**評価切替の効果だけを切り分ける**ため baseline は tempoFast **LA=0**（own-turn）。null（tempoFast LA=0 自己対戦, n=64）= **28.1% (CI 18.6-40.1%)** で公平25%を確認。
+
+閾値スイープ（既定 lateWeights, 各 n=64, seed 71001）:
+| burst閾値 | 勝率 | CI95 | 判定 |
+|---|---|---|---|
+| 10 | 26.6% | 17.3-38.5 | parity |
+| **12** | **35.9%** | **25.3-48.2** | 有意（際どい）|
+| 15 | 31.3% | 21.2-43.4 | parity |
+| 12（reach/cascade 更に強化）| 29.7% | 19.9-41.8 | parity |
+
+burst@12 のみ n=64 で「有意」だったため**新規シードで追試**（seed 運か sweet spot か判定）:
+| サンプル | 勝率 | CI95 | 判定 |
+|---|---|---|---|
+| 新規192局（均一条件, seed 75001/77001/79001 各 31.3/32.8/28.1%）| 30.7% | **24.6-37.6** | **parity**（CI下限24.6%）|
+| 全プール256局 | 32.0% | 26.6-38.0 | 有意（境界）|
+
+→ 元の 35.9% は seed 上振れ。4 サンプル全てが 25% 超（28.1/31.3/32.8/35.9）で**弱い正の傾向は一貫**するが、最もクリーンな独立 192 局は僅差 parity・全プールは僅差有意＝**有意性の境界上で頑健な勝ちではない**。なお static 増強（Gen-7 等で全 parity）よりは僅かに良い＝**後半限定で序盤を壊さない適応の効果は static より上**という弱い新知見。
+
+vs **実体 champion tempoFast LA=1**: 等・短時間 budget200(n=64) で 29.7%(CI 19.9-41.8) parity。ただし budget200ms では LA=1 が本来の探索(~1 秒前提)を完了できず飢餓状態（効率 1.93 < LA=0 の ~2.2）＝「適正 budget の champion」ではない。
+
+### 【2026-06-09 追検証】適正 budget=1000 で実測（24コア並列分割, 各 n=64, seed 91001..91064）
+budget200 の vs LA=0「全プール32%(境界有意)」が低 budget の人工物でないか、また飢餓でない**適正 budget の champion (LA=1)** に勝てるかを実測:
+| 比較 (budget=1000) | 勝率 | CI95 | 判定 |
+|---|---|---|---|
+| **vs LA=1（適正 champion）** | **31.3%** | 21.2-43.4 | **parity** |
+| vs LA=0（評価エッジの budget 頑健性）| 28.1% | 18.6-40.1 | parity |
+
+→ **適正 budget では vs LA=1 / LA=0 とも明確に parity**。budget200 の vs LA=0 全プール32%（境界有意）は**低 budget／多重比較の人工物**と確定（独立192局では既に 30.7% parity だった）。**adaptiveBurst は適正 budget の champion を破れない**ことを実測で確定（事前予測「budget1000 では adaptiveBurst が明確に負ける」も外れ＝負けでなく parity）。
+
+### 機序 — 「後半爆発」仮説は**再現せず**、エッジの正体は**手番効率**
+人間機序（後半に速く 20 点へ到達・size5 爆発）は起きていない:
+- **20 点到達ターン**: 全水準で tempoFast とほぼ同等（b12: cand 27.7 vs base 27.3、むしろ僅かに遅い）。**先着していない**。
+- **size5 率**: 2.6-3.0 / 100手番（tempoFast 2.0-2.4）と微増のみ。**人間 9.8 には程遠い**。
+- **エッジの実体**: 手番あたり得点が一貫して高い（adaptiveBurst 2.28-2.46 vs tempoFast 2.12-2.27）＝平均最終点が高く（b12: 16.56 vs 15.09）、終局時に最高点で勝つ頻度が僅かに上がる。後半の大コンボ重視が「無駄手を減らし効率を上げる」副次効果は出たが、人間のような**爆発的先着ではない**。
+- **【追検証で決定的】「20点に速く到達」は lookahead の race-timing 特性**: budget1000 の vs LA=1 で、LA=1 は per-turn 効率が低い(~1.6 vs adaptiveBurst ~2.1)のに **20点到達は LA=1 の方が速い**(例 30.9 vs 35.8 ターン)。人間的な後半の速さは**後半コンボ重視でなく先読み（相手手番を挟んだ race-timing）から生まれる**＝コンボ偏重(cascade/adaptiveBurst)が人間機序を再現できない根本理由。『LA=1 で初めて葉の天井を破った(Gen-4-C)』とも整合し、champion が既に人間機序の核（race-timing）を捉えていることを示す。
+
+### なぜ人間機序が出ないか（Gen-8 根本機序の追認）
+self-play では tempoFast の対戦相手も同じ 20 点レースを走るため、後半に深い仕込みが報われる前に誰かが 20 点へ到達してゲームが終わる（cascadeAI 惨敗の機序の緩和版）。「**均衡した自己対戦では勝敗が本質的に予測困難＝評価改善の余地が原理的に小さい**」（Gen-8）の追認。人間優位（vs 自分でない多様な相手・人間特有の race-timing）は self-play では原理的に観測できない（「vs smart は錯覚」「vs 自分も同型」）。
+
+### 採用判定: **据置（Gen-4-C のまま）**
+adaptiveBurst は **適正 budget=1000 で vs LA=1 champion (31.3%)・vs LA=0 (28.1%) とも parity と実測**（budget200 の vs LA=0「境界有意32%」は低 budget／多重比較の人工物）。人間機序も再現せず＝採用基準（CI 下限 >25% の頑健な達成）未達。**self-play 均衡が本質という結論を、局面適応という最後の自己対戦内未検証角度でも（適正 budget の実測込みで）追認**。新知見＝(1)局面適応は静的増強より僅かにマシ（序盤を壊さない分、budget200 で境界エッジが出る程度）だが適正 budget では消える、(2)**人間的『20点に速く到達』の核は lookahead の race-timing であり後半コンボ重視ではない**（champion LA=1 が既に保持）。残る唯一の梃子は self-play でなく**人間相対の学習/評価**（要ユーザー）。
+
+### 成果物の整理（コミット可能化、コミットは未実行）
+- **新規・存置**: `src/ai/adaptiveBurstAI.ts`（本AI）、`ai/scripts/bench-adaptive.ts`（勝率+CI・コンボ分布・得点ペース/効率を1本で測定）。adaptiveBurst は採用しないため browser には未配線（index.ts は champion tempoFast のまま）。
+- **先行セッションの記録・分析基盤＝全存置（今後の物差し）**: `src/game/recording.ts`・`src/hooks/useGameRecorder.ts` ＋記録UI（`App.tsx`/`AppHeader.tsx`/`useGameLogic.ts`/`index.css`、対局記録トグル・書き出し/消去）、分析 `ai/scripts/analyze-{human,trajectory,divergence,pace}.ts`、再生検証 `ai/scripts/replay.ts`、汎用 `ai/scripts/bench-combo.ts`。
+- **cascade 特徴 `cascade2`/`cascade3plus`（`evaluator.ts`, 既定0）＝存置**: adaptiveBurst の lateWeights が使用するため。`DEFAULT_WEIGHTS` では 0 ＝既存 AI 挙動は不変（後方互換）。`tunedWeights.ts` の `GEN_3B_WEIGHTS` への `cascade2/3:0` 追加は型拡張に伴う必須補完。
+- **削除**: `src/ai/cascadeAI.ts`（dead-end・未使用・self-contained な adaptiveBurst が代替）と `ai/scripts/bench-cascade.ts`（cascadeAI 専用 bench）。発火プレイアウト技術は `chainRushAI.ts` に残存するため失われない。
+  - **削除前の dead-end 記録（保全）**: cascadeAI（縦積みカスケード一辺倒、発火プレイアウトを葉評価の主軸）は対 tempoFast で **勝率 4.9%＝有意に弱い**（先行セッション計測）。原因「序盤から大コンボを仕込むと立ち上がりが遅く、20 点レースで横並べ型に競り負ける」。**再実装・再提案は不要**。
+
+---
+
 ## Gen-9 探索: ギフト能動妨害（評価ベースのギフト最適化）→ parity (2026-06-04)
 
 ユーザー選択(b)。 現状はギフト選択を smartAI の色カウント proxy（リーダーが最も持たない色を渡す）に委譲。 本変種 `tempoGiftAI`（tempoFast 非編集のラッパー）は各コンボの (カード,相手) を全探索し、 **贈与配置まで実シミュレートした後の evaluateState(me)（相手脅威・overflow 込み）を最大化**する配り方を選ぶ。 過去「ギフト最適化=null」 は readiness 最小化 proxy だったが、 葉で贈与後の相手盤面を評価する角度は未検証だった。
