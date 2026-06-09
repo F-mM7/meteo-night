@@ -88,6 +88,14 @@ export interface EvalWeights {
    * 得点項の形状変更では改善しないと判明。 0 のまま保持（将来の構造変更時の再検証用）。
    */
   selfScoreConvex: number;
+
+  /**
+   * カスケード（縦積み連鎖）ポテンシャル。最上段の 1 つ下（2 層目）に同色が複数スロットで
+   * 並ぶと、上層コンボの除去で下層が露出して連鎖発火する。人間の大コンボの主経路（B-iii 分析で
+   * 人間の size4+ 発火の 39% が下層露出由来と判明）。横並べ reach とは別軸。0 で従来挙動。
+   */
+  cascade2: number;
+  cascade3plus: number;
 }
 
 /**
@@ -126,6 +134,10 @@ export const DEFAULT_WEIGHTS: EvalWeights = {
   // chainReadyMult=10 が勝率 33.3% (CI 26.3-41.2%) > 公平基準 25% と有意に強いことを確認して採用。
   // vs smart では盲点共有で検出できなかった改善。 30 は過剰（競走で遅くなり不利）、 10 が好適。
   chainReadyMult: 10,
+  // 縦積みカスケード（2 層目の同色並び）の評価。0 = 従来挙動。人間棋譜分析(B-iii)で
+  // 人間の大コンボの 39% が下層露出由来＝この軸が評価に欠けていると判明。
+  cascade2: 0,
+  cascade3plus: 0,
 };
 
 /**
@@ -140,6 +152,8 @@ export function setEvalWeights(weights: Partial<EvalWeights>): void {
 
 interface BoardSignal {
   reachByColor: Map<Color, number>;
+  /** 2 層目（最上段の 1 つ下）の色別スロット数。カスケード仕込みの検出用。 */
+  belowReachByColor: Map<Color, number>;
   chainSeeds: number;
   totalCards: number;
   /** 各スロットの stack 長 (Gen-3-L: 偏り評価用) */
@@ -149,6 +163,7 @@ interface BoardSignal {
 
 function readBoardSignal(player: Player): BoardSignal {
   const reach = new Map<Color, number>();
+  const belowReach = new Map<Color, number>();
   let chainSeeds = 0;
   let totalCards = 0;
   let maxStackHeight = 0;
@@ -163,10 +178,14 @@ function readBoardSignal(player: Player): BoardSignal {
     if (!top) continue;
     reach.set(top.color, (reach.get(top.color) ?? 0) + 1);
     const below = stack[stack.length - 2];
-    if (below && below.color === top.color) chainSeeds += 1;
+    if (below) {
+      belowReach.set(below.color, (belowReach.get(below.color) ?? 0) + 1);
+      if (below.color === top.color) chainSeeds += 1;
+    }
   }
   return {
     reachByColor: reach,
+    belowReachByColor: belowReach,
     chainSeeds,
     totalCards,
     maxStackHeight,
@@ -215,6 +234,12 @@ function selfScore(player: Player, state: GameState, w: EvalWeights): number {
     else score += w.reach1;
   }
   score += sig.chainSeeds * w.chainSeed;
+
+  // カスケード: 2 層目の同色並び（上層のコンボ除去で下層が露出して連鎖発火する仕込み）。
+  for (const count of sig.belowReachByColor.values()) {
+    if (count >= 3) score += w.cascade3plus;
+    else if (count === 2) score += w.cascade2;
+  }
 
   const slotCount = player.board.slots.length;
   if (sig.totalCards > slotCount * 3) {

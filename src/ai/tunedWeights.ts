@@ -40,4 +40,6 @@ export const GEN_3B_WEIGHTS: EvalWeights = {
   fieldOpportunityMatch: 0,
   selfScoreConvex: 0,
   chainReadyMult: 0,
+  cascade2: 0,
+  cascade3plus: 0,
 };
