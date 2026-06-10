@@ -10,25 +10,25 @@
 > 新セッション開始時は、まずこのセクションと `ai/CHANGELOG.md` の最新エントリを読めば現状把握できます。
 
 ### ブラウザに反映されている CPU
-- **戦略**: tempoFastAI + **lookahead=1**（Gen-4-C）。ターン内 DFS 完全読み + テンポ評価 + 時間予算(1秒)/反復深化/αβ/置換表に加え、**相手の手番を挟んで次の自分の手番まで読む(2-ply)**。`src/ai/index.ts`→`tempoFastAI`(既定 LA=1) を export
-- **強さ（smart 非依存）**: LA=1 は現 tempoFast(LA=0) に**有意勝ち**（33.0%, n=300, Wilson CI 27.9-38.5% > 公平 25%）。点稼ぎでなく「レースに勝つ」着手。**探索系で初めて現 tempo を超えた＝horizon が「葉の天井」を破った**（葉の改善は全て parity だったが、読みの地平を伸ばすと効く）。vs Gen-3-X mcts も圧倒
-- ⚠️ **レイテンシ**: LA=1 は 1 手 ~1 秒（中央値, ≥500ms が 73%）と重い。メインスレッドを止めないよう **Web Worker(`src/ai/aiWorker.ts`)で off-main-thread 実行**（`useGameLogic.ts` が非同期呼び出し＋世代ゲーティング＋同期フォールバック）。体感 OK 確認済み
-- ⚠️ vs smart は盲点を共有して測れない。 物差しは `_fast_bench.ts` / `_la_bench.ts`（候補 vs 現状）+ `elo-ladder.ts`
-- **旧版**: Gen-4-B(tempoFast LA=0, 最悪 1s)→ Gen-4-A(tempoAI 無制限探索, 21s 裾)→ Gen-3-X mcts。いずれも強さは LA=1 未満 or 同等
-- **未解決（探索アプローチは天井）**: 葉も horizon も尽きた。horizon=1 で一度突破したが lookahead=2（@1000 20%/@2500 14.6%）・opp=tempo（16.7%）・終盤適応LA・budget2000（Gen-6, n=400 で 27.8% parity）はいずれも LA=1/budget1000 を超えず＝**lookahead=1 + budget1000 が sweet spot**。NN 近似も前提 refuted。**ML 駆動の特徴発掘(Gen-7)も「自己対戦で観測可能な実用特徴は現評価が捕捉済み」を裏付け**（材料報酬含め parity、最強の新シグナル「席順」は行動不能な定数）。**Gen-8 で配信制約を外し深い探索・MCTS@2万・大規模 value ネット(GPU)も投入したが全て tempo LA=1 に及ばず**（多くは有意に下回る。value ネットは勝者予測では手書きを上回る(0.325 vs 0.253)が、ノイジーで探索の葉にすると壊滅＝0%）。根本機序＝均衡した自己対戦では勝敗が本質的に予測困難で評価改善の余地が原理的に小さい。**ギフト能動妨害(Gen-9)も評価ベース最適化で n=360 parity**（ギフトは稀＋smartAI の harm 最小化が既に good）。**自己対戦で測れる全レバーが出尽くした**。残る唯一の本命レバーは**人間プレイの弱点診断/模倣**（自己対戦＝自己参照では人間相手の弱点が見えない・要ユーザー）
+- **戦略**: **tempoChainAI（Gen-15）**＝目的志向ポリシー。「5色5連鎖を狙い、構築中はテンポ評価を半々で混ぜる（buildTempoBlend=0.5）、小連鎖は撃たない」。点火可否と最大連鎖は `cascade.ts` の実カスケード評価（段違い staggered 対応・置換表で高速化）で判定。`src/ai/index.ts`→`tempoChainAI` を export（`DEFAULT_GENOME`=grid 勝者 idx340: fireTarget=5 / buildTempoBlend=0.5 / distanceMode=expected / nodeLimit=15000）
+- **強さ（smart 非依存・公平25%）**: 旧 champion tempoFast に有意勝ち＝**vs LA=0 fresh 2seed×1000局で 29.9%（Wilson CI 下限>25% を2本再現）/ vs LA=1（実体 champion）300局で 32.7%（CI 27.6-38.2 >25%）**。grid 400候補最適化の勝者。**「自己対戦は天井・残るは人間模倣のみ」という旧結論（Gen-9）を、人間戦略を構成化した genome 最適化が破った**（詳細は CHANGELOG Gen-15）
+- ⚠️ **レイテンシ**: tempoChain は時間予算でなく **nodeLimit=15000** でレイテンシ有界。重い連鎖局面に備え **Web Worker(`src/ai/aiWorker.ts`)で off-main-thread 実行**（`useGameLogic.ts` が非同期呼び出し＋世代ゲーティング＋同期フォールバック）
+- ⚠️ vs smart は盲点を共有して測れない。 物差しは smart 非依存（候補 vs 現状最強 + Wilson CI）。**self-play 勝率は本戦略の真の物差しではない**（高分散・1vs3 勝者総取り）ため、最終評価はユーザー実機対戦
+- **旧採用版**: Gen-4-C(tempoFast LA=1, 1手~1s, horizon で葉の天井を突破)→ Gen-4-B(LA=0)→ Gen-4-A(tempoAI 無制限, 21s 裾)→ Gen-3-X mcts。いずれも現在は**ブラウザ未使用のベンチ用ベースライン**
+- **未解決（探索アプローチは天井）**: 葉も horizon も尽きた。horizon=1 で一度突破したが lookahead=2（@1000 20%/@2500 14.6%）・opp=tempo（16.7%）・終盤適応LA・budget2000（Gen-6, n=400 で 27.8% parity）はいずれも LA=1/budget1000 を超えず＝**lookahead=1 + budget1000 が sweet spot**。NN 近似も前提 refuted。**ML 駆動の特徴発掘(Gen-7)も「自己対戦で観測可能な実用特徴は現評価が捕捉済み」を裏付け**（材料報酬含め parity、最強の新シグナル「席順」は行動不能な定数）。**Gen-8 で配信制約を外し深い探索・MCTS@2万・大規模 value ネット(GPU)も投入したが全て tempo LA=1 に及ばず**（多くは有意に下回る。value ネットは勝者予測では手書きを上回る(0.325 vs 0.253)が、ノイジーで探索の葉にすると壊滅＝0%）。根本機序＝均衡した自己対戦では勝敗が本質的に予測困難で評価改善の余地が原理的に小さい。**ギフト能動妨害(Gen-9)も評価ベース最適化で n=360 parity**（ギフトは稀＋smartAI の harm 最小化が既に good）。**自己対戦で測れる全レバーが出尽くした**（と Gen-9 時点では結論）。**→ Gen-15 で覆る**: 人間戦略を構成化した目的志向ポリシー tempoChain（genome 最適化）が tempoFast LA=1 に有意勝ち＝「点火閾値・配置方針(buildTempoBlend)」という新レバーが効いた。残る本命は genome のさらなる探索 or 人間データ量拡大（詳細 CHANGELOG Gen-15）
 - 🔄 **ゲーム設定 (2026-06-03)**: 山札 **120 枚（各色 24）**（旧 100 枚）。Gen-5 で重み再調整したが **現重み（chainReadyMult=10 / tempoChainW=50）が最適＝parity**（各色 20% の分布は 100 枚時と不変で最適点が動かない）。AI は山札サイズ非依存のため Gen-4-C 据置
 
 ### 試行中の方向性
 
 | 方向 | 現状 | スキル |
 |---|---|---|
-| AI 進化（手書き探索 + 評価関数。現 tempoFast LA=1）| **葉の改善は天井**(重み/多ターン投影/残差すべて parity)だが、**horizon=lookahead=1 で突破**(Gen-4-C, 現 tempo に 33%)。Web Worker で ~1 秒思考を off-thread 化。ただし lookahead=2/opp=tempo は parity-下＝LA=1 が sweet spot で**探索も天井**。残るは人間棋譜模倣のみ | `evolve-meteo-ai-handwritten`（唯一の AI 進化スキル）|
+| AI 進化（手書き探索/評価 + 目的志向 genome。現 tempoChain Gen-15）| 葉も horizon も天井だったが、**Gen-15 で genome 最適化が突破**（人間戦略を構成化した目的志向ポリシー＋実カスケード評価が tempoFast LA=1 に 32.7%/CI 27.6-38.2 で有意勝ち）。次の実験候補: **tempoChain への lookahead（レース計時）付与**（計算量で強くする唯一の未検証レバー＝nodeLimit 上げは飽和を実測, `_latency-probe.ts`）／genome のさらなる探索／人間データ量拡大 | `evolve-meteo-ai-handwritten`（唯一の AI 進化スキル）|
 | ~~NN AI（AlphaZero 風）~~ | **対象外＝実証済みの行き止まり**: branching 5.1 で priors 無効、hand-eval に value/priors とも勝てず az-v1〜v10 + 価値学習 v1/v2 が全敗。スキル `evolve-meteo-ai-neural` は削除（経緯は CHANGELOG） | （削除済み）|
 
 ### 強化の到達点（詳細は CHANGELOG）
 
-- 歴代: Gen-3-O mcts(vs smart 93.5%) → 根本診断で「vs smart は強さの錯覚」 と判明 → **Gen-4-A tempoAI が mcts に ~55% で圧勝**（探索構造の変更＝自分の手番をターン内完全読み）→ Gen-4-B（レイテンシ有界化）→ **Gen-4-C（lookahead=1 + Web Worker）= 現状最強**。
-- 天井: 葉（評価）の改善は全 parity、 horizon は lookahead=1 が sweet spot（=2 以上は頭打ち）。 残るレバーは人間棋譜の模倣（凍結中）のみ。
+- 歴代: Gen-3-O mcts(vs smart 93.5%) → 根本診断で「vs smart は強さの錯覚」 と判明 → **Gen-4-A tempoAI が mcts に ~55% で圧勝**（探索構造の変更＝自分の手番をターン内完全読み）→ Gen-4-B（レイテンシ有界化）→ Gen-4-C（lookahead=1 + Web Worker, 探索系の天井）→ **Gen-15 tempoChain（genome 最適化）= 現状最強・ブラウザ反映**。
+- かつての天井（Gen-9「自己対戦で測れる全レバー出尽くし・残るは人間模倣のみ」）は **Gen-15 で破った**: 人間戦略「溜めて1ターン5連鎖・小連鎖は撃たない」を genome（点火閾値・構築テンポ混合 buildTempoBlend）で構成化し、grid 400候補の最適化勝者(idx340: fire=5/blend=0.5)が tempoFast LA=1 に有意勝ち（32.7%, CI 27.6-38.2）。葉の重み tune や horizon 深掘りとは別軸（目的志向ポリシー＋実カスケード評価）が効いた。次は genome のさらなる探索 or 人間データ量拡大。
 
 ### NN（AlphaZero）路線 — 対象外（実証済みの行き止まり）
 
@@ -59,12 +59,14 @@
 | 3-X | smart 非依存ベンチ確立 + `chainReadyMult=10` 採用 | 完了（後に tempo に置換）：vs baseline mcts 33.3% |
 | **4-A** | **tempoAI（ターン内完全読み + テンポ評価）** | **完了・ブラウザ反映**：vs Gen-3-X mcts ~55%。 多ターン連鎖計画を探索構造で実現＝「葉の天井」 突破 |
 | **4-B** | レイテンシ有界化（時間予算 + 反復深化 + αβ + 置換表）| **完了・反映**：最悪 21s→1s、 強さは Gen-4-A 同等 |
-| **4-C** | **lookahead=1（horizon）+ Web Worker** | **完了・反映＝現状最強**：現 tempo に +8pt(33%)。 lookahead=2 以上・opp=tempo・NN は頭打ち＝探索アプローチ天井 |
+| **4-C** | **lookahead=1（horizon）+ Web Worker** | **完了・反映（Gen-15 まで現状最強）**：現 tempo に +8pt(33%)。 lookahead=2 以上・opp=tempo・NN は頭打ち＝探索アプローチ天井 |
 | **Gen-5** | ルール変更（山札 120 枚化）+ 重み再調整 | **完了**：現重み据置（parity, 各色 20% の分布不変）。 Gen-4-C を 120 枚で再検証・反映継続 |
 | Gen-6 | 終盤適応先読み(A) + 思考予算増(B) | **完了**：A 不発(終盤 LA=2 も配置探索を削り parity〜微悪)・B parity(budget2000 も n=400 で 27.8%)。据置＝探索アプローチ天井を再確認 |
 | Gen-7 | ML顕微鏡で特徴量の穴探索＋材料報酬 | **完了**：行動可能な予測特徴は現評価が捕捉済み・材料も parity＝据置。残る本命は人間feedback / ギフト能動妨害 |
 | Gen-8 | 深い探索＋大規模 ML value（GPU・配信制約外）| **完了**：深い探索/MCTS/学習value すべて tempo LA=1 未満。自己対戦の勝敗は本質的に予測困難＝評価改善の余地が原理的に小さいと判明。実験フックは revert 済み |
 | Gen-9 | ギフト能動妨害（評価ベースのギフト最適化）| **完了**：n=360 で 25.3% parity＝据置。自己対戦で測れる全レバー出尽くし。残るは人間 feedback のみ |
+| Gen-10〜14 | 局面適応/選択的深化/人間模倣prior/分散削減/葉formation/ES重み進化/build policy/人間BC | **完了**：いずれも self-play parity or 実プレイ崩壊。「自己対戦は天井・人間データ律速」を多角確認（詳細 CHANGELOG）|
+| **Gen-15** | **目的志向 genome の grid 最適化（tempoChainAI: 点火閾値+構築テンポ混合 blend）** | **完了・採用・ブラウザ反映＝現状最強**：grid 400候補の勝者(idx340: fire=5/blend=0.5)が tempoFast LA=0 2seed×1000局 29.9%・LA=1 300局 32.7%(CI27.6-38.2)で有意勝ち。**Gen-9 の天井を突破** |
 | 5 | 人間棋譜の模倣学習（self-play 天井を上位教師で破る）| 未着手・凍結中。 要対局記録 |
 
 ---
@@ -87,12 +89,14 @@ ai/
     bench-neural.ts / nn/                         NN 系（対象外・旧）
   data/ models/       自己対戦ログ・学習出力（gitignore）
 src/ai/
-  index.ts            ブラウザ既定 decideAction を export（現 tempoFastAI）
-  tempoFastAI.ts      現状最強（Gen-4-C: lookahead=1 + 時間予算 + 置換表）
+  index.ts            ブラウザ既定 decideAction を export（現 tempoChainAI, Gen-15）
+  tempoChainAI.ts     現状最強（Gen-15: 目的志向 genome ポリシー。DEFAULT_GENOME=idx340: fire=5/blend=0.5/nodeLimit=15000）
+  cascade.ts          実カスケード評価 maxChainFrom/bestChainMove（tempoChain の点火判定。段違い対応・置換表）
+  tempoFastAI.ts      旧採用版（Gen-4-C: lookahead=1 + 時間予算 + 置換表。現ベンチ用ベースライン）
   tempoAI.ts          Gen-4-A（無制限探索版・比較ベースライン）
   aiWorker.ts         CPU AI を Web Worker で実行（UI 非ブロック）
-  evaluator.ts        評価関数 evaluateState + DEFAULT_WEIGHTS（chainReadyMult=10）
-  smartAI / mctsAI / randomAI / chainRushAI       旧・補助戦略
+  evaluator.ts        評価関数 evaluateState + DEFAULT_WEIGHTS（chainReadyMult=10。tempoChain の構築テンポ項にも使用）
+  smartAI / mctsAI / randomAI / chainRushAI       補助/ベンチ戦略（smartAI は tempoChain のギフト委譲で現役）
   neuralAI.ts         NN 系（対象外・未使用）
 ```
 
@@ -147,10 +151,12 @@ npx tsx ai/scripts/elo-ladder.ts --ais random,smart,mctsGen3X,tempo50 --games 0 
 | **Gen-3-X** | smart 非依存ベンチ + chainReadyMult=10 | vs baseline mcts 33.3% ← 反映（後に tempo に置換）|
 | **Gen-4-A** | **tempoAI（ターン内完全読み + テンポ評価）** | vs Gen-3-X mcts ~55% ← 反映。 探索構造の変更で「葉の天井」 を突破 |
 | **Gen-4-B** | 時間予算 + 反復深化 + αβ + 置換表 | 強さ同等・最悪 21s→1s ← 反映 |
-| **Gen-4-C** | **lookahead=1 + Web Worker** | 現 tempo に +8pt(33%) ← 反映・**現状最強** |
+| **Gen-4-C** | **lookahead=1 + Web Worker** | 現 tempo に +8pt(33%) ← 反映（Gen-15 まで現状最強）|
 | ~~Gen-4 探索ラウンド~~ | LA=2 / opp=tempo / 学習価値 v1·v2·残差 / ギフト / 重み再tune | いずれも parity-下、 不採用＝**探索アプローチ天井**（CHANGELOG 参照）|
 | **Gen-5** | ルール変更（山札 120 枚化）+ 重み再調整 | 現重み据置（parity, 3 seed×2 horizon）＝AI 不変、 Gen-4-C 継続 |
 | ~~Gen-6~~ | 終盤適応先読み(A) / 思考予算増 budget2000(B) | A 不発・B parity(n=400, 27.8%)＝据置。探索系の主要レバー出尽くし |
 | ~~Gen-7~~ | ML顕微鏡で特徴量の穴探索＋材料報酬 | 行動可能な予測特徴は現評価が捕捉済み・材料も parity＝据置。自己対戦観測上の天井を独立に裏付け |
 | ~~Gen-8~~ | 深い探索/MCTS@2万/大規模 value ネット(GPU, 配信制約外) | 全て tempo LA=1 に及ばず（多く有意に下回る）。ネットは勝者予測で手書き超える(0.325 vs 0.253)が葉では壊滅(0%)＝据置 |
 | ~~Gen-9~~ | ギフト能動妨害（評価ベースのギフト最適化）| n=360 で 25.3% parity（n=120 の 30% は seed 運）＝据置。ギフト稀＋smart の harm 最小化が既に good |
+| ~~Gen-10〜14~~ | 局面適応/選択的深化/人間prior/分散削減/葉formation/ES/build policy/人間BC | 全て parity or 実プレイ崩壊。self-play 天井・人間データ律速を多角確認（詳細 CHANGELOG）|
+| **Gen-15** | **目的志向 genome の grid 最適化（tempoChainAI）** | grid 勝者 idx340(fire=5/blend=0.5) が tempoFast LA=1 に 32.7%(CI27.6-38.2) ← **採用・ブラウザ反映・現状最強**。Gen-9 の天井を突破 |

@@ -37,14 +37,23 @@ export interface TempoChainGenome {
   nodeLimit: number;
 }
 
+// Gen-15 採用: grid 最適化で確証した勝者(idx=340)。純 fiveChain(blend=0) から
+// buildTempoBlend を 0.5 にしただけ＝「5連鎖を狙いつつ構築中はテンポ評価を半々で混ぜる」。
+// vs tempoFast: LA=0 2seed×1000局で 29.9%(CI下限>25% を2本再現), LA=1 300局で 32.7%(CI 27.6-38.2)。
+// 終盤適応(late)/詰み回避(full)は self-play で寄与なしのため無効のまま。
+// nodeLimit=15000 は確証値（上の勝率はこの値での実測）。
+// 計測メモ(`ai/scripts/_latency-probe.ts`): 60000 へ上げても実戦は探索が 15000 にすら届かず 6 ゲーム
+// 926 手が完全同一＝nodeLimit は飽和（上げても強くも遅くもならない・1 手 最大~25ms）。逆に大きく下げて
+// 探索を打ち切らせると弱く・速くなる。計算量で強くする未検証レバーは「lookahead 付与」＝次の実験候補
+// （CHANGELOG Gen-15「今後の伸びしろ」/ evolve-meteo-ai-handwritten スキルの仮説候補0）。
 export const DEFAULT_GENOME: TempoChainGenome = {
   fireTarget: 5,
   fireTargetLate: 5,
   lateThreshold: Infinity,
   fullThreshold: Infinity,
-  buildTempoBlend: 0,
+  buildTempoBlend: 0.5,
   distanceMode: 'expected',
-  nodeLimit: 60000,
+  nodeLimit: 15000,
 };
 
 const DIST_W = 50;

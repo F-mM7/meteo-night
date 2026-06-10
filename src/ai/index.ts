@@ -1,7 +1,10 @@
-// ブラウザ CPU の既定 AI。tempoAI の無制限探索が連鎖の配置局面で最大 ~21 秒 UI をブロックする問題
-// （実機で発生）への対処として、時間予算(250ms)+反復深化+枝刈り+置換表で最悪レイテンシを ~0.3 秒に
-// 抑えた tempoFastAI に切替。強さは旧王者 mcts(Gen-3-X) に 53%（n=300）で勝ち越し、tempoAI とは有意差なし。
-export { decideAction } from './tempoFastAI';
+// ブラウザ CPU の既定 AI（Gen-15 採用）。grid 最適化で確証した目的志向ポリシー tempoChainAI
+// （DEFAULT_GENOME=idx340: 5連鎖を狙い、構築中はテンポ評価を半々混合 blend=0.5）。実体 champion だった
+// tempoFast(LA=1) に vs LA=1 300局で 32.7%（CI 27.6-38.2 >25%）・vs LA=0 2seed×1000局で 29.9% と有意勝ち。
+// 発火は cascade.ts の実カスケード評価、nodeLimit=15000 でレイテンシ有界・aiWorker 経由で off-main-thread。
+// 呼び出しは decideAction(state, actorId) の 2 引数（genome=DEFAULT_GENOME を使用）。
+// 旧既定 tempoFastAI(LA=1) は存置。戻す場合は下の export を './tempoFastAI' に変更するだけ。
+export { decideAction } from './tempoChainAI';
 
 /**
  * ニューラルネット AI の動的ロード。

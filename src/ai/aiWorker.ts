@@ -2,7 +2,7 @@
 /**
  * CPU AI を Web Worker（メインスレッド外）で実行するためのワーカー。
  *
- * 採用 AI（tempoFastAI, lookahead=1）は 1 手に最大 ~1 秒かかるため、メインスレッドで
+ * 採用 AI（tempoChainAI, Gen-15）は連鎖局面で重くなりうるため、メインスレッドで
  * 同期実行すると UI が固まる。本ワーカーで decideAction を実行し、結果だけを postMessage で
  * 返すことで、思考中も UI が応答し続ける。
  *

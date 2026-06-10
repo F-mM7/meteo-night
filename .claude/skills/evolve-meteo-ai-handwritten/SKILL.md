@@ -1,6 +1,6 @@
 ---
 name: evolve-meteo-ai-handwritten
-description: 星を放つ夜 (MeteoNight) の CPU AI を 1 イテレーション進化させる唯一の AI 進化スキル。現状最強は tempoFastAI（手書きの探索 + 評価関数、NN ではない）。探索（自分の手番のターン内完全読み）はほぼ完全で、葉（ターン終了局面）の評価が律速。物差しは必ず smart 非依存（候補 vs 現状最強 + Elo はしご、最終は人間体感）。強化は打ち止めにせず、低 EV でも新角度・大掛かり・不確実な仮説を執拗に試す（既知の同一 dead-end のみ回避。NN/AlphaZero 等は低天井実証済みだが別角度なら可）。
+description: 星を放つ夜 (MeteoNight) の CPU AI を 1 イテレーション進化させる唯一の AI 進化スキル。現状最強は tempoChainAI（Gen-15: 人間戦略を構成化した目的志向 genome ポリシー＋cascade.ts の実カスケード評価。旧 champion の手書き探索 tempoFast LA=1 に有意勝ち）。物差しは必ず smart 非依存（候補 vs 現状最強 + Wilson CI、最終は人間体感）。強化は打ち止めにせず、低 EV でも新角度・大掛かり・不確実な仮説を執拗に試す（既知の同一 dead-end のみ回避。NN/AlphaZero 等は低天井実証済みだが別角度なら可）。
 disable-model-invocation: false
 ---
 
@@ -14,11 +14,12 @@ disable-model-invocation: false
 
 > 🔄 **ルール (Gen-5, 2026-06-03)**: 山札 **120 枚（各色 24）**（旧 100 枚）。 重み再調整したが現重み最適（parity, 3 seed×2 horizon）＝AI は Gen-4-C 据置。 各色 20% の分布は不変なので最適点が動かない。
 
-- **現状最強 = tempoFast + lookahead=1（Gen-4-C）**: ターン内完全読み + テンポ評価 + 時間予算/反復深化/αβ/置換表に、**2-ply(相手手番を挟み次の自分の手番まで)先読み**を追加。現 tempoFast(LA=0) に有意勝ち(33%, n=300)。1 手 ~1 秒と重く **Web Worker(`src/ai/aiWorker.ts`)で off-main-thread 実行**。`src/ai/index.ts`→`tempoFastAI`(既定 LA=1) を export。
+- **現状最強 = tempoChainAI（Gen-15）**: 人間戦略「溜めて1ターン5連鎖・小連鎖は撃たない」を genome（fireTarget/buildTempoBlend/distanceMode/nodeLimit）で構成化した目的志向ポリシー。点火/最大連鎖は `cascade.ts` の実カスケード評価。grid 400候補最適化の勝者 idx340(fire=5/blend=0.5)が tempoFast に vs LA=0 2seed×1000局 29.9%・vs LA=1 300局 32.7%(CI27.6-38.2)で有意勝ち＝**Gen-9 の「自己対戦は天井」を突破**。`src/ai/index.ts`→`tempoChainAI` を export（DEFAULT_GENOME=idx340）、Web Worker で nodeLimit 有界実行。
+- **旧 champion = tempoFast + lookahead=1（Gen-4-C）**: ターン内完全読み + テンポ評価 + 時間予算/反復深化/αβ/置換表 + 2-ply 先読み。現 tempoFast(LA=0) に 33%(n=300)。現在はベンチ用ベースライン（ブラウザ未使用）。
 - **強さ同等の素の版 = tempoAI（Gen-4-A）**: 同じ探索だがレイテンシ無制限（連鎖局面で最大 ~21 秒）。比較ベースラインに使う。
 - **構成**: 探索はほぼ完全（ターン内完全読み + 1-ply 先読み）、 葉 = `evaluateState`（`src/ai/evaluator.ts`）+ `multiColorChainReadiness * tempoChainW(50)`。 葉の改善も horizon の深掘りも一巡して頭打ち（下記 dead-end）＝**次の伸びしろは未踏の角度（人間評価・別アーキ等）に**。
-- **対象**: `src/ai/{tempoAI,tempoFastAI,evaluator}.ts`、`ai/scripts/{bench-self,_fast_bench,elo-ladder,_runner,stats}.ts`。
-- **既知の dead-end（＝同一構成の単純再試行は不要。別角度・大規模化・新手法は歓迎）**: NN priors（branching 5.1 で無効）、価値学習 v1/v2/残差（探索が葉の誤差に頑健で play は parity）、葉の重み再最適化（DEFAULT がほぼ最適・n=96 ではノイズを拾う。 Gen-5 の 120 枚化後も再確認＝chainReadyMult/tempoChainW 上げは 3 seed×2 horizon で parity, 色分布不変）、多ターン連鎖**投影**（葉に貪欲ロールアウトを足す版＝弱い）、ギフト最適化、mcts ハイパラ、lookahead=2 / opp=tempo（予算内で頭打ち）、終盤適応 LA / 思考予算増（Gen-6: 終盤限定 LA=2 も同 budget 内で配置探索を削り parity〜微悪、 budget2000 も n=400 で 27.8% parity・再現せず）、 ML 駆動の特徴発掘（Gen-7: 自己対戦の勝敗予測で特徴の穴を探索＝材料報酬含め parity、 最強の新シグナル「席順」 は全候補手で同値の行動不能定数。 `ai/scripts/_feature_mine.ts`）、 深い探索/大量 MCTS/大規模 ML value（Gen-8: レイテンシ無制約でも mcts@2万・LA=2(opp=tempo)・GPU 学習 value ネットすべて tempo LA=1 に及ばず＝多く有意に下回る。 value ネットは勝者予測では手書き超え(0.325 vs 0.253)だがノイジーで探索の葉にすると壊滅(0%)。 根本機序＝均衡自己対戦の勝敗は本質的に予測困難で評価改善の余地が原理的に小さい。 `ai/scripts/nn/`）、 ギフト能動妨害（Gen-9: 贈与配置まで実シミュレートして evaluateState を最大化する配り方も n=360 で 25.3% parity＝smartAI の harm 最小化を超えず。 ギフトは稀＋根本機序で勝率動かず。 `tempoGiftAI` 削除）。⚠️ **未検証で残る本命レバー（自己対戦の外。 自己対戦で測れるレバーは葉/horizon/予算/終盤/特徴発掘/深い探索/MCTS/大規模MLvalue/ギフトと出尽くした）**: 人間プレイの弱点診断/模倣（自己対戦＝自己参照では人間相手の弱点が見えない＝最優先・要ユーザー）。⚠️ **これらは「その構成」 が効かなかっただけ**：例えば価値学習を別の教師信号(shaped return)で／重み tune を ≥300-500 局/eval で／lookahead を別アーキ(turn-MCTS)で、 は別仮説として有効。理由は CHANGELOG（探索ラウンド 1〜3 + Gen-4-C + horizon 深掘り）。
+- **対象（現 champion）**: `src/ai/{tempoChainAI,cascade,fiveChainAI}.ts`（Gen-15 採用系）。旧 champion/ベースライン: `src/ai/{tempoFastAI,tempoAI,evaluator}.ts`。grid/確証の物差し: `ai/scripts/{optimize-tempochain,confirm-tempochain,confirm-aggregate,bench-tempochain}.ts`。
+- **既知の dead-end（＝同一構成の単純再試行は不要。別角度・大規模化・新手法は歓迎）**: NN priors（branching 5.1 で無効）、価値学習 v1/v2/残差（探索が葉の誤差に頑健で play は parity）、葉の重み再最適化（DEFAULT がほぼ最適・n=96 ではノイズを拾う。 Gen-5 の 120 枚化後も再確認＝chainReadyMult/tempoChainW 上げは 3 seed×2 horizon で parity, 色分布不変）、多ターン連鎖**投影**（葉に貪欲ロールアウトを足す版＝弱い）、ギフト最適化、mcts ハイパラ、lookahead=2 / opp=tempo（予算内で頭打ち）、終盤適応 LA / 思考予算増（Gen-6: 終盤限定 LA=2 も同 budget 内で配置探索を削り parity〜微悪、 budget2000 も n=400 で 27.8% parity・再現せず）、 ML 駆動の特徴発掘（Gen-7: 自己対戦の勝敗予測で特徴の穴を探索＝材料報酬含め parity、 最強の新シグナル「席順」 は全候補手で同値の行動不能定数。 `ai/scripts/_feature_mine.ts`）、 深い探索/大量 MCTS/大規模 ML value（Gen-8: レイテンシ無制約でも mcts@2万・LA=2(opp=tempo)・GPU 学習 value ネットすべて tempo LA=1 に及ばず＝多く有意に下回る。 value ネットは勝者予測では手書き超え(0.325 vs 0.253)だがノイジーで探索の葉にすると壊滅(0%)。 根本機序＝均衡自己対戦の勝敗は本質的に予測困難で評価改善の余地が原理的に小さい。 `ai/scripts/nn/`）、 ギフト能動妨害（Gen-9: 贈与配置まで実シミュレートして evaluateState を最大化する配り方も n=360 で 25.3% parity＝smartAI の harm 最小化を超えず。 ギフトは稀＋根本機序で勝率動かず。 `tempoGiftAI` 削除）。⚠️ **未検証で残る本命レバー（自己対戦の外。 自己対戦で測れるレバーは葉/horizon/予算/終盤/特徴発掘/深い探索/MCTS/大規模MLvalue/ギフトと出尽くした）**: 人間プレイの弱点診断/模倣（自己対戦＝自己参照では人間相手の弱点が見えない）。**【Gen-15 で更新】**「自己対戦で測れるレバーは出尽くした」は覆った: 人間戦略を構成化した**目的志向 genome ポリシー(tempoChain)の grid 最適化**が tempoFast LA=1 に有意勝ち(32.7%, CI27.6-38.2)＝採用・現状最強。葉重み tune や horizon とは別軸（点火閾値+構築テンポ混合 blend+実カスケード評価）が効く新レバー。次は genome のさらなる探索・人間データ拡大。⚠️ **これらは「その構成」 が効かなかっただけ**：例えば価値学習を別の教師信号(shaped return)で／重み tune を ≥300-500 局/eval で／lookahead を別アーキ(turn-MCTS)で、 は別仮説として有効。理由は CHANGELOG（探索ラウンド 1〜3 + Gen-4-C + horizon 深掘り）。
 
 ## 前提
 
@@ -58,6 +59,7 @@ npx tsx ai/scripts/elo-ladder.ts --ais random,smart,mctsGen3X,tempo50 --games 0 
 
 `ai/README.md` / CHANGELOG の「今後」を読む。葉（評価）の改善と horizon の深掘り（lookahead=2/opp=tempo）は parity で頭打ちと判明済み（lookahead=1 だけが効いた）。**だが打ち止めにはしない**——既知の同一構成（上記 dead-end）は避けつつ、 新角度・大掛かり・不確実な仮説を継続的に試す。 候補（期待値の高い順。 ただし全て不確実）:
 
+0. **【Gen-15 後の最有力・未検証＝計算量を使う唯一のレバー】tempoChain への lookahead（レース計時）付与**: 現 champion tempoChain は1ターンしか読まない（旧 tempoFast の LA=1=race-timing を持たない）。「5連鎖を狙う構成戦略(blend=0.5)」＋「race-timing」＝単独で各々勝てた2つの合成。新ファイルで tempoChain に1ターン先読みを足し、現 champion tempoChain・tempoFast LA=1 と対戦→CI下限>25% なら採用。**nodeLimit 上げは飽和＝無効を実測**（`ai/scripts/_latency-probe.ts`: 15000⇔60000 で手も時間も同一・1手最大~25ms）＝計算量で強くするには探索の地平を増やす（lookahead）しかない。深い探索/MCTS/LA≥2 は Gen-8 dead-end。EV 不確実（parity もありうるが未試行の正当な仮説）。
 1. **人間評価で弱点特定（最優先・最安・要ユーザー）**: 物差しが全て「vs tempo」＝自己参照で、 自己対戦では見えない弱点がありうる（旧「vs smart は錯覚」 と同型）。 ユーザーが現 AI と数局打ち、 下手な箇所（発火タイミング/妨害/複数連鎖ボーナス/終盤レース計時/山札管理 等）を具体化 → それを的にした改良。 **人間に効く改善の唯一の安価な道**。
 2. **人間棋譜の模倣学習（最高天井・大コスト）**: 強い人間を上位教師に self-play の天井を破る。 要・対局記録 + 学習。
 3. **より賢く安い相手モデルでの lookahead**: 先読みの相手を `smart` でなく `tempoFast@極小budget` 等に（2-ply 精度向上を狙う）。

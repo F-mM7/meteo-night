@@ -78,7 +78,7 @@ export function useGameLogic(initOptions?: SetupOptions) {
   const timer = useTimeout();
   const resetTimer = useTimeout();
 
-  // CPU AI（lookahead=1 で 1 手最大 ~1 秒）をメインスレッド外で実行するワーカー。
+  // CPU AI（tempoChainAI, Gen-15。連鎖局面で重くなりうる）をメインスレッド外で実行するワーカー。
   // 思考中も UI を応答させるのが目的。生成不可/失敗時は同期 decideAction にフォールバックする。
   const workerRef = useRef<Worker | null>(null);
   const workerFailedRef = useRef(false);

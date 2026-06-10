@@ -59,14 +59,14 @@ export interface TempoFastOptions {
 }
 
 const DEFAULT_TEMPO_CHAIN_W = 50;
-// ブラウザ既定で 1（2 手先読み）。lookahead=1 は現 tempoFast(LA=0) に有意勝ち（n=300, 33.0%,
-// CI 下限 27.9% > 公平 25%）。ただし 1 手 ~1 秒（中央値）と重いので、ブラウザでは Web Worker
-// （src/ai/aiWorker.ts）で実行し UI をブロックしない。相手モデルは既定の 'smart'。
+// 旧ブラウザ既定（Gen-4-C）で 1（2 手先読み）。lookahead=1 は tempoFast(LA=0) に有意勝ち（n=300, 33.0%,
+// CI 下限 27.9% > 公平 25%）で 1 手 ~1 秒（中央値）と重い。Gen-15 でブラウザ既定は tempoChainAI に交代し、
+// 本 AI は現ベンチ用 LA=1 baseline（Worker 実行経路 src/ai/aiWorker.ts は tempoChain が継承）。相手モデルは既定の 'smart'。
 const DEFAULT_LOOKAHEAD_TURNS = 1;
 const DEFAULT_ROOT_DRAW_SAMPLES = 5;
 const DEFAULT_CHAIN_DRAW_SAMPLES = 2;
 const DEFAULT_MAX_PLACE_DEPTH = 12;
-// ブラウザ既定。1 手あたりの壁時計上限（=最悪フリーズ時間の上限）。tempoAI の無制限探索が
+// 旧ブラウザ既定（Gen-4-C。現ベンチ baseline）。1 手あたりの壁時計上限（=最悪フリーズ時間の上限）。tempoAI の無制限探索が
 // 連鎖の配置局面で最大 ~21 秒固まる問題への対処。250ms では現 tempo より有意に弱かった(19.3%, n=300)
 // ため、打ち切り頻度を下げて強さを回復させる狙いで ~1 秒に設定。max は反復深化 1 段ぶん超過しうる。
 const DEFAULT_TIME_BUDGET_MS = 1000;

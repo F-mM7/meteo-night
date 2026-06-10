@@ -6,8 +6,8 @@
 
 - **規模**: `src/` 47 ファイル（約 6,259 行、うちテスト 4）、`ai/scripts/` 33 ファイル（約 7,221 行）。
 - **体制**:
-  - ブラウザ CPU は **`tempoFastAI`（lookahead=1, Gen-4-C）**（`src/ai/index.ts:4` が re-export）。1 手 ~1 秒のため **`src/ai/aiWorker.ts`（Web Worker）で実行**し `useGameLogic` が非同期に呼ぶ（同期 `decideAction` はフォールバック）。探索は深さ的にほぼ天井（lookahead=2 は parity-下）、**葉＝`evaluateState` の評価も全 tune が parity ＝強さは実用天井**。
-  - `mctsAI` / `smartAI` / `tempoAI` / `chainRushAI` はブラウザから到達せず、**ベンチ専用のベースライン**に後退した。
+  - ブラウザ CPU は **`tempoChainAI`（Gen-15, DEFAULT_GENOME=idx340）**（`src/ai/index.ts` が re-export）。点火/最大連鎖は `cascade.ts` の実カスケード評価、nodeLimit=15000 でレイテンシ有界。重い連鎖局面に備え **`src/ai/aiWorker.ts`（Web Worker）で実行**し `useGameLogic` が非同期に呼ぶ（同期 `decideAction` はフォールバック）。旧 champion tempoFast(LA=1) に有意勝ち（vs LA=1 32.7%, CI 27.6-38.2）＝Gen-9 の「強さは実用天井」を genome 最適化が突破。
+  - `mctsAI` / `tempoAI` / `tempoFastAI` / `chainRushAI` はブラウザから到達せず、**ベンチ専用のベースライン**（`tempoFastAI` は Gen-15 で旧 champion から後退）。`smartAI` は `tempoChainAI` のギフト委譲 import で**現役（到達可能）**。
   - **NN（`neuralAI` / `ai/scripts/nn/*` / `bench-neural` 等、約 2,875 行）は方針上保留**。生きている経路から到達不能なまま残る（→ 末尾「保留」）。
 - **主要負債（現役コード）**:
   1. **現役 AI のコピー重複**: `tempoFastAI` が `tempoAI` を探索フレームごと全面再実装、`currentActorId`（26 箇所）/`computeRanking`（15 箇所）/`stateBaseSeed`（生存 5 箇所）/対戦ループ（12 実装超）がゲーム・AI・スクリプトに散在。
@@ -119,7 +119,7 @@ UX 直結と、後続リファクタの安全網。単独で着手可能。
 着手前に計測や方針決定が要るもの。
 
 - **`tempoFast` の TT キー文字列生成** — `tempoFastAI.ts:338` が反復深化の各ノードで `observationKey`（重い）＋文字列連結。→ `observationKey` の WeakMap メモ化等。**プロファイルで律速確認後に着手。**
-- **`tempoFast` の `opponentModel='mcts'/'tempo'` 経路の整理** — **ブラウザ既定は `lookaheadTurns=1`/`opponentModel='smart'`（Gen-4-C で LA=1 採用）**。lookahead 検証は決着済み（LA=1 採用、LA=2 と opp=tempo/mcts は parity-下で**不採用確定**＝CHANGELOG「Gen-4 探索ラウンド」「horizon 深掘り」）。よって `decideTempoOpponent` と `advanceToMyTurn` の mcts/tempo 分岐は配信経路でもベンチでも今後使わない（`tempoFast` の `mctsAI` 依存の唯一理由）。→ 約 120 行削除＋`mctsAI` 依存除去が**着手可能**。
+- **`tempoFast` の `opponentModel='mcts'/'tempo'` 経路の整理** — **tempoFast は Gen-15 で配信経路外（旧ブラウザ既定 LA=1/opp=smart, Gen-4-C）＝ベンチ専用に後退**。lookahead 検証は決着済み（LA=1 採用、LA=2 と opp=tempo/mcts は parity-下で**不採用確定**＝CHANGELOG「Gen-4 探索ラウンド」「horizon 深掘り」）。よって `decideTempoOpponent` と `advanceToMyTurn` の mcts/tempo 分岐は配信経路でもベンチでも今後使わない（`tempoFast` の `mctsAI` 依存の唯一理由）。→ 約 120 行削除＋`mctsAI` 依存除去が**着手可能**。
 - **React `state` 全体依存の useMemo** — `App.tsx:36-38`（`[state, you]`）・`useBoardLayout.ts:138`（`globalMaxStack` の依存と参照のズレ）・`App.tsx:46`。→ 依存を絞る。実害軽微。
 - **`Phase` の判別共用体化（長期）** — `types.ts:27-39`(10 文字列 union)＋`:58-71`(フラットな `TurnState`)で不正状態が型表現可能、各ハンドラの `if(!card) return state` 防御を要する。`turnEnd` 幽霊フェーズ（`types.ts:36-38`、コメントは明記済み）も同時に型分離。→ まず不変条件のスモークテスト（小）、判別共用体移行は長期（大）。`pendingDraw` 等が広範に直接参照され影響大。
 

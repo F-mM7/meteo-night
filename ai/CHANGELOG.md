@@ -9,7 +9,8 @@
 
 | 種類 | モデル | 強さ指標 | ブラウザ反映 | 由来 |
 |---|---|---|---|---|
-| 手書き AI（採用版） | **Gen-4-C**（tempoFast + **lookahead=1** + Web Worker）| **現 tempoFast(LA=0) に有意勝ち**（33.0%, n=300, CI 27.9-38.5 > 25%）＝**horizon が葉の天井を破った**。1 手 ~1 秒だが Web Worker で UI 非ブロック | **✓ 反映済み** | `tempoFastAI.ts`(LA=1) + `aiWorker.ts` + `useGameLogic.ts` |
+| 目的志向 AI（確証済・最強）| **Gen-15**（tempoChain genome idx340: fire=5・**blend=0.5**・nodeLimit=15000）| **実体champion tempoFast LA=1 に有意勝ち**（32.7%, n=300, CI 27.6-38.2 > 25%）＋ vs LA=0 fresh 2seed×1000局で 29.9%（CI下限>25% 再現）。grid 400候補の勝者 | **✓ 反映済み**（`index.ts`→tempoChain, ユーザー承認）| `src/ai/tempoChainAI.ts` の `DEFAULT_GENOME` |
+| 手書き AI（旧採用版）| **Gen-4-C**（tempoFast + **lookahead=1** + Web Worker）| **現 tempoFast(LA=0) に有意勝ち**（33.0%, n=300, CI 27.9-38.5 > 25%）＝**horizon が葉の天井を破った**。1 手 ~1 秒だが Web Worker で UI 非ブロック | （Gen-15 に置換）| `tempoFastAI.ts`(LA=1) + `aiWorker.ts` + `useGameLogic.ts` |
 | 旧採用版 | Gen-4-B（tempoFast, LA=0）| 現 tempo(Gen-4-A) と同等・最悪 1.0s | （Gen-4-C に置換）| `src/ai/tempoFastAI.ts` |
 | 強さ同等の旧版 | Gen-4-A（tempoAI, `tempoChainW=50`, 無制限探索）| vs Gen-3-X mcts 55.3% (n=300) | （置換）| `src/ai/tempoAI.ts` |
 | さらに旧（baseline）| Gen-3-X（Gen-3-O mcts + `chainReadyMult=10`）| vs Gen-3-O mcts 33.3% (CI 26.3-41.2) | （置換） | `src/ai/evaluator.ts` の `chainReadyMult` |
@@ -25,6 +26,52 @@
 1. このサマリと最新 Gen エントリを読む
 2. `ai/README.md` の「現状」セクションを確認
 3. ベンチで実機確認（smart 非依存）: `npx tsx ai/scripts/bench-self.ts --cand-ai tempo --tempo-chain-w 50 --games 150 --seed 8001`（候補 tempo vs baseline mcts、 候補勝率の CI 下限 >25% を確認）
+
+---
+
+## Gen-15 採用: genome grid 最適化で「5連鎖を狙い構築中はテンポ半々混合(blend=0.5)」が初の champion 有意勝ち＝採用 (2026-06-10)
+
+メモリ `fivechain-cascade-policy` の確定方針（葉 shaping を捨て、実カスケード評価 `cascade.ts` の `maxChainFrom` を核にした目的志向ポリシー）の総仕上げ。戦略スペクトル（fiveChain↔tempoFast↔ハイブリッド）を genome 化した `tempoChainAI`（fireTarget/適応late/fullThreshold/buildTempoBlend/distanceMode/nodeLimit）を **400候補グリッドで網羅探索→高局数で確証**。**キャンペーン史上初めて champion に Wilson CI 下限>25% で有意勝ちする構成を発見・採用**（Gen-7〜13 は全て parity / dead-end だった）。
+
+### 仮説
+人間の強い戦略＝「size3 のコンボを溜めて1ターンで5色5連鎖を一気に撃ち、それ以外では発火しない」。これを genome（点火閾値・構築時の配置方針・終盤適応）で表現し、grid 探索で self-play 最適点を見つければ champion を超えうる。狙いは連鎖の「サイズ」でなく「数」（size3 を5回＝5連鎖）。
+
+### 手法（grid 400候補 → 2段確証）
+- **grid**: fireTarget{2,3,4,5}×blend{0,.25,.5,.75,1}×distMode{expected,worstcase}×lateConfig{5種}×fullTh{∞,13}=400候補。各「候補1席 vs tempoFast(LA=0,budget300) 3席」rotate・共通乱数で80局。20シャード並列・レジューム対応（`optimize-tempochain.ts`/`_run-optimize.sh`、集約 `aggregate-tempochain.ts`）。
+- **確証**: 上位12を fresh seed 2本×1000局（`confirm-tempochain.ts`/`confirm-aggregate.ts`/`_run-confirm.sh`、genome は grid jsonl から idx で引く）。最良を実体champion tempoFast **LA=1,budget1000** で n=300。採用基準＝CI下限>25% を fresh 2 seed で再現。
+
+### ベンチ結果（候補 vs tempoFast, 1席 vs 3席 rotate, Wilson CI, 公平25%）
+grid 上位は **fire=5/blend=0.5/expected クラスタが席巻**（n=80 で ★4件: idx 340/342/344/348）。確証（**idx=340** = fire=5・late無・blend=0.5・expected・nodeLimit=15000）:
+
+| 相手 | 局数 | 勝率 | 95%CI | 判定 |
+|---|---|---|---|---|
+| tempoFast LA=0 (seed90001) | 1000 | 30.4% | 27.6-33.3 | ★ |
+| tempoFast LA=0 (seed92001) | 1000 | 29.3% | 26.6-32.2 | ★ |
+| tempoFast LA=0 (seed75001) | 160 | 30.0% | 23.4-37.5 | 点推定一致(n少でCI広) |
+| **tempoFast LA=1（実体champion）** | 300 | **32.7%** | **27.6-38.2** | ★ |
+
+- 同クラスタの 342/344/348 も LA=0 2seed で ✓✓。340 と 342(late=12→3) は LA=1 でも互角＝**終盤適応(late)/詰み回避(full)は寄与ゼロ**。エッジは **buildTempoBlend=0.5（構築中にテンポ評価を半々混合）の一点**に集約（純 fiveChain[blend=0] からこの1点だけの差）。
+- winner's curse は想定どおり作用（idx340: n=80 の 37.5% → n=1000 で 30.4%）が、**5つの近傍 genome が揃って CI下限>25%＝偶発でなく領域として頑健**。
+
+### 戦略検証（勝者340の発火分布, 160局 vs LA=0。`bench-tempochain.ts`）
+狙いの「溜めて一気に5連鎖、小連鎖は撃たない」を実機で確認:
+- **1ターンの発火回数ヒストグラム**: 340 = `0:1016 1:30 2:10 3:2 4:4 5+:90` / tempoFast = `0:1974 1:582 2:446 3:272 4:139 5+:43`。＝**88%のターンは0発火で溜め、撃つ時は5+連鎖（90ターン＝champion 43 の2倍超）**。小発火(1回)は 30 vs 582 と桁違いに抑制＝「無駄撃ちしない」。
+- 得点ペース: 20点到達 27.3 vs 28.4ターン（**340 の方が速く finish**）。per-turn 効率 1.913<2.205・平均スコア 13.78<15.88 だが**勝率は上**＝「点でなく勝ちに行く」（Gen-10 で同定した race-timing 機序と整合）。
+- 順位分布 1位:48 / 2位:23 / 3位:14 / 4位:75 ＝**feast-or-famine の高分散**（cascade 成功で大勝・不発で最下位、self-play 1vs3 勝者総取りと相乗）。
+
+### 採用判定: 採用（DEFAULT_GENOME 更新）
+LA=0 fresh 2seed・LA=1 とも CI下限>25% を再現＝採用基準クリア。`src/ai/tempoChainAI.ts` の `DEFAULT_GENOME` を 340（blend=0.5/nodeLimit=15000、late/full は無効のまま）に更新。`tsc -b` exit 0 / `vitest` 59/59 pass。`tempoFastAI`/`evaluator`/`index` は不変（壊さず）。
+
+### ブラウザ反映（適用済み・ユーザー承認）
+`src/ai/index.ts` の export を `'./tempoFastAI'`→`'./tempoChainAI'` に切替（実機 CPU = tempoChain(340)）。両呼び出し元（`aiWorker.ts`/`useGameLogic.ts`）とも `decideAction(state, actorId)` の2引数呼びで genome=DEFAULT_GENOME を使用、nodeLimit=15000 でレイテンシ有界・off-main-thread。`npm run build` 通過（worker チャンク 31.2→23.2 kB と微減）・`vitest` 59/59。旧 tempoFastAI(LA=1) は存置（export を戻せば即復帰）。**self-play は本戦略の真の物差しでない**（高分散・1vs3 parity 化しやすい）ため、強さ・人間らしさの最終評価はユーザーの実機対戦。
+
+### 成果物
+- 採用: `src/ai/tempoChainAI.ts`（DEFAULT_GENOME=勝者340）。
+- 物差し（存置・再利用可）: `ai/scripts/{optimize-tempochain,aggregate-tempochain,confirm-tempochain,confirm-aggregate,bench-tempochain,_latency-probe}.ts`、`ai/scripts/{_run-optimize,_run-confirm}.sh`。
+
+### 今後の伸びしろ（次の実験候補・未着手）
+- **計算量で強くするレバーは nodeLimit ではない（飽和を実測）**: ブラウザの CPU は一瞬（1手 最大~25ms）だが、`nodeLimit` を 15000→60000 に上げても**実戦は探索が 15000 にすら届かず、6 ゲーム926手が完全同一**（`_latency-probe.ts`）。tempoChain は1ターン内のみ読む浅い設計ゆえ余剰計算の使い道が無い。`DEFAULT_GENOME.nodeLimit` は確証値 15000 に据置（60000 は無害だが無効）。深い探索/MCTS/LA≥2 は Gen-8 で dead-end 済み。
+- **未検証の本命＝tempoChain への lookahead（レース計時）付与**: 旧 champion tempoFast の優位の核は LA=1（相手手番を挟み次の自分の手番まで読む race-timing, Gen-4-C/Gen-10）。現 tempoChain はこれを持たない。**「5連鎖を狙う構成戦略(blend=0.5)」＋「race-timing」＝それぞれ単独で勝てた2つの合成**は dead-end リストに無い、唯一の「計算量を使う」未検証レバー。手順: 新ファイルで tempoChain に1ターン先読みを実装→現 champion tempoChain・tempoFast LA=1 と対戦（grid と同じ物差し）→**CI下限>25% で有意な時のみ採用**。EV 不確実（LA≥2 等の履歴から parity の可能性も十分だが未試行の正当な仮説）。`evolve-meteo-ai-handwritten` スキルの1イテレーション。
 
 ---
 
