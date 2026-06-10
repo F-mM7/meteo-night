@@ -23,6 +23,7 @@
 | 方向 | 現状 | スキル |
 |---|---|---|
 | AI 進化（手書き探索/評価 + 目的志向 genome。現 tempoChain Gen-15）| 葉も horizon も天井だったが、**Gen-15 で genome 最適化が突破**（人間戦略を構成化した目的志向ポリシー＋実カスケード評価が tempoFast LA=1 に 32.7%/CI 27.6-38.2 で有意勝ち）。次の実験候補: **tempoChain への lookahead（レース計時）付与**（計算量で強くする唯一の未検証レバー＝nodeLimit 上げは飽和を実測, `_latency-probe.ts`）／genome のさらなる探索／人間データ量拡大 | `evolve-meteo-ai-handwritten`（唯一の AI 進化スキル）|
+| GRM（目標到達確率最大化法。第3路線＝学習も手書き評価も使わない確率プランナー）| **プレイ可能実装が完成**（内側 f=発火後連鎖の厳密確率＋外側 U=G 到達期待ターン数の二段ヒューリスティック。小盤面の厳密 T* に対し MAE 0.012）。ブラウザ未接続。勝率測定はこれから（旧プローブはノード予算バグで無効＝CHANGELOG 参照） | スキル無し。仕様書 `ai/REACHABILITY.md` |
 | ~~NN AI（AlphaZero 風）~~ | **対象外＝実証済みの行き止まり**: branching 5.1 で priors 無効、hand-eval に value/priors とも勝てず az-v1〜v10 + 価値学習 v1/v2 が全敗。スキル `evolve-meteo-ai-neural` は削除（経緯は CHANGELOG） | （削除済み）|
 
 ### 強化の到達点（詳細は CHANGELOG）
@@ -77,6 +78,8 @@
 ai/
   README.md           このファイル
   CHANGELOG.md        AI 各世代の変更と評価結果（最新は冒頭）
+  REACHABILITY.md     GRM（目標到達確率最大化法・第3路線）の設計仕様書
+  TSTAR.md            GRM 外側 U の研究対象 T*（最適期待到達ターン数）の自己完結な数学的仕様
   tsconfig.json       Node.js 実行用 TS 設定
   scripts/
     bench-self.ts     候補 vs baseline の smart 非依存ベンチ（現・主物差し）
@@ -85,6 +88,9 @@ ai/
     elo-ladder.ts     全 AI 総当たり Elo（物差し補強・intransitivity 検出）
     _runner.ts        共通 playOneGame / playOneGameWithDeciders
     _combo-stats.ts   連鎖統計、 stats.ts  Wilson CI 等
+    bench-grm.ts / sweep-grm-p.ts   GRM vs 現状最強の対戦ベンチ・P 掃引（旧測定はバグで無効＝要やり直し）
+    _tstar-bench.ts   GRM 外側 U の精度ベンチ（小盤面の厳密 T* を値反復で解いて比較）
+    _grm-ml-*.ts      U の教師あり学習実験（結論: 非有望・凍結。CHANGELOG 参照）
     bench.ts / selfplay.ts / tune-es.ts          旧（vs smart 時代・参考）
     bench-neural.ts / nn/                         NN 系（対象外・旧）
   data/ models/       自己対戦ログ・学習出力（gitignore）
@@ -94,6 +100,9 @@ src/ai/
   cascade.ts          実カスケード評価 maxChainFrom/bestChainMove（tempoChain の点火判定。段違い対応・置換表）
   tempoFastAI.ts      旧採用版（Gen-4-C: lookahead=1 + 時間予算 + 置換表。現ベンチ用ベースライン）
   tempoAI.ts          Gen-4-A（無制限探索版・比較ベースライン）
+  grmAI.ts            GRM のプレイ可能 CPU（第3路線。ブラウザ未接続。仕様 ai/REACHABILITY.md）
+  grmReachF.ts        GRM 内側関数 f（発火後連鎖サブゲームの厳密解）
+  __tests__/          grmReachF / grmAI の vitest（実エンジンを使う独立オラクルと照合）
   aiWorker.ts         CPU AI を Web Worker で実行（UI 非ブロック）
   evaluator.ts        評価関数 evaluateState + DEFAULT_WEIGHTS（chainReadyMult=10。tempoChain の構築テンポ項にも使用）
   smartAI / mctsAI / randomAI / chainRushAI       補助/ベンチ戦略（smartAI は tempoChain のギフト委譲で現役）
@@ -127,6 +136,8 @@ npx tsx ai/scripts/elo-ladder.ts --ais random,smart,mctsGen3X,tempo50 --games 0 
 ## 詳細ドキュメント
 
 - **進化サイクルの手順**: `.claude/skills/evolve-meteo-ai-handwritten/SKILL.md`（唯一の AI 進化スキル）
+- **GRM（第3路線）の設計仕様**: `ai/REACHABILITY.md`
+- **T*（期待到達ターン数）の数学的仕様**（近似研究の切り出し用・自己完結）: `ai/TSTAR.md`
 - **全試行履歴と結果**: `ai/CHANGELOG.md`（最新が冒頭）
 - **GPU セットアップ手順**（NN・対象外）: `docs/GPU_SETUP.md`
 - **ゲームルール**: `docs/RULES.md`

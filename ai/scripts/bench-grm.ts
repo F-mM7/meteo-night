@@ -1,0 +1,182 @@
+/**
+ * bench-grm ― 新 CPU AI「GRM（目標到達確率最大化法）」を現状最強 tempoFast と対戦させて強さを測る。
+ *
+ * GRM を候補として 1 席に置き、残り 3 席を tempoFast（現状最強 baseline）にする。
+ * 席は毎ゲーム回転（grmSeat = g % 4, 公平基準勝率 25%）。物差しは smart 非依存
+ * （現状最強 self との相対）なので、評価関数の盲点を共有して検出不能になる問題がない。
+ *
+ * GRM 本体は src/ai/grmAI.ts（別途実装中。下記シグネチャを想定）:
+ *   export function decideAction(state, playerId, seed?, options?: GrmOptions): Action | null;
+ *   export interface GrmOptions { V?; P?; H?; K?; maxNodes?; }
+ *
+ * 例:
+ *   npx tsx ai/scripts/bench-grm.ts --games 24 --seed 5001 --budget 200 --V 20 --P 0.8 --H 1 --K 7
+ *
+ * 出力: GRM の勝率（公平基準 25%）、Wilson 95%CI、GRM 平均スコア、baseline 平均スコア、
+ *       GRM 順位分布 [1位,2位,3位,4位]、未完了ゲーム数。最終結果は JSON を stdout、進捗・判定は stderr。
+ */
+import { playOneGameWithDeciders, parseIntArg, parseFloatArg, type Decider } from './_runner';
+import { decideAction as decideGrm, type GrmOptions } from '../../src/ai/grmAI';
+import { decideAction as decideTempoFast } from '../../src/ai/tempoFastAI';
+import { wilsonInterval } from './stats';
+
+export interface BenchGrmArgs {
+  games: number;
+  seed: number;
+  budget: number;
+  maxSteps: number;
+  V: number;
+  P: number;
+  H: number;
+  K: number;
+}
+
+export const BENCH_GRM_DEFAULTS: BenchGrmArgs = {
+  games: 24,
+  seed: 5001,
+  budget: 200,
+  maxSteps: 20000,
+  V: 20,
+  P: 0.8,
+  H: 1,
+  K: 7,
+};
+
+export function parseBenchGrmArgs(argv: string[]): BenchGrmArgs {
+  const a: BenchGrmArgs = { ...BENCH_GRM_DEFAULTS };
+  for (let i = 0; i < argv.length; i++) {
+    const k = argv[i];
+    switch (k) {
+      case '--games':
+        a.games = parseIntArg('--games', argv[++i]);
+        break;
+      case '--seed':
+        a.seed = parseIntArg('--seed', argv[++i]);
+        break;
+      case '--budget':
+        a.budget = parseIntArg('--budget', argv[++i]);
+        break;
+      case '--max-steps':
+        a.maxSteps = parseIntArg('--max-steps', argv[++i]);
+        break;
+      case '--V':
+        a.V = parseIntArg('--V', argv[++i]);
+        break;
+      case '--P':
+        a.P = parseFloatArg('--P', argv[++i]);
+        break;
+      case '--H':
+        a.H = parseIntArg('--H', argv[++i]);
+        break;
+      case '--K':
+        a.K = parseIntArg('--K', argv[++i]);
+        break;
+      default:
+        throw new Error(`unknown arg: ${k}`);
+    }
+  }
+  return a;
+}
+
+export interface GrmMatchResult {
+  games: number;
+  grmWins: number;
+  grmWinRate: number;
+  fairBaseline: number;
+  winRateCI95: { low: number; high: number };
+  grmAvgScore: number;
+  baseAvgScore: number;
+  grmRankDist: number[];
+  unfinishedGames: number;
+  elapsedSec: number;
+}
+
+/**
+ * GRM 1 席 vs tempoFast（baseline）3 席を席回転で対戦させ、GRM の成績を集計する。
+ * sweep-grm-p.ts からも再利用するため関数として切り出す（DRY）。
+ * @param grmOptions GRM に渡す GrmOptions（V/P/H/K 等）
+ * @param onProgress 進捗コールバック（done ゲーム数, 累積勝数, 経過秒）。8 ゲームごと等に呼ばれる。
+ */
+export function runGrmMatch(opts: {
+  games: number;
+  seed: number;
+  budget: number;
+  maxSteps: number;
+  grmOptions: GrmOptions;
+  onProgress?: (done: number, grmWins: number, elapsedSec: number) => void;
+}): GrmMatchResult {
+  const baseline: Decider = (state, pid) =>
+    decideTempoFast(state, pid, undefined, { timeBudgetMs: opts.budget, lookaheadTurns: 1 });
+  const candidate: Decider = (state, pid) => decideGrm(state, pid, undefined, opts.grmOptions);
+
+  let grmWins = 0;
+  let grmScoreSum = 0;
+  let baseScoreSum = 0;
+  const grmRankCount = [0, 0, 0, 0];
+  let unfinished = 0;
+  const t0 = Date.now();
+
+  for (let g = 0; g < opts.games; g++) {
+    const grmSeat = g % 4;
+    const deciders: Decider[] = [0, 1, 2, 3].map((s) => (s === grmSeat ? candidate : baseline));
+    const names = [0, 1, 2, 3].map((s) => (s === grmSeat ? 'grm' : 'base'));
+    const r = playOneGameWithDeciders({ seed: opts.seed + g, deciders, names, maxSteps: opts.maxSteps });
+    if (r.ranking[grmSeat] === 0) grmWins++;
+    grmRankCount[r.ranking[grmSeat]]++;
+    grmScoreSum += r.scores[grmSeat];
+    for (let s = 0; s < 4; s++) if (s !== grmSeat) baseScoreSum += r.scores[s];
+    if (!r.finished) unfinished++;
+    if (opts.onProgress && (g + 1) % 8 === 0) {
+      opts.onProgress(g + 1, grmWins, (Date.now() - t0) / 1000);
+    }
+  }
+
+  const winRate = grmWins / opts.games;
+  const ci = wilsonInterval(grmWins, opts.games);
+  return {
+    games: opts.games,
+    grmWins,
+    grmWinRate: +winRate.toFixed(4),
+    fairBaseline: 0.25,
+    winRateCI95: { low: +ci.low.toFixed(4), high: +ci.high.toFixed(4) },
+    grmAvgScore: +(grmScoreSum / opts.games).toFixed(2),
+    baseAvgScore: +(baseScoreSum / (opts.games * 3)).toFixed(2),
+    grmRankDist: grmRankCount,
+    unfinishedGames: unfinished,
+    elapsedSec: +((Date.now() - t0) / 1000).toFixed(1),
+  };
+}
+
+function main(): void {
+  const args = parseBenchGrmArgs(process.argv.slice(2));
+  const grmOptions: GrmOptions = { V: args.V, P: args.P, H: args.H, K: args.K };
+
+  console.error(
+    `[bench-grm] GRM(V=${args.V}, P=${args.P}, H=${args.H}, K=${args.K}) vs tempoFast(budget=${args.budget}, LA=1) | games=${args.games} seed=${args.seed} (GRM 1 席 vs baseline 3 席, rotate)`
+  );
+
+  const res = runGrmMatch({
+    games: args.games,
+    seed: args.seed,
+    budget: args.budget,
+    maxSteps: args.maxSteps,
+    grmOptions,
+    onProgress: (done, grmWins, sec) =>
+      console.error(`  ${done}/${args.games} done, grmWins=${grmWins}, ${sec.toFixed(0)}s`),
+  });
+
+  console.log(JSON.stringify(res, null, 2));
+
+  const { low, high } = res.winRateCI95;
+  const verdict =
+    low > 0.25
+      ? '✅ GRM が有意に強い'
+      : high < 0.25
+        ? '❌ 有意に弱い'
+        : '― 有意差なし';
+  console.error(
+    `\nGRM 勝率 ${(res.grmWinRate * 100).toFixed(1)}% (CI ${(low * 100).toFixed(1)}-${(high * 100).toFixed(1)}%) vs 公平基準 25%  → ${verdict}`
+  );
+}
+
+main();
