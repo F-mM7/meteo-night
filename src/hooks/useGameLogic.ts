@@ -12,7 +12,7 @@ import type { AiWorkerRequest, AiWorkerResponse } from '../ai/aiWorker';
 // UI からユーザーが直接指定する。
 export type EffectDelay = number;
 
-export const DEFAULT_EFFECT_DELAY_MS = 200;
+export const DEFAULT_EFFECT_DELAY_MS = 500;
 
 function normalizeDelay(delay: EffectDelay): number {
   if (!Number.isFinite(delay) || delay < 0) return 0;
