@@ -3,6 +3,7 @@ import { reducer } from '../game/reducer';
 import { setupGame } from '../game/setup';
 import type { Action, GameState, SetupOptions } from '../game/types';
 import { decideAction } from '../ai';
+import { logHumanEvaluation, type GrmOptions } from '../ai/grmAI';
 import { useTimeout } from './useTimeout';
 import { useGameRecorder } from './useGameRecorder';
 import { CARD_FADE_DURATION_MS } from './boardLayout';
@@ -18,6 +19,21 @@ function normalizeDelay(delay: EffectDelay): number {
   if (!Number.isFinite(delay) || delay < 0) return 0;
   return delay;
 }
+
+// --- 人間手番の評価値ログ（診断） ---
+// 人間の決定フェーズごとに、候補手の GRM 評価（内側 q＝連鎖成功確率 / 外側 T̂＝G 到達期待ターン数）を
+// devtools console に出力する。logHumanEvaluation が候補手評価を出せるフェーズのみ対象。
+const HUMAN_EVAL_PHASES: ReadonlySet<GameState['phase']> = new Set<GameState['phase']>([
+  'awaitingDraw',
+  'awaitingPlaceDrawn',
+  'awaitingAdditionalActionChoice',
+  'awaitingPlaceAdditionalDraw',
+  'awaitingAdditionalDiscard',
+]);
+// 診断用オプション。目線（V/P/K）は配信 CPU と同一。時間予算は課さない＝常に厳密値を表示する
+// （ユーザー指示によりブラウザ CPU 負荷への配慮はいったん撤回。重い盤面では手番冒頭に
+// 数秒〜十数秒の計算が走りうる。メインスレッド同期実行なのでその間タブは固まる）。
+const HUMAN_EVAL_OPTIONS: GrmOptions = { V: 20, P: 0.5, H: 1, K: 6 };
 
 export function currentActorId(state: GameState): number {
   if (state.phase === 'awaitingGiftPlacement' && state.turn.pendingGiftBatches.length > 0) {
@@ -102,6 +118,25 @@ export function useGameLogic(initOptions?: SetupOptions) {
       workerRef.current = null;
     };
   }, []);
+
+  // 人間の手番ごとに候補手の評価値を console に出力する（診断）。描画を先に済ませるため
+  // setTimeout(0) で 1 フレーム遅らせ、評価の失敗（ノード上限超過等）はゲーム進行に影響させない。
+  const humanEvalLoggedRef = useRef(-1);
+  useEffect(() => {
+    if (autoPilot || !HUMAN_EVAL_PHASES.has(state.phase)) return;
+    const actorId = currentActorId(state);
+    if (state.players[actorId]?.isCPU !== false) return;
+    if (humanEvalLoggedRef.current === state.log.length) return; // 同一決定点の重複出力を抑止
+    humanEvalLoggedRef.current = state.log.length;
+    const id = window.setTimeout(() => {
+      try {
+        logHumanEvaluation(state, actorId, HUMAN_EVAL_OPTIONS);
+      } catch {
+        // 診断専用: 重い盤面で上限を超えた場合はこの手番のログを諦める（進行・記録には不関与）
+      }
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [state, autoPilot]);
 
   useEffect(() => {
     if (state.phase === 'gameOver') {
