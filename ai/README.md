@@ -10,20 +10,21 @@
 > 新セッション開始時は、まずこのセクションと `ai/CHANGELOG.md` の最新エントリを読めば現状把握できます。
 
 ### ブラウザに反映されている CPU
-- **戦略**: **tempoChainAI（Gen-15）**＝目的志向ポリシー。「5色5連鎖を狙い、構築中はテンポ評価を半々で混ぜる（buildTempoBlend=0.5）、小連鎖は撃たない」。点火可否と最大連鎖は `cascade.ts` の実カスケード評価（段違い staggered 対応・置換表で高速化）で判定。`src/ai/index.ts`→`tempoChainAI` を export（`DEFAULT_GENOME`=grid 勝者 idx340: fireTarget=5 / buildTempoBlend=0.5 / distanceMode=expected / nodeLimit=15000）
-- **強さ（smart 非依存・公平25%）**: 旧 champion tempoFast に有意勝ち＝**vs LA=0 fresh 2seed×1000局で 29.9%（Wilson CI 下限>25% を2本再現）/ vs LA=1（実体 champion）300局で 32.7%（CI 27.6-38.2 >25%）**。grid 400候補最適化の勝者。**「自己対戦は天井・残るは人間模倣のみ」という旧結論（Gen-9）を、人間戦略を構成化した genome 最適化が破った**（詳細は CHANGELOG Gen-15）
-- ⚠️ **レイテンシ**: tempoChain は時間予算でなく **nodeLimit=15000** でレイテンシ有界。重い連鎖局面に備え **Web Worker(`src/ai/aiWorker.ts`)で off-main-thread 実行**（`useGameLogic.ts` が非同期呼び出し＋世代ゲーティング＋同期フォールバック）
+- **戦略**: **GRM（目標到達確率最大化法・第3路線、2026-06-11 採用）**＝学習も手書き評価関数も使わない確率プランナー（仕様 `ai/REACHABILITY.md`）。内側 q（発火後連鎖の厳密確率）＋外側 T̂（G 到達期待ターン数＝多色レース厳密閉形式の解析推定、tstar v1 移植）。`src/ai/index.ts` が**配信構成固定の wrapper** を export（`GRM_BROWSER_OPTIONS` = V=20 / P=0.5 / K=6 / timeBudgetMs=3000）
+- **強さ（smart 非依存・公平25%）**: **事前登録 fresh 決定的テスト通過＝旧既定 tempoChain（3席）に 30.5%（CI 27.4-33.8、両ブロック単独でも CI 下限>25%）**。無予算なら fresh 37.0%（CI 32.5-41.8）＝残差 ~6.5pt は時間予算の劣化コスト（解消は tstar C2 の実サイズ版待ち）。旧々 champion tempoFast LA=1 には全 P で有意勝ち（最大 58%）
+- ⚠️ **レイテンシ**: 時間予算 3000ms の anytime 設計（期限超過は設計劣化、`budgetStats()` で追跡可）＋**予算のチャネル公平化**（小期限の累積チェックポイント。後段チャネルだけの系統的劣化を解消し最悪値も低減）＝1手 p50 13ms / max ~3.7s・劣化率 15%。**Web Worker(`src/ai/aiWorker.ts`)で off-main-thread 実行**（`useGameLogic.ts` が非同期呼び出し＋世代ゲーティング＋同期フォールバック。フォールバック時は最悪 ~4 秒ブロックしうる）
+- 旧既定 **tempoChainAI（Gen-15）** は存置（`index.ts` の export を戻せば即復帰）。教訓: 採用判定は基準を事前宣言し完全未使用 seed で 1 回だけ測る
 - ⚠️ vs smart は盲点を共有して測れない。 物差しは smart 非依存（候補 vs 現状最強 + Wilson CI）。**self-play 勝率は本戦略の真の物差しではない**（高分散・1vs3 勝者総取り）ため、最終評価はユーザー実機対戦
 - **旧採用版**: Gen-4-C(tempoFast LA=1, 1手~1s, horizon で葉の天井を突破)→ Gen-4-B(LA=0)→ Gen-4-A(tempoAI 無制限, 21s 裾)→ Gen-3-X mcts。いずれも現在は**ブラウザ未使用のベンチ用ベースライン**
-- **未解決（探索アプローチは天井）**: 葉も horizon も尽きた。horizon=1 で一度突破したが lookahead=2（@1000 20%/@2500 14.6%）・opp=tempo（16.7%）・終盤適応LA・budget2000（Gen-6, n=400 で 27.8% parity）はいずれも LA=1/budget1000 を超えず＝**lookahead=1 + budget1000 が sweet spot**。NN 近似も前提 refuted。**ML 駆動の特徴発掘(Gen-7)も「自己対戦で観測可能な実用特徴は現評価が捕捉済み」を裏付け**（材料報酬含め parity、最強の新シグナル「席順」は行動不能な定数）。**Gen-8 で配信制約を外し深い探索・MCTS@2万・大規模 value ネット(GPU)も投入したが全て tempo LA=1 に及ばず**（多くは有意に下回る。value ネットは勝者予測では手書きを上回る(0.325 vs 0.253)が、ノイジーで探索の葉にすると壊滅＝0%）。根本機序＝均衡した自己対戦では勝敗が本質的に予測困難で評価改善の余地が原理的に小さい。**ギフト能動妨害(Gen-9)も評価ベース最適化で n=360 parity**（ギフトは稀＋smartAI の harm 最小化が既に good）。**自己対戦で測れる全レバーが出尽くした**（と Gen-9 時点では結論）。**→ Gen-15 で覆る**: 人間戦略を構成化した目的志向ポリシー tempoChain（genome 最適化）が tempoFast LA=1 に有意勝ち＝「点火閾値・配置方針(buildTempoBlend)」という新レバーが効いた。残る本命は genome のさらなる探索 or 人間データ量拡大（詳細 CHANGELOG Gen-15）
+- **未解決（探索アプローチは天井）**: 葉も horizon も尽きた。horizon=1 で一度突破したが lookahead=2（@1000 20%/@2500 14.6%）・opp=tempo（16.7%）・終盤適応LA・budget2000（Gen-6, n=400 で 27.8% parity）はいずれも LA=1/budget1000 を超えず＝**lookahead=1 + budget1000 が sweet spot**。NN 近似も前提 refuted。**ML 駆動の特徴発掘(Gen-7)も「自己対戦で観測可能な実用特徴は現評価が捕捉済み」を裏付け**（材料報酬含め parity、最強の新シグナル「席順」は行動不能な定数）。**Gen-8 で配信制約を外し深い探索・MCTS@2万・大規模 value ネット(GPU)も投入したが全て tempo LA=1 に及ばず**（多くは有意に下回る。value ネットは勝者予測では手書きを上回る(0.325 vs 0.253)が、ノイジーで探索の葉にすると壊滅＝0%）。根本機序＝均衡した自己対戦では勝敗が本質的に予測困難で評価改善の余地が原理的に小さい。**ギフト能動妨害(Gen-9)も評価ベース最適化で n=360 parity**（ギフトは稀＋smartAI の harm 最小化が既に good）。**自己対戦で測れる全レバーが出尽くした**（と Gen-9 時点では結論）。**→ Gen-15 で覆る**: 人間戦略を構成化した目的志向ポリシー tempoChain（genome 最適化）が tempoFast LA=1 に有意勝ち＝「点火閾値・配置方針(buildTempoBlend)」という新レバーが効いた。残る本命は genome のさらなる探索 or 人間データ量拡大（詳細 CHANGELOG Gen-15）。**Gen-16 で「tempoChain への LA 付与」も検証＝dead-end**: 配置仲裁の 1 ターン先読みは fresh 2seed×5000局で 26.1%/25.6%（採用基準未達＝parity〜+1pt 弱）、小発火候補は 15-20% と有意悪化（1ターン地平は即時小得点を過大評価し「無駄撃ちしない」規律を侵食）＝計算量レバーは一巡 dead-end
 - 🔄 **ゲーム設定 (2026-06-03)**: 山札 **120 枚（各色 24）**（旧 100 枚）。Gen-5 で重み再調整したが **現重み（chainReadyMult=10 / tempoChainW=50）が最適＝parity**（各色 20% の分布は 100 枚時と不変で最適点が動かない）。AI は山札サイズ非依存のため Gen-4-C 据置
 
 ### 試行中の方向性
 
 | 方向 | 現状 | スキル |
 |---|---|---|
-| AI 進化（手書き探索/評価 + 目的志向 genome。現 tempoChain Gen-15）| 葉も horizon も天井だったが、**Gen-15 で genome 最適化が突破**（人間戦略を構成化した目的志向ポリシー＋実カスケード評価が tempoFast LA=1 に 32.7%/CI 27.6-38.2 で有意勝ち）。次の実験候補: **tempoChain への lookahead（レース計時）付与**（計算量で強くする唯一の未検証レバー＝nodeLimit 上げは飽和を実測, `_latency-probe.ts`）／genome のさらなる探索／人間データ量拡大 | `evolve-meteo-ai-handwritten`（唯一の AI 進化スキル）|
-| GRM（目標到達確率最大化法。第3路線＝学習も手書き評価も使わない確率プランナー）| **プレイ可能実装が完成**（内側 f=発火後連鎖の厳密確率＋外側 U=G 到達期待ターン数の二段ヒューリスティック。小盤面の厳密 T* に対し MAE 0.012）。ブラウザ未接続。勝率測定はこれから（旧プローブはノード予算バグで無効＝CHANGELOG 参照） | スキル無し。仕様書 `ai/REACHABILITY.md` |
+| AI 進化（手書き探索/評価 + 目的志向 genome。現 tempoChain Gen-15）| 葉も horizon も天井だったが、**Gen-15 で genome 最適化が突破**（人間戦略を構成化した目的志向ポリシー＋実カスケード評価が tempoFast LA=1 に 32.7%/CI 27.6-38.2 で有意勝ち）。**Gen-16 で lookahead 付与は parity と判明（不採用）**。次の実験候補: genome のさらなる探索／人間データ量拡大 | `evolve-meteo-ai-handwritten`（唯一の AI 進化スキル）|
+| GRM（目標到達確率最大化法。第3路線＝学習も手書き評価も使わない確率プランナー）| **配信候補が成立**（2026-06-11: 無予算は fresh 37.0%＝測定上の最強。高速化＝閾値B&B＋時間予算で 1手 max 10分→数秒。**tstar v1 移植（解析推定の多色レース閉形式化＋上限つきプローブ＋ゲート0）＋budget=3000ms が事前登録 fresh テスト通過 30.5%（CI 27.4-33.8）**・max ~6.4s）。反映はユーザー承認＋実機体感待ち。残差 ~6.5pt の解消は tstar C2（演算子フィット T̂）の実サイズ版待ち | スキル無し。仕様書 `ai/REACHABILITY.md` |
 | ~~NN AI（AlphaZero 風）~~ | **対象外＝実証済みの行き止まり**: branching 5.1 で priors 無効、hand-eval に value/priors とも勝てず az-v1〜v10 + 価値学習 v1/v2 が全敗。スキル `evolve-meteo-ai-neural` は削除（経緯は CHANGELOG） | （削除済み）|
 
 ### 強化の到達点（詳細は CHANGELOG）
@@ -68,6 +69,7 @@
 | Gen-9 | ギフト能動妨害（評価ベースのギフト最適化）| **完了**：n=360 で 25.3% parity＝据置。自己対戦で測れる全レバー出尽くし。残るは人間 feedback のみ |
 | Gen-10〜14 | 局面適応/選択的深化/人間模倣prior/分散削減/葉formation/ES重み進化/build policy/人間BC | **完了**：いずれも self-play parity or 実プレイ崩壊。「自己対戦は天井・人間データ律速」を多角確認（詳細 CHANGELOG）|
 | **Gen-15** | **目的志向 genome の grid 最適化（tempoChainAI: 点火閾値+構築テンポ混合 blend）** | **完了・採用・ブラウザ反映＝現状最強**：grid 400候補の勝者(idx340: fire=5/blend=0.5)が tempoFast LA=0 2seed×1000局 29.9%・LA=1 300局 32.7%(CI27.6-38.2)で有意勝ち。**Gen-9 の天井を突破** |
+| Gen-16 | tempoChain への 1 ターン先読み（race-timing）付与 | **完了・不採用**：配置仲裁 LA は fresh 2seed×5000局 26.1%/25.6%（CI下限>25% 未達＝+1pt 弱）。小発火候補は 15-20% と有意悪化＝発火は固定規律が強い。計算量レバーは一巡 dead-end |
 | 5 | 人間棋譜の模倣学習（self-play 天井を上位教師で破る）| 未着手・凍結中。 要対局記録 |
 
 ---
@@ -79,7 +81,9 @@ ai/
   README.md           このファイル
   CHANGELOG.md        AI 各世代の変更と評価結果（最新は冒頭）
   REACHABILITY.md     GRM（目標到達確率最大化法・第3路線）の設計仕様書
-  TSTAR.md            GRM 外側 U の研究対象 T*（最適期待到達ターン数）の自己完結な数学的仕様
+  TSTAR.md            GRM 外側 T̂ の研究対象 T*（最適期待到達ターン数）の自己完結な数学的仕様
+  TSTAR-DEPS.md       tstar リポジトリ依存事項・研究への要望の台帳（C2 導入条件・q テーブル等）
+  SPEED-PLAN.md       GRM 速度×強さ改善のローカル手法台帳（予算公平化・キー数値化等と採用規律）
   tsconfig.json       Node.js 実行用 TS 設定
   scripts/
     bench-self.ts     候補 vs baseline の smart 非依存ベンチ（現・主物差し）
@@ -88,9 +92,10 @@ ai/
     elo-ladder.ts     全 AI 総当たり Elo（物差し補強・intransitivity 検出）
     _runner.ts        共通 playOneGame / playOneGameWithDeciders
     _combo-stats.ts   連鎖統計、 stats.ts  Wilson CI 等
-    bench-grm.ts / sweep-grm-p.ts   GRM vs 現状最強の対戦ベンチ・P 掃引（旧測定はバグで無効＝要やり直し）
-    _tstar-bench.ts   GRM 外側 U の精度ベンチ（小盤面の厳密 T* を値反復で解いて比較）
-    _grm-ml-*.ts      U の教師あり学習実験（結論: 非有望・凍結。CHANGELOG 参照）
+    bench-grm.ts / sweep-grm-p.ts   GRM の対戦ベンチ・P 掃引（--base fast|chain で旧/現 champion を切替）
+    _grm_latency_probe.ts           GRM の 1 手レイテンシ分布（p50/p90/p99/max・フェーズ別）の実測
+    _tstar-bench.ts   GRM 外側 T̂ の精度ベンチ（小盤面の厳密 T* を値反復で解いて比較）
+    _grm-ml-*.ts      T̂ の教師あり学習実験（結論: 非有望・凍結。CHANGELOG 参照）
     bench.ts / selfplay.ts / tune-es.ts          旧（vs smart 時代・参考）
     bench-neural.ts / nn/                         NN 系（対象外・旧）
   data/ models/       自己対戦ログ・学習出力（gitignore）
@@ -101,8 +106,8 @@ src/ai/
   tempoFastAI.ts      旧採用版（Gen-4-C: lookahead=1 + 時間予算 + 置換表。現ベンチ用ベースライン）
   tempoAI.ts          Gen-4-A（無制限探索版・比較ベースライン）
   grmAI.ts            GRM のプレイ可能 CPU（第3路線。ブラウザ未接続。仕様 ai/REACHABILITY.md）
-  grmReachF.ts        GRM 内側関数 f（発火後連鎖サブゲームの厳密解）
-  __tests__/          grmReachF / grmAI の vitest（実エンジンを使う独立オラクルと照合）
+  grmReachQ.ts        GRM 内側関数 q（発火後連鎖サブゲームの厳密解）
+  __tests__/          grmReachQ / grmAI の vitest（実エンジンを使う独立オラクルと照合）
   aiWorker.ts         CPU AI を Web Worker で実行（UI 非ブロック）
   evaluator.ts        評価関数 evaluateState + DEFAULT_WEIGHTS（chainReadyMult=10。tempoChain の構築テンポ項にも使用）
   smartAI / mctsAI / randomAI / chainRushAI       補助/ベンチ戦略（smartAI は tempoChain のギフト委譲で現役）
