@@ -1,9 +1,9 @@
 // 近似改良用ベンチ: 小盤面で厳密な真値 T*（i.i.d. 2枚モデルの最適期待到達ターン数, §6.1）を値反復で解き、
-// 現行 U ヒューリスティック estimateTurnsToG の誤差を測る。
+// 現行 T̂ ヒューリスティック estimateTHat の誤差を測る。
 // インスタンス: 2色(red/green)・K=2・5スロット・V=3・P=1・定常 50/50 ドロー（→ 状態数 7^5=16807 で厳密に解ける）。
 import type { Color } from '../../src/game/types';
-import { createChainSolver, fireSlots, normalizeCounts } from '../../src/ai/grmReachF';
-import { estimateTurnsToG } from '../../src/ai/grmAI';
+import { createChainSolver, fireSlots, normalizeCounts } from '../../src/ai/grmReachQ';
+import { estimateTHat } from '../../src/ai/grmAI';
 
 const R: Color = 'red';
 const G: Color = 'green';
@@ -122,7 +122,7 @@ for (let i = 0; i < N; i++) {
   if (isFire[i] || isG[i]) continue; // 非発火・非G の積み増し局面のみ
   if (T[i] >= BIG) continue; // 到達不能（理論上ここでは無いはず）
   const exact = T[i];
-  const heur = estimateTurnsToG(BOARDS[i], DECK, DISC, { V, P, K });
+  const heur = estimateTHat(BOARDS[i], DECK, DISC, { V, P, K });
   n++;
   sumExact += exact;
   sumHeur += heur;

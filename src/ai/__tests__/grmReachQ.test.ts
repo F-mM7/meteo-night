@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
-  reachF,
-  reachFFromState,
+  reachQ,
+  reachQFromState,
   subgameInputFromState,
   reconstructDeckCounts,
   colorCounts,
   colorCountsFromColors,
   fireSlots,
   CARDS_PER_COLOR,
-} from '../grmReachF';
+} from '../grmReachQ';
 import { reducer, stepGame } from '../../game/reducer';
 import { setupGame } from '../../game/setup';
 import { mulberry32 } from '../../game/rng';
@@ -77,7 +77,7 @@ function buildFireState(
 // 独立リファレンス・オラクル
 //   実エンジン(reducer/stepGame)だけでサブゲームを後退帰納し、ドローの色のみを
 //   超幾何（色別枚数 / 総数）で全列挙して P(ターン得点 ≥ V) の最大値を求める。
-//   reachF の DP コードは一切使わない＝f の独立検証になる。
+//   reachQ の DP コードは一切使わない＝q の独立検証になる。
 // ---------------------------------------------------------------------------
 
 function countSig(cards: Card[]): string {
@@ -86,7 +86,7 @@ function countSig(cards: Card[]): string {
   return COLORS.map((c) => m.get(c) ?? 0).join(',');
 }
 
-function referenceF(state: GameState, V: number, me = 0): number {
+function referenceQ(state: GameState, V: number, me = 0): number {
   const baseScore = state.players[me].score;
   const memo = new Map<string, number>();
 
@@ -125,7 +125,7 @@ function referenceF(state: GameState, V: number, me = 0): number {
         best = Math.max(best, rec(stepGame(s, { type: 'PLACE_ADDITIONAL_DRAW', slotIndex: j })));
       }
     } else {
-      throw new Error(`referenceF: 想定外のフェーズ ${s.phase}`);
+      throw new Error(`referenceQ: 想定外のフェーズ ${s.phase}`);
     }
 
     memo.set(key, best);
@@ -184,15 +184,15 @@ describe('fireSlots（発火判定）', () => {
   });
 });
 
-describe('reachF 決定的ケース', () => {
-  it('単発 size3 のみ: f(V=1)=1, f(V=2)=0', () => {
+describe('reachQ 決定的ケース', () => {
+  it('単発 size3 のみ: q(V=1)=1, q(V=2)=0', () => {
     const input = {
       slots: [[R], [R], [R], [], []],
       deck: colorCountsFromColors([]),
       discard: colorCountsFromColors([]),
     };
-    expect(reachF(input, 1)).toBe(1);
-    expect(reachF(input, 2)).toBe(0);
+    expect(reachQ(input, 1)).toBe(1);
+    expect(reachQ(input, 2)).toBe(0);
   });
 
   it('削除で2段目を露出させる連鎖: スペアBを捨てて G,G,G を回収し 3点', () => {
@@ -203,20 +203,20 @@ describe('reachF 決定的ケース', () => {
       deck: colorCountsFromColors([]),
       discard: colorCountsFromColors([]),
     };
-    expect(reachF(input, 1)).toBe(1);
-    expect(reachF(input, 2)).toBe(1);
-    expect(reachF(input, 3)).toBe(1); // 基礎(1+1)+本数ボーナス(2本→1) = 3
-    expect(reachF(input, 4)).toBe(0);
+    expect(reachQ(input, 1)).toBe(1);
+    expect(reachQ(input, 2)).toBe(1);
+    expect(reachQ(input, 3)).toBe(1); // 基礎(1+1)+本数ボーナス(2本→1) = 3
+    expect(reachQ(input, 4)).toBe(0);
   });
 
-  it('Gを先に削ると2本目を逃す → f は最良手（Bを削る）を選ぶ', () => {
-    // reachF は max_π なので、誤った削除(G)ではなく B 削除を選び 3 点に届く。
+  it('Gを先に削ると2本目を逃す → q は最良手（Bを削る）を選ぶ', () => {
+    // reachQ は max_π なので、誤った削除(G)ではなく B 削除を選び 3 点に届く。
     const input = {
       slots: [[G, R], [G, R], [G, R], [B], []],
       deck: colorCountsFromColors([]),
       discard: colorCountsFromColors([]),
     };
-    expect(reachF(input, 3)).toBe(1);
+    expect(reachQ(input, 3)).toBe(1);
   });
 
   it('複数色同時発火（6スロット）: 1ステップで R3本+G3本=基礎2+ボーナス1=3点', () => {
@@ -225,13 +225,13 @@ describe('reachF 決定的ケース', () => {
       deck: colorCountsFromColors([]),
       discard: colorCountsFromColors([]),
     };
-    expect(reachF(input, 3)).toBe(1);
-    expect(reachF(input, 4)).toBe(0);
+    expect(reachQ(input, 3)).toBe(1);
+    expect(reachQ(input, 4)).toBe(0);
   });
 
   it('非発火状態を渡すと例外', () => {
     expect(() =>
-      reachF(
+      reachQ(
         { slots: [[R], [R], [G], [], []], deck: colorCountsFromColors([]), discard: colorCountsFromColors([]) },
         1
       )
@@ -239,8 +239,8 @@ describe('reachF 決定的ケース', () => {
   });
 });
 
-describe('reachF 確率的ケース（手計算値）', () => {
-  it('追加ドローでGを引けば2本目成立 (deck=1G+3B): f(V=2)=f(V=3)=1/4', () => {
+describe('reachQ 確率的ケース（手計算値）', () => {
+  it('追加ドローでGを引けば2本目成立 (deck=1G+3B): q(V=2)=q(V=3)=1/4', () => {
     // [[R],[R],[R],[G],[G]] → R除去後 tops _,_,_,G,G。空きスロットへ G を置けば
     // G,G,G が成立して 3点。G を引く確率 = 1/4。それ以外(B)は 2本目に届かず 1点。
     const input = {
@@ -248,25 +248,25 @@ describe('reachF 確率的ケース（手計算値）', () => {
       deck: colorCountsFromColors([G, B, B, B]),
       discard: colorCountsFromColors([]),
     };
-    expect(reachF(input, 1)).toBe(1);
-    expectClose(reachF(input, 2), 0.25);
-    expectClose(reachF(input, 3), 0.25);
-    expect(reachF(input, 4)).toBe(0);
+    expect(reachQ(input, 1)).toBe(1);
+    expectClose(reachQ(input, 2), 0.25);
+    expectClose(reachQ(input, 3), 0.25);
+    expect(reachQ(input, 4)).toBe(0);
   });
 
-  it('山札が空 → 捨札(1G+3B)をリシャッフルして引く: f(V=3)=1/4', () => {
+  it('山札が空 → 捨札(1G+3B)をリシャッフルして引く: q(V=3)=1/4', () => {
     const input = {
       slots: [[R], [R], [R], [G], [G]],
       deck: colorCountsFromColors([]),
       discard: colorCountsFromColors([G, B, B, B]),
     };
-    expect(reachF(input, 1)).toBe(1);
-    expectClose(reachF(input, 3), 0.25);
-    expect(reachF(input, 4)).toBe(0);
+    expect(reachQ(input, 1)).toBe(1);
+    expectClose(reachQ(input, 3), 0.25);
+    expect(reachQ(input, 4)).toBe(0);
   });
 });
 
-describe('reachF はエンジンの厳密展開（独立オラクル）と一致する', () => {
+describe('reachQ はエンジンの厳密展開（独立オラクル）と一致する', () => {
   const scenarios: { name: string; slots: Color[][]; deck: Color[]; discard: Color[] }[] = [
     { name: '削除露出', slots: [[G, R], [G, R], [G, R], [B], []], deck: [], discard: [] },
     { name: 'ドロー確率', slots: [[R], [R], [R], [G], [G]], deck: [G, B, B, B], discard: [] },
@@ -281,8 +281,8 @@ describe('reachF はエンジンの厳密展開（独立オラクル）と一致
       const state = buildFireState(sc.slots, sc.deck, sc.discard);
       const input = subgameInputFromState(state, 0);
       for (const V of [1, 2, 3, 4, 5, 6, 8, 11]) {
-        const got = reachF(input, V, { K: 99 });
-        const want = referenceF(state, V, 0);
+        const got = reachQ(input, V, { K: 99 });
+        const want = referenceQ(state, V, 0);
         expectClose(got, want);
       }
     });
@@ -325,8 +325,8 @@ describe('reachF はエンジンの厳密展開（独立オラクル）と一致
       const state = buildFireState(slots, deck, discard);
       const input = subgameInputFromState(state, 0);
       for (const V of [1, 2, 3, 5]) {
-        const got = reachF(input, V, { K: 99 });
-        const want = referenceF(state, V, 0);
+        const got = reachQ(input, V, { K: 99 });
+        const want = referenceQ(state, V, 0);
         expectClose(got, want);
       }
     }
@@ -357,8 +357,8 @@ describe('スタック深さ切り詰め K', () => {
       deck: colorCountsFromColors([]),
       discard: colorCountsFromColors([]),
     };
-    expect(reachF(input, 3)).toBe(1); // 既定 K=7：下層 G が生きる
-    expect(reachF(input, 3, { K: 1 })).toBe(0); // K=1：最上段以外を捨象→G露出せず
+    expect(reachQ(input, 3)).toBe(1); // 既定 K=7：下層 G が生きる
+    expect(reachQ(input, 3, { K: 1 })).toBe(0); // K=1：最上段以外を捨象→G露出せず
   });
 });
 
@@ -390,14 +390,14 @@ describe('reconstructDeckCounts（§1.3 の山札色分布の逆算）', () => {
   });
 });
 
-describe('subgameInputFromState / reachFFromState', () => {
-  it('GameState から入力を組み立てて f を計算できる', () => {
+describe('subgameInputFromState / reachQFromState', () => {
+  it('GameState から入力を組み立てて q を計算できる', () => {
     const state = buildFireState([[R], [R], [R], [G], [G]], [G, B, B, B], []);
     const input = subgameInputFromState(state, 0);
     expect(input.slots).toEqual([[R], [R], [R], [G], [G]]);
     expect(input.deck).toEqual(colorCountsFromColors([G, B, B, B]));
-    // reachFFromState は subgameInputFromState 経由で同じ結果
-    expectClose(reachFFromState(state, 3, 0, { K: 99 }), reachF(input, 3, { K: 99 }));
-    expectClose(reachFFromState(state, 3, 0, { K: 99 }), 0.25);
+    // reachQFromState は subgameInputFromState 経由で同じ結果
+    expectClose(reachQFromState(state, 3, 0, { K: 99 }), reachQ(input, 3, { K: 99 }));
+    expectClose(reachQFromState(state, 3, 0, { K: 99 }), 0.25);
   });
 });

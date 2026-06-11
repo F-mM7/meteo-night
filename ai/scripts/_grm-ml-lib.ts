@@ -2,13 +2,13 @@
 //
 // 役割:
 //  1) 小インスタンス（N 色・K=2・V=3・5 スロット）の厳密 T*（i.i.d. 2枚モデルの最適期待 G 到達ターン数）を
-//     値反復で解く。遷移モデル・発火/G 判定は src/ai/grmReachF.ts（createChainSolver / fireSlots）を再利用し、
+//     値反復で解く。遷移モデル・発火/G 判定は src/ai/grmReachQ.ts（createChainSolver / fireSlots）を再利用し、
 //     _tstar-bench.ts の値反復ロジックを N 色へ一般化したもの。
 //  2) 色・スロットの付け替えで T* が不変であることを利用した対称不変特徴量を作る（固定長・色数非依存）。
 //
-// 既存の src/ai/* は一切編集しない。grmAI からの import（estimateTurnsToG）は read-only。
+// 既存の src/ai/* は一切編集しない。grmAI からの import（estimateTHat）は read-only。
 import type { Color } from '../../src/game/types';
-import { createChainSolver, fireSlots, normalizeCounts } from '../../src/ai/grmReachF';
+import { createChainSolver, fireSlots, normalizeCounts } from '../../src/ai/grmReachQ';
 
 const BIG = 1e9;
 
@@ -57,7 +57,7 @@ function genStacks(colors: Color[], K: number): Color[][] {
  * インスタンスを厳密に解く。状態数 = (Σ_{l=0..K} C^l)^slotCount（C=色数）。
  * 値反復は _tstar-bench.ts と同一の遷移モデル:
  *   毎ターン 2 枚を色集合上で一様 i.i.d. にドロー → 2 枚を最適配置（同スロット時は両順序も試行）。
- *   置いた結果が G なら cost 0、小発火（発火だが f<P）は採らない（最悪）、非発火なら T[s']。
+ *   置いた結果が G なら cost 0、小発火（発火だが q<P）は採らない（最悪）、非発火なら T[s']。
  *   T[s] = 1 + Σ_ω P(ω) min_配置 cost。G 盤面は吸収（T=0）。
  */
 export function solveInstance(spec: InstanceSpec, maxNodes = 5_000_000): SolvedInstance {
@@ -93,7 +93,7 @@ export function solveInstance(spec: InstanceSpec, maxNodes = 5_000_000): SolvedI
       return ns.length > K ? ns.slice(ns.length - K) : ns;
     });
 
-  // ドロー分布を山札に反映しない近似（_tstar-bench と同じく定常・大きめ等量プールで f を評価）。
+  // ドロー分布を山札に反映しない近似（_tstar-bench と同じく定常・大きめ等量プールで q を評価）。
   const DECK = normalizeCounts(Object.fromEntries(colors.map((c) => [c, 50])) as Partial<Record<Color, number>>);
   const DISC = normalizeCounts({});
 

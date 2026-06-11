@@ -1,21 +1,21 @@
 /**
  * GRM（目標到達確率最大化法）のプレイ可能 CPU。`ai/REACHABILITY.md` の §6 主方策を実装する。
  *
- * 中核は内側関数 `f`（`grmReachF.ts`）。判断は2段で行う:
+ * 中核は内側関数 `q`（`grmReachQ.ts`）。判断は2段で行う:
  *  - 取得チャネル `a`（場ペア / 山札）× 積み方 `d` を、得られる状態 S' の価値 `gValue` で最大化（§6.2）。
- *  - 連鎖が始まったら（自分のターンで発火）、`f` の後退帰納に従って最適アクションを打つ（§4）。
+ *  - 連鎖が始まったら（自分のターンで発火）、`q` の後退帰納に従って最適アクションを打つ（§4）。
  *
  * `gValue(S')`:
- *  - 発火状態（即解決）→ f(S',V)。f ≥ P なら目標集合 G に到達＝成功（最優先）。
- *    f < P の小〜中発火は「無駄撃ち」＝最悪扱い（§6.3: 小発火の能動的排除）。
+ *  - 発火状態（即解決）→ q(S',V)。q ≥ P なら目標集合 G に到達＝成功（最優先）。
+ *    q < P の小〜中発火は「無駄撃ち」＝最悪扱い（§6.3: 小発火の能動的排除）。
  *  - 非発火 → 「G 到達までの期待ターン数」の見積りの符号反転（少ないターンほど高評価）。
- *    全状態の値反復は状態数（~10^17）から不可能なので、候補盤面ごとに「各色を貪欲に積んで厳密 f が
+ *    全状態の値反復は状態数（~10^17）から不可能なので、候補盤面ごとに「各色を貪欲に積んで厳密 q が
  *    P 以上になるまでの枚数 needed_c ÷ その色のドロー率 2·d_c」で期待ターン数を推定する（§6.1）。
- *    実スタックと厳密 f を使うので連鎖の順序依存を保つ。相手は読まない。
+ *    実スタックと厳密 q を使うので連鎖の順序依存を保つ。相手は読まない。
  *  - 終盤モード（§6.6）: 他者が先に 20 点到達済みなら V を必要追加得点に更新し、P 閾値を無効化
- *    （argmax f）。非発火枝は 0（今ターンが最後の前提）。
+ *    （argmax q）。非発火枝は 0（今ターンが最後の前提）。
  *
- * 連鎖中・配り・受領配置も `f` / `gValue` の枠組みで統一的に扱う。
+ * 連鎖中・配り・受領配置も `q` / `gValue` の枠組みで統一的に扱う。
  */
 import type { Action, Color, FieldPair, GameState, GiftAssignment, Player } from '../game/types';
 import { COLORS } from '../game/types';
@@ -29,7 +29,7 @@ import {
   placeColorOnSlots,
   type ChainSolver,
   type ColorCounts,
-} from './grmReachF';
+} from './grmReachQ';
 
 export interface GrmOptions {
   /** 目標点（基本 20）。終盤は必要追加得点に動的更新（§3 / §6.6）。 */
@@ -40,8 +40,14 @@ export interface GrmOptions {
   H?: number;
   /** スタック切り詰め K（§2.1。既定 6）。 */
   K?: number;
-  /** f ソルバの展開ノード上限。 */
+  /** q ソルバの展開ノード上限。 */
   maxNodes?: number;
+  /**
+   * 1 決定（decideAction 1 回）の壁時計予算（ms）。省略時は無制限（従来挙動・ベンチ互換）。
+   * 期限超過後は「設計された劣化」＝期待ターン数の精密化（深さ1後退帰納）を省き、二段推定の
+   * 一段目（解析推定）だけで残り候補を順位付けする。劣化の発生は `budgetStats()` で追跡できる。
+   */
+  timeBudgetMs?: number;
 }
 
 interface ResolvedOptions {
@@ -50,6 +56,7 @@ interface ResolvedOptions {
   H: number;
   K: number;
   maxNodes: number;
+  timeBudgetMs: number;
 }
 
 interface Ctx {
@@ -59,8 +66,10 @@ interface Ctx {
   H: number;
   K: number;
   endgame: boolean;
-  /** expectedTurnsToG のメモ（同一 (盤面, 山札, 捨札) は同値。配置の合流を畳んで深い展開を実用化）。 */
+  /** tHat のメモ（同一 (盤面, 山札, 捨札) は同値。配置の合流を畳んで深い展開を実用化）。 */
   memoT: Map<string, number>;
+  /** この決定の壁時計期限（エポック ms）。無制限なら Infinity。超過後は精密化を省く（設計された劣化）。 */
+  deadline: number;
 }
 
 /** 色は先頭1文字が一意（red/green/purple/yellow/blue → r/g/p/y/b）。盤面・色分布を文字列化する。 */
@@ -77,6 +86,7 @@ const DEFAULTS: ResolvedOptions = {
   H: 0, // 未使用（旧・先読みホライズン。期待ターン数ヒューリスティックへ移行し不要になった）。
   K: 6, // スタック切り詰め（§2.1。上から6枚）。
   maxNodes: 2_000_000,
+  timeBudgetMs: Infinity, // 無制限＝従来挙動（ベンチ互換）。ブラウザ等は明示指定する。
 };
 
 // ---------------------------------------------------------------------------
@@ -102,11 +112,11 @@ function topColorCount(player: Player, color: Color): number {
 }
 
 // ---------------------------------------------------------------------------
-// 価値関数 gValue / U
+// 価値関数 gValue / T̂
 // ---------------------------------------------------------------------------
 
-/** 発火状態なら f、非発火なら 0（その状態を「いま発火させた場合」の P(≥V)）。 */
-function fOf(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCounts): number {
+/** 発火状態なら q、非発火なら 0（その状態を「いま発火させた場合」の P(≥V)）。 */
+function qOf(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCounts): number {
   return ctx.solver.resolveValue(slots, 0, 0, deck, discard);
 }
 
@@ -116,29 +126,30 @@ const SMALL_FIRE_TURNS = 50; // G未満の小〜中発火＝setup を潰す＝�
 
 /**
  * 候補状態 S' の価値（大きいほど良い ＝「G までの期待ターン数」が少ない）。
- *   発火 ∧ f≥P : ≈0（G に到達＝最短。f×1e-3 でタイブレーク）
- *   発火 ∧ f<P : −SMALL_FIRE_TURNS（小発火は setup を無駄にする＝最悪。§6.3）
- *   非発火     : −expectedTurnsToG（G 到達までの期待自手番数の見積り。少ないほど高評価）
- * 終盤モードでは f を直接最大化（非発火＝0、今ターンが最後の前提 §6.6）。
+ *   発火 ∧ q≥P : ≈0（G に到達＝最短。q×1e-3 でタイブレーク）
+ *   発火 ∧ q<P : −SMALL_FIRE_TURNS（小発火は setup を無駄にする＝最悪。§6.3）
+ *   非発火     : −tHat（G 到達までの期待自手番数の見積り。少ないほど高評価）
+ * 終盤モードでは q を直接最大化（非発火＝0、今ターンが最後の前提 §6.6）。
  */
 function gValue(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCounts): number {
   if (fireSlots(slots)) {
-    const fv = fOf(ctx, slots, deck, discard);
-    if (ctx.endgame) return fv;
-    return fv >= ctx.P ? fv * 1e-3 : -SMALL_FIRE_TURNS;
+    if (ctx.endgame) return qOf(ctx, slots, deck, discard);
+    // まず閾値判定で q<P（不採用側）を速く弾き、G 到達のときだけタイブレーク用の厳密 q を解く。
+    if (!qGeqP(ctx, slots, deck, discard)) return -SMALL_FIRE_TURNS;
+    return qOf(ctx, slots, deck, discard) * 1e-3;
   }
   if (ctx.endgame) return 0;
-  return -expectedTurnsToG(ctx, slots, deck, discard);
+  return -tHat(ctx, slots, deck, discard);
 }
 
 /**
- * 非発火盤面 S から G（発火して f≥P）に到達するまでの **期待自手番数の見積り**（ヒューリスティック）。
+ * 非発火盤面 S から G（発火して q≥P）に到達するまでの **期待自手番数の見積り**（ヒューリスティック）。
  *
  * 全状態の値反復は状態数（K=6・色/スロット対称性込みでも ~10^17）から不可能なので、候補盤面ごとに
  * **深さ制限つき期待ターン数の後退帰納**（小型の値反復）で推定する（§6.1 / §6.2）。各ターン「山札から 2 枚を
  * i.i.d. に引いて最適配置する」という実プロセスを直接展開する:
  *   T(S) = 1 + E_{2枚}[ min_配置 cost(S') ]   （cost: G なら 0 / 非発火なら T(S') / 小発火は不採用）
- * 厳密ベンチ（`ai/scripts/_tstar-bench.ts`）の真値計算と同じ漸化式を、実スタック・厳密 f の上で回す。
+ * 厳密ベンチ（`ai/scripts/_tstar-bench.ts`）の真値計算と同じ漸化式を、実スタック・厳密 q の上で回す。
  *
  * 旧実装は色ごとに単色で貪欲に積む（各色独立に needed_c 枚）方式だったが、これは「既存スタックを活かした
  * **複数色混在の決定的連鎖**」（例: 空き2スロットへ赤を置きつつ別色の山を露出させて 2 枚で G 到達）を見落とし、
@@ -152,12 +163,18 @@ function gValue(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCou
  *     効かないので、解析推定を上界として min を取る。
  * これにより厳密ベンチで MAE 0.145→0.012（約12倍改善）・相関 0.85→0.99 を、定常コスト ~1.8 倍で達成する。
  */
-function expectedTurnsToG(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCounts): number {
+function tHat(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCounts): number {
   const totalAvail = totalCount(deck) + totalCount(discard);
   if (totalAvail < 1) return EXHAUST_TURNS;
   const key = `${serializeBoard(slots)}#${serializeCounts(deck)}#${serializeCounts(discard)}`;
   const cached = ctx.memoT.get(key);
   if (cached !== undefined) return cached;
+  // 時間予算の期限超過: 精密化（深さ1後退帰納）を省き、二段推定の一段目（解析推定）で返す。
+  // 劣化値は memoT に書かない（純粋な値だけを memo する）。
+  if (pastDeadline(ctx)) {
+    markDegraded();
+    return analyticTurns(ctx, slots, deck, discard);
+  }
 
   // まず軽量な解析推定で G からの距離を見る。後退帰納は混在連鎖を厳密に拾って値を **下げる** 方向にしか効かず、
   // しかも HORIZON 内で G に届ける近距離でしか改善しない。距離が GRM_REFINE_GATE を超える遠い盤面は 1〜数ターン
@@ -187,13 +204,16 @@ function expectedTurnsToG(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard
 const GRM_DRAW_COLORS = 3; // 1 ターンで「引いて使う」候補色数（上位のみ。残りは無駄引き q に集約）
 const GRM_HORIZON = 1; // 期待ターン数の後退帰納の深さ上限（H=1 が精度/速度の最適点。H≥2 は精度ほぼ同じで急激に遅い）
 const GRM_TARGET_SLOTS = 5; // 1 枚の配置先候補スロット数（上位のみ。全列挙の組合せ爆発を抑える）
-const GRM_REFINE_GATE = 3; // 解析推定がこの値を超える遠い盤面は後退帰納を省く（HORIZON 内で G 不能＝改善余地なし）
+// 精緻化ゲートは解析推定の**スケールに依存**する: v1 移植で解析値が正確（小さく）なり、旧スケールで
+// 調整された 3 のままだと精密化対象が激増して budget=3000ms の劣化率が 4.4%→41-51% に悪化した
+// （v2=ゲート 6 はさらに悪化で撤回）。新スケールでは 2 に再較正する（2026-06-11 プローブ実測で調整）。
+const GRM_REFINE_GATE = 0; // 解析推定がこの値を超える遠い盤面は後退帰納を省く（HORIZON 内で G 不能＝改善余地なし）
 
 /**
  * 期待ターン数の後退帰納（深さ制限つき値反復）。
  *  T(S) = 1 + Σ_{2枚の色組} P · min_配置 cost(S')
- * 配置は色で縛らず両順序・候補スロットで最適化し、小発火（f<P の発火）は採らない（§6.3）。山札が空なら
- * 捨札がプール化される実ルールに合わせ、引いた色の分だけ山札を減らして f を評価する（連鎖の順序依存を保つ）。
+ * 配置は色で縛らず両順序・候補スロットで最適化し、小発火（q<P の発火）は採らない（§6.3）。山札が空なら
+ * 捨札がプール化される実ルールに合わせ、引いた色の分だけ山札を減らして q を評価する（連鎖の順序依存を保つ）。
  *
  * 深さ上限に達したら、その盤面から先は **単色貪欲の解析フォールバック** `analyticTurns` で見積もる。展開で
  * G に届かなかった遠い盤面に一律 EXHAUST_TURNS を返すと、`rg||||` 型（数ターン先で到達）の値が深さ崖で大きく
@@ -211,6 +231,10 @@ function expTurnsRec(
   memo: Map<string, number>
 ): number {
   if (depth >= GRM_HORIZON) return analyticTurns(ctx, slots, deck, discard);
+  if (pastDeadline(ctx)) {
+    markDegraded();
+    return analyticTurns(ctx, slots, deck, discard);
+  }
   const key = serializeBoard(slots);
   const cached = memo.get(key);
   if (cached !== undefined) return cached;
@@ -270,6 +294,11 @@ function bestTwoCardCost(
     for (const a of targetSlots(slots, x)) {
       const b1 = placeColorOnSlots(slots, a, x, ctx.K);
       for (const b of targetSlots(b1, y)) {
+        if (pastDeadline(ctx)) {
+          // 期限超過: 評価済みの最良（無ければ解析推定）で打ち切る（設計された劣化）。
+          markDegraded();
+          return best >= EXHAUST_TURNS ? analyticTurns(ctx, slots, deck, discard) : best;
+        }
         const b2 = placeColorOnSlots(b1, b, y, ctx.K);
         const sig = serializeBoard(b2);
         if (seen.has(sig)) continue;
@@ -301,6 +330,10 @@ function bestPlaceCost(
   const seen = new Set<string>();
   let best = EXHAUST_TURNS;
   for (const a of targetSlots(slots, c)) {
+    if (pastDeadline(ctx)) {
+      markDegraded();
+      return best >= EXHAUST_TURNS ? analyticTurns(ctx, slots, deck, discard) : best;
+    }
     const b1 = placeColorOnSlots(slots, a, c, ctx.K);
     const sig = serializeBoard(b1);
     if (seen.has(sig)) continue;
@@ -313,8 +346,8 @@ function bestPlaceCost(
 }
 
 /**
- * 配置後の盤面 S' の cost: 発火して f≥P なら 0（G 到達）/ 小発火（f<P）は不採用（EXHAUST_TURNS）/
- * 非発火なら次ターンの期待ターン数 T(S')。f 評価には構築に使った色の分だけ減らした山札を渡す。
+ * 配置後の盤面 S' の cost: 発火して q≥P なら 0（G 到達）/ 小発火（q<P）は不採用（EXHAUST_TURNS）/
+ * 非発火なら次ターンの期待ターン数 T(S')。q 評価には構築に使った色の分だけ減らした山札を渡す。
  */
 function leafCost(
   ctx: Ctx,
@@ -328,24 +361,42 @@ function leafCost(
   memo: Map<string, number>
 ): number {
   if (fireSlots(board)) {
-    const deckForF: ColorCounts = { ...deck };
-    for (const c of placed) deckForF[c] = Math.max(0, deckForF[c] - 1); // 構築に使った分だけ山札を減らす
-    return fOfReachesG(ctx, board, deckForF, discard) ? 0 : EXHAUST_TURNS;
+    const deckForQ: ColorCounts = { ...deck };
+    for (const c of placed) deckForQ[c] = Math.max(0, deckForQ[c] - 1); // 構築に使った分だけ山札を減らす
+    return qReachesG(ctx, board, deckForQ, discard) ? 0 : EXHAUST_TURNS;
   }
   return expTurnsRec(ctx, board, deck, discard, cand, qWaste, depth + 1, memo);
 }
 
 /**
- * 発火盤面が G（f≥P）に届くかの判定をモジュールレベルでキャッシュする。判定は (盤面, 山札, 捨札, V, P, K) の
+ * 発火盤面が G（q≥P）に届くかの判定をモジュールレベルでキャッシュする。判定は (盤面, 山札, 捨札, V, P, K) の
  * 純関数で、後退帰納の多数の発火葉や複数の決定局面・複数ゲームをまたいで同一引数が頻出する。ctx 内ソルバメモは
  * ctx を作り直すと失われるため、最終判定（真偽）だけを薄く共有する（ソルバ内部状態には触れない）。
  */
 const FIRE_G_CACHE = new Map<string, boolean>();
-function fOfReachesG(ctx: Ctx, board: Color[][], deckForF: ColorCounts, discard: ColorCounts): boolean {
-  const key = `${ctx.V},${ctx.P},${ctx.K}#${serializeBoard(board)}#${serializeCounts(deckForF)}#${serializeCounts(discard)}`;
+/** モジュール共有キャッシュの上限。無制限だと長時間ベンチ（数十ゲーム）でヒープが枯渇する。 */
+const SHARED_CACHE_CAP = 1_000_000;
+/**
+ * 等価性検証用スイッチ: 環境変数 GRM_EXACT_Q=1 で閾値探索（reachesAtLeast）を使わず常に厳密 q 値で
+ * 判定する。判断同一性プローブ（`ai/scripts/_grm_equiv_probe.ts`）が新旧経路を別プロセスで走らせて
+ * 全着手の一致を確認するためのもの。既定（未設定）は高速な閾値探索。
+ */
+const EXACT_Q_ONLY =
+  typeof process !== 'undefined' && process.env != null && process.env.GRM_EXACT_Q === '1';
+
+/** q ≥ P の真偽（thresholded）。EXACT_Q_ONLY 時は厳密値比較（結果は同一、速度のみ異なる）。 */
+function qGeqP(ctx: Ctx, board: Color[][], deck: ColorCounts, discard: ColorCounts): boolean {
+  return EXACT_Q_ONLY
+    ? ctx.solver.resolveValue(board, 0, 0, deck, discard) >= ctx.P
+    : ctx.solver.reachesAtLeast(board, 0, 0, deck, discard, ctx.P);
+}
+
+function qReachesG(ctx: Ctx, board: Color[][], deckForQ: ColorCounts, discard: ColorCounts): boolean {
+  const key = `${ctx.V},${ctx.P},${ctx.K}#${serializeBoard(board)}#${serializeCounts(deckForQ)}#${serializeCounts(discard)}`;
   const cached = FIRE_G_CACHE.get(key);
   if (cached !== undefined) return cached;
-  const res = ctx.solver.resolveValue(board, 0, 0, deckForF, discard) >= ctx.P;
+  const res = qGeqP(ctx, board, deckForQ, discard);
+  if (FIRE_G_CACHE.size >= SHARED_CACHE_CAP) FIRE_G_CACHE.clear();
   FIRE_G_CACHE.set(key, res);
   return res;
 }
@@ -384,7 +435,31 @@ function targetSlots(board: Color[][], c: Color): number[] {
 // ---------------------------------------------------------------------------
 
 const BUILD_CAP = 14; // 単色構築コスト探索の上限枚数（~2-3層）。これを超えたらその色は到達不能扱い。
-const ANALYTIC_COLORS = 2; // 解析推定で単色構築を試す色数（上位のみ）。
+const GREEDY_EARLY_CAP = 5; // greedy の前半線形走査の上限（有望色はこの範囲で決まる。詳細は関数内コメント）。
+// greedy プローブ 1 回のノード上限。境界的な盤面の閾値判定は確定までに数秒級になりうるため
+// （ノード予算 200 万 ≈ 秒。レイテンシ実測でこの裾が T̂ コストの正体だった）、解析推定のプローブは
+// 有界に打ち切り「届かない」扱いに倒す（設計近似: needed を高め＝無駄色側へ＝保守的）。
+const GREEDY_PROBE_NODE_CAP = 30_000;
+/** greedy プローブ（上限つき判定）の共有キャッシュ。打ち切り＝false を含むため FIRE_G_CACHE とは分ける。 */
+const GREEDY_G_CACHE = new Map<string, boolean>();
+
+/** greedy 用の G 判定（ノード上限つき・未確定は false 扱い）。 */
+function greedyProbeG(ctx: Ctx, board: Color[][], deckForQ: ColorCounts, discard: ColorCounts): boolean {
+  const key = `${ctx.V},${ctx.P},${ctx.K}#${serializeBoard(board)}#${serializeCounts(deckForQ)}#${serializeCounts(discard)}`;
+  const cached = GREEDY_G_CACHE.get(key);
+  if (cached !== undefined) return cached;
+  const res = EXACT_Q_ONLY
+    ? ctx.solver.resolveValue(board, 0, 0, deckForQ, discard) >= ctx.P
+    : (ctx.solver.reachesAtLeastBounded(board, 0, 0, deckForQ, discard, ctx.P, GREEDY_PROBE_NODE_CAP) ?? false);
+  if (GREEDY_G_CACHE.size >= SHARED_CACHE_CAP) GREEDY_G_CACHE.clear();
+  GREEDY_G_CACHE.set(key, res);
+  return res;
+}
+// レースに乗せる色数（優先度上位のみ greedy で needed を計測。残りは無駄色質量としてレース式へ）。
+// tstar v1 は全色だが、実サイズでは見込み薄の色の greedy（BUILD_CAP まで q プローブ）が支配的コストになり
+// budget=3000ms の劣化率が 4.4%→50% に悪化したため、上位 3 色で打ち切る（旧実装は 2 色で、かつ
+// 無駄色を確率質量として扱わない簡易和だった。3 色＋厳密閉形式で過大評価バイアスの大半を除く）。
+const GRM_RACE_COLORS = 3;
 
 /**
  * `analyticTurns` のプロセス内共有キャッシュ。解析推定は (盤面, 山札, 捨札, V, P, K) の純関数で、後退帰納の
@@ -395,7 +470,7 @@ const ANALYTIC_CACHE = new Map<string, number>();
 
 /**
  * 単色貪欲の解析的な期待ターン数（後退帰納の深さ上限・行き止まり枝のフォールバック）。
- * 各色 c を実盤面に単色で貪欲に積み、厳密 f≥P になるまでの枚数 needed_c を求め、「どれか早い色で G に到達」
+ * 各色 c を実盤面に単色で貪欲に積み、厳密 q≥P になるまでの枚数 needed_c を求め、「どれか早い色で G に到達」
  * する期待ターン数 E[min_c τ_c]（多項分布の裾）を返す。後退帰納本体が混在連鎖を厳密に拾うのに対し、これは
  * 遠距離で滑らかに距離を表す軽量推定。
  */
@@ -405,23 +480,34 @@ function analyticTurns(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: C
   const memoKey = `${ctx.V},${ctx.P},${ctx.K}#${serializeBoard(slots)}#${serializeCounts(deck)}#${serializeCounts(discard)}`;
   const cachedA = ANALYTIC_CACHE.get(memoKey);
   if (cachedA !== undefined) return cachedA;
-  const candidates = COLORS.filter((c) => deck[c] + discard[c] > 0)
+  // v1（tstar 移植, UPSTREAM.md 2026-06-10）: 旧・候補 2 色の簡易和は残りの色のドローを無駄引き扱いし、
+  // 色数が増えるほど系統的過大評価を生む（tstar 厳密ベンチ: m=3 でバイアス +0.49、実サイズ空盤面
+  // T̂=23.1 vs 真値 ≤~14.5）。過大評価は取得チャネル比較（deckChannelValue = 1−T vs 場ペア）を歪める。
+  // → 優先度上位 GRM_RACE_COLORS 色の needed を greedy で測り、厳密閉形式のレースで評価する
+  //   （上位以外と未到達色は無駄色質量 q としてレース式に正しく入れる）。
+  const prio = COLORS.filter((c) => deck[c] + discard[c] > 0)
     .map((c) => ({ c, pr: topCountOnBoard(slots, c) * 100 + deck[c] + discard[c] }))
-    .sort((a, b) => b.pr - a.pr)
-    .slice(0, ANALYTIC_COLORS)
-    .map((x) => x.c);
+    .sort((a, b) => b.pr - a.pr);
   const cands: { p: number; needed: number }[] = [];
-  for (const c of candidates) {
-    const needed = greedyCardsToReachG(ctx, slots, c, deck, discard);
-    if (needed < 0) continue; // BUILD_CAP 以内で未到達
-    cands.push({ p: (deck[c] + discard[c]) / totalAvail, needed });
+  let qWasteRace = 0;
+  for (let i = 0; i < prio.length; i++) {
+    const color = prio[i].c;
+    const p = (deck[color] + discard[color]) / totalAvail;
+    if (i >= GRM_RACE_COLORS) {
+      qWasteRace += p; // 優先度下位はレース対象外＝無駄色質量
+      continue;
+    }
+    const needed = greedyCardsToReachG(ctx, slots, color, deck, discard);
+    if (needed < 0) qWasteRace += p; // BUILD_CAP 以内で未到達＝無駄色質量
+    else cands.push({ p, needed });
   }
-  const res = cands.length === 0 ? EXHAUST_TURNS : expectedMinHittingTurns(cands);
+  const res = cands.length === 0 ? EXHAUST_TURNS : expectedRaceTurns(cands, qWasteRace);
+  if (ANALYTIC_CACHE.size >= SHARED_CACHE_CAP) ANALYTIC_CACHE.clear();
   ANALYTIC_CACHE.set(memoKey, res);
   return res;
 }
 
-/** 最上段が `color` であるスロット数。 */
+/** 最上段が `color` であるスロット数（レース候補色の優先度づけに使う）。 */
 function topCountOnBoard(slots: Color[][], color: Color): number {
   let n = 0;
   for (const s of slots) if (s[s.length - 1] === color) n += 1;
@@ -449,21 +535,40 @@ function pickBuildSlot(board: Color[][], c: Color): number {
 }
 
 /**
- * 実盤面に色 c を貪欲に積み、厳密 f(盤面,V) ≥ P（＝G）に達するまでの枚数を返す（未達なら -1）。
- * 1 枚置くごとに厳密 f を判定し、**G になった最小枚数で止める**（size5 まで積み過ぎない）。実スタックを保つ
+ * 実盤面に色 c を貪欲に積み、厳密 q(盤面,V) ≥ P（＝G）に達するまでの枚数を返す（未達なら -1）。
+ * 1 枚置くごとに厳密 q を判定し、**G になった最小枚数で止める**（size5 まで積み過ぎない）。実スタックを保つ
  * ので連鎖の順序依存を反映する。
  */
 function greedyCardsToReachG(ctx: Ctx, slots: Color[][], c: Color, deck: ColorCounts, discard: ColorCounts): number {
-  let board = slots.map((s) => s.slice());
-  for (let count = 0; count <= BUILD_CAP; count++) {
-    if (fireSlots(board)) {
-      const deckForF: ColorCounts = { ...deck };
-      deckForF[c] = Math.max(0, deck[c] - count); // 構築に使った c の分だけ山札を減らす
-      if (ctx.solver.resolveValue(board, 0, 0, deckForF, discard) >= ctx.P) return count;
-    }
-    board = placeColorOnSlots(board, pickBuildSlot(board, c), c, ctx.K);
+  // 各 count の盤面列を先に作る（順序は従来と同一の貪欲 pickBuildSlot 連鎖）。
+  const boards: Color[][][] = [slots.map((s) => s.slice())];
+  for (let count = 1; count <= BUILD_CAP; count++) {
+    const prev = boards[count - 1];
+    boards.push(placeColorOnSlots(prev, pickBuildSlot(prev, c), c, ctx.K));
   }
-  return -1;
+  const probe = (count: number): boolean => {
+    const board = boards[count];
+    if (!fireSlots(board)) return false;
+    const deckForQ: ColorCounts = { ...deck };
+    deckForQ[c] = Math.max(0, deck[c] - count); // 構築に使った c の分だけ山札を減らす
+    return greedyProbeG(ctx, board, deckForQ, discard);
+  };
+  // プローブ順はコスト非対称性に合わせる:
+  //  1. 前半（count ≤ GREEDY_EARLY_CAP）は低い盤面の線形走査。有望色はここで真証明が即決する
+  //     （q≥P の真証明は閾値 B&B が速い側。旧実装の実効コストはこれと同じ）。
+  //  2. 見つからなければ上限 BUILD_CAP の盤面 1 回で「そもそも届く色か」を判定し、届かない色は
+  //     即 -1。q<P の偽証明は高価で、見込みのない色に対し中間の発火形ごとに偽証明を繰り返すのが
+  //     解析推定の支配的コストだった（プローブ実測）。「材料を積むほど q は下がらない」単調性を
+  //     仮定した近似（needed はもともと貪欲プランのヒューリスティック量。稀な非単調ケースは
+  //     その色を無駄色側に倒すだけ＝保守的）。
+  for (let count = 0; count <= GREEDY_EARLY_CAP; count++) {
+    if (probe(count)) return count;
+  }
+  if (!probe(BUILD_CAP)) return -1;
+  for (let count = GREEDY_EARLY_CAP + 1; count < BUILD_CAP; count++) {
+    if (probe(count)) return count;
+  }
+  return BUILD_CAP;
 }
 
 /** log(n!) のメモ化テーブル。 */
@@ -475,45 +580,148 @@ function logFact(n: number): number {
 
 /**
  * 「どれか早い色で G に到達」する期待ターン数 E[min_c τ_c]。毎ターン 2 枚を i.i.d. に引き（色 c は確率 p_c、
- * 候補外は q=1−Σp_c）、色 c を needed_c 枚集めたらその色で G に届くとみなす。`E[τ] = Σ_t P(まだ未達)`。
- * 色は draw を共有するため負相関で、これが「単色 min より速い」効果を表す。候補は高々 2 色。
+ * 無駄引きは確率 q）、色 c を needed_c 枚集めたらその色で G に届くとみなす。`E[τ] = Σ_t P(2t 枚で未達)`。
+ * 色は draw を共有するため負相関で、これが「単色 min より速い」効果を表す。
+ *
+ * tstar リポジトリ v1 の `expectedRaceTurns`（切断指数の積＝指数型母関数による**厳密閉形式**）を
+ * 非一様レート p_c に一般化した移植（UPSTREAM.md 2026-06-10。一様版は独立 DP と 1e-9 一致のテスト済み、
+ * 本一般化も `grmRace.test.ts` で分布 DP と突き合わせ）。候補数は任意（旧実装は 2 色限定の明示和だった）:
+ *   P(全候補 c で count_c < needed_c | n 枚) = n! Σ_{j≤n} q^{n−j}/(n−j)! · [y^j] Π_c Σ_{r<needed_c} (p_c y)^r / r!
  */
-function expectedMinHittingTurns(cands: { p: number; needed: number }[]): number {
-  const logps = cands.map((c) => Math.log(c.p));
-  const needs = cands.map((c) => c.needed);
-  const q = Math.max(0, 1 - cands.reduce((a, b) => a + b.p, 0));
-  const logq = q > 0 ? Math.log(q) : -Infinity;
-  const sumNeed = needs.reduce((a, b) => a + b, 0);
+export function expectedRaceTurns(cands: { p: number; needed: number }[], qWaste: number): number {
+  if (cands.length === 0) return EXHAUST_TURNS;
+  if (cands.some((c) => c.needed <= 0)) return 0; // 必要枚数 0 の色がある＝既に達成済み
+  // 多項式 Π_c Σ_{r<needed_c} (p_c)^r y^r / r! を係数配列で構築
+  let poly: number[] = [1];
+  for (const c of cands) {
+    const next = new Array<number>(poly.length + c.needed - 1).fill(0);
+    for (let i = 0; i < poly.length; i++) {
+      const pi = poly[i];
+      if (pi === 0) continue;
+      let term = 1; // p^r / r!
+      for (let r = 0; r < c.needed; r++) {
+        if (r > 0) term *= c.p / r;
+        next[i + r] += pi * term;
+      }
+    }
+    poly = next;
+  }
+  const D = poly.length - 1;
+  const logA = poly.map((a) => (a > 0 ? Math.log(a) : -Infinity));
+  const logQ = qWaste > 1e-15 ? Math.log(qWaste) : -Infinity;
   let E = 0;
   for (let t = 0; t <= 200; t++) {
-    const pnot = pNotReached(2 * t, logps, needs, logq);
+    const n2 = 2 * t;
+    let pnot = 0;
+    if (logQ === -Infinity) {
+      if (n2 > D) break;
+      if (logA[n2] !== -Infinity) pnot = Math.exp(logFact(n2) + logA[n2]);
+    } else {
+      const jmax = Math.min(n2, D);
+      for (let j = 0; j <= jmax; j++) {
+        if (logA[j] === -Infinity) continue;
+        const rest = n2 - j;
+        pnot += Math.exp(logFact(n2) - logFact(rest) + rest * logQ + logA[j]);
+      }
+    }
     E += pnot;
-    if (t >= sumNeed && pnot < 1e-7) break;
+    if (n2 > D && pnot < 1e-12) break;
   }
   return E;
 }
 
-/** n 枚引いて「全候補色 i で count_i < needs[i]」となる確率（多項分布の裾。候補 1〜2 色）。 */
-function pNotReached(n: number, logps: number[], needs: number[], logq: number): number {
-  let s = 0;
-  if (logps.length === 1) {
-    for (let r = 0; r < needs[0] && r <= n; r++) {
-      const rest = n - r;
-      if (rest > 0 && logq === -Infinity) continue;
-      s += Math.exp(logFact(n) - logFact(r) - logFact(rest) + r * logps[0] + (rest > 0 ? rest * logq : 0));
+/**
+ * 遅延精密化のマージン Δ。非発火候補の真の価値 −T は −max(1, analytic − Δ) を上回らない、という
+ * 仮定で候補を枝刈りする（T = min(analytic, refined)、refined ≥ 1、解析推定の過大評価は実測 +0.75 が
+ * 最悪＝Δ はその 2 倍を確保）。仮定が破れた場合のみ判断が変わりうる（quasi-zero-loss）。検証は
+ * `_grm_equiv_probe.ts`（GRM_NO_LAZY=1 比較）と GRM_LAZY_AUDIT=1（全評価との突き合わせ＋gap 計測）。
+ */
+const GRM_LAZY_DELTA = 1.5;
+/** 検証用: GRM_NO_LAZY=1 で遅延精密化を無効化し全候補を厳密評価する。 */
+const NO_LAZY = typeof process !== 'undefined' && process.env != null && process.env.GRM_NO_LAZY === '1';
+/** 検証用: GRM_LAZY_AUDIT=1 で全候補を厳密評価しつつ、遅延打ち切りが選んだはずの手と比較・計数する。 */
+const LAZY_AUDIT = typeof process !== 'undefined' && process.env != null && process.env.GRM_LAZY_AUDIT === '1';
+let lazyAuditDecisions = 0;
+let lazyAuditMismatches = 0;
+let lazyAuditMaxGap = 0;
+/** GRM_LAZY_AUDIT=1 実行の集計（プローブが読む）。 */
+export function lazyAuditStats(): { decisions: number; mismatches: number; maxGap: number } {
+  return { decisions: lazyAuditDecisions, mismatches: lazyAuditMismatches, maxGap: lazyAuditMaxGap };
+}
+
+interface PlacementCand {
+  board: Color[][];
+  firstColor: Color;
+  slot: number;
+  /** 従来の全探索の列挙順（同値タイブレークを従来と一致させるため保存）。 */
+  idx: number;
+  fired: boolean;
+  /** 非発火候補の解析推定（楽観上界の材料）。発火候補は 0。 */
+  aTurns: number;
+  /** 楽観上界（この候補の真の gValue はこれを超えない）。 */
+  opt: number;
+}
+
+/** 期限超過時の縮約列挙で 1 枚あたり試すスロット数（targetSlots の先頭＝選好順）。
+ * 1 に絞る: v1 移植で解析推定 1 回が重く（上限つきプローブ ×~15）、2 だと期限後に最大 8 盤面 ×
+ * 解析で数秒の超過源になっていた（プローブ実測）。 */
+const GRM_LATE_TARGET_SLOTS = 1;
+
+/**
+ * 期限超過後の配置決定（第 2 段の設計劣化）: targetSlots の選好順で候補を少数に絞り、
+ * 発火候補は閾値ゲート（G なら最優先）、非発火候補は解析推定で順位付けする。
+ */
+function lateBestPlacement(
+  ctx: Ctx,
+  slots: Color[][],
+  colors: Color[],
+  deck: ColorCounts,
+  discard: ColorCounts
+): { value: number; firstColor: Color | null; slot: number } {
+  let bestVal = -Infinity;
+  let bestColor: Color | null = colors[0];
+  let bestSlot = 0;
+  const seen = new Set<string>();
+  const tried = new Set<Color>();
+  const evalBoard = (board: Color[][], firstColor: Color, slot: number): void => {
+    const sig = serializeBoard(board);
+    if (seen.has(sig)) return;
+    seen.add(sig);
+    let v: number;
+    if (fireSlots(board)) {
+      // ゲートも上限つき判定（greedyProbeG）にする: 期限超過後に無上限の偽証明（数秒級）を
+      // 走らせないため。打ち切り未確定は非 G 扱い＝この最深劣化層では許容する。
+      v = ctx.endgame
+        ? qOf(ctx, board, deck, discard)
+        : greedyProbeG(ctx, board, deck, discard)
+          ? 1e-3 // G 到達（タイブレークの厳密 q は省略＝劣化）
+          : -SMALL_FIRE_TURNS;
+    } else {
+      v = ctx.endgame ? 0 : -analyticTurns(ctx, board, deck, discard);
     }
-    return s;
-  }
-  for (let r = 0; r < needs[0] && r <= n; r++) {
-    for (let g = 0; g < needs[1] && r + g <= n; g++) {
-      const rest = n - r - g;
-      if (rest > 0 && logq === -Infinity) continue;
-      s += Math.exp(
-        logFact(n) - logFact(r) - logFact(g) - logFact(rest) + r * logps[0] + g * logps[1] + (rest > 0 ? rest * logq : 0)
-      );
+    if (v > bestVal) {
+      bestVal = v;
+      bestColor = firstColor;
+      bestSlot = slot;
+    }
+  };
+  for (let ci = 0; ci < colors.length; ci++) {
+    const color = colors[ci];
+    if (tried.has(color)) continue;
+    tried.add(color);
+    const rest = colors.filter((_, k) => k !== ci);
+    for (const j of targetSlots(slots, color).slice(0, GRM_LATE_TARGET_SLOTS)) {
+      const b1 = placeColorOnSlots(slots, j, color, ctx.K);
+      if (rest.length === 0) {
+        evalBoard(b1, color, j);
+      } else {
+        for (const j2 of targetSlots(b1, rest[0]).slice(0, GRM_LATE_TARGET_SLOTS)) {
+          evalBoard(placeColorOnSlots(b1, j2, rest[0], ctx.K), color, j);
+        }
+      }
     }
   }
-  return s;
+  return { value: bestVal, firstColor: bestColor, slot: bestSlot };
 }
 
 /**
@@ -521,6 +729,11 @@ function pNotReached(n: number, logps: number[], needs: number[], logq: number):
  * 別スロットなら順序は無関係だが、**同一スロットに重ねる場合は上下の順（例 [緑,赤] と [赤,緑]）で別の盤面**
  * になるため、両方を網羅する。最初に置くべき色 `firstColor` とそのスロット `slot`、その時の価値を返す。
  * （同色のカードは交換可能なので 1 回だけ試す。）
+ *
+ * 速度（遅延精密化）: 候補盤面ごとの厳密評価（gValue → 近距離は深さ1後退帰納）が重いので、まず全候補の
+ * 楽観上界（発火=+∞[ゲートは安価] / 非発火=−max(1, analytic−Δ)）を安価に出し、上界の降順に厳密評価して
+ * 「確定 best > 残り候補の上界」になったら打ち切る。同値タイは従来の列挙順を保存（idx 優先）するため、
+ * Δ の仮定の下で従来の全探索と同じ手を返す。
  */
 function bestDrawnPlacement(
   ctx: Ctx,
@@ -532,24 +745,141 @@ function bestDrawnPlacement(
   if (colors.length === 0) {
     return { value: gValue(ctx, slots, deck, discard), firstColor: null, slot: 0 };
   }
-  let bestVal = -Infinity;
-  let bestColor: Color | null = colors[0];
-  let bestSlot = 0;
+  // 入口時点で既に期限超過（前の評価が予算を使い切った）: 候補を targetSlots の選好ヒューリスティックで
+  // 少数（≤2 スロット/枚）に縮約し、解析推定（＋発火は閾値ゲート）だけで順位付けする（第 2 段の設計劣化。
+  // 全候補 ~50 盤面の解析推定を期限後に回さないための上限）。
+  if (pastDeadline(ctx)) {
+    markDegraded();
+    return lateBestPlacement(ctx, slots, colors, deck, discard);
+  }
+  if (colors.length > 2) {
+    // 実ゲームでは 1〜2 枚のみ。想定外の枚数は従来の全探索で安全に処理する。
+    let bestVal = -Infinity;
+    let bestColor: Color | null = colors[0];
+    let bestSlot = 0;
+    const tried = new Set<Color>();
+    for (let ci = 0; ci < colors.length; ci++) {
+      const color = colors[ci];
+      if (tried.has(color)) continue;
+      tried.add(color);
+      const rest = colors.slice(0, ci).concat(colors.slice(ci + 1));
+      for (let j = 0; j < slots.length; j++) {
+        const v = placeAllValue(ctx, placeColorOnSlots(slots, j, color, ctx.K), rest, deck, discard);
+        if (v > bestVal) {
+          bestVal = v;
+          bestColor = color;
+          bestSlot = j;
+        }
+      }
+    }
+    return { value: bestVal, firstColor: bestColor, slot: bestSlot };
+  }
+
+  // --- 候補列挙（従来の探索順を idx に保存。同一盤面は初出のみ評価＝値は同じで初出が勝つ規約どおり） ---
+  const cands: PlacementCand[] = [];
+  const seen = new Set<string>();
+  let idx = 0;
   const tried = new Set<Color>();
   for (let ci = 0; ci < colors.length; ci++) {
     const color = colors[ci];
-    if (tried.has(color)) continue; // 同色は交換可能（1 回だけ）
+    if (tried.has(color)) continue;
     tried.add(color);
-    const rest = colors.slice(0, ci).concat(colors.slice(ci + 1));
+    const rest = colors.filter((_, k) => k !== ci); // 0 or 1 枚
     for (let j = 0; j < slots.length; j++) {
-      const v = placeAllValue(ctx, placeColorOnSlots(slots, j, color, ctx.K), rest, deck, discard);
-      if (v > bestVal) {
-        bestVal = v;
-        bestColor = color;
-        bestSlot = j;
+      const b1 = placeColorOnSlots(slots, j, color, ctx.K);
+      if (rest.length === 0) {
+        const sig = serializeBoard(b1);
+        if (!seen.has(sig)) {
+          seen.add(sig);
+          cands.push({ board: b1, firstColor: color, slot: j, idx, fired: false, aTurns: 0, opt: 0 });
+        }
+        idx++;
+      } else {
+        for (let j2 = 0; j2 < slots.length; j2++) {
+          const b2 = placeColorOnSlots(b1, j2, rest[0], ctx.K);
+          const sig = serializeBoard(b2);
+          if (!seen.has(sig)) {
+            seen.add(sig);
+            cands.push({ board: b2, firstColor: color, slot: j, idx, fired: false, aTurns: 0, opt: 0 });
+          }
+          idx++;
+        }
       }
     }
   }
+
+  // --- 楽観上界（安価）: 発火=+∞（ゲートは閾値判定で安価・G なら非発火を常に上回る）/ 非発火=−max(1, analytic−Δ) ---
+  for (const c of cands) {
+    c.fired = fireSlots(c.board);
+    if (c.fired) {
+      c.opt = Infinity;
+    } else if (ctx.endgame) {
+      c.opt = 0; // 終盤モードの非発火は gValue=0 固定（そのまま厳密値）
+    } else if (pastDeadline(ctx)) {
+      // 期限がこのフェーズ中に来た: 残り候補は解析推定も省いて考慮外に落とす（設計劣化）。
+      markDegraded();
+      c.aTurns = EXHAUST_TURNS;
+      c.opt = -Infinity;
+    } else {
+      c.aTurns = analyticTurns(ctx, c.board, deck, discard);
+      c.opt = -Math.max(1, c.aTurns - GRM_LAZY_DELTA);
+    }
+  }
+  cands.sort((a, b) => (a.opt === b.opt ? a.idx - b.idx : b.opt - a.opt));
+
+  // --- 上界の降順に厳密評価し、確定 best が残りの上界を厳密に上回ったら打ち切る ---
+  let bestVal = -Infinity;
+  let bestIdx = Infinity;
+  let bestColor: Color | null = colors[0];
+  let bestSlot = 0;
+  const auditVals: number[] = [];
+  for (let i = 0; i < cands.length; i++) {
+    const c = cands[i];
+    if (!NO_LAZY && !LAZY_AUDIT && bestVal > c.opt) break; // 降順なので以降すべて上界 < bestVal
+    // 期限超過: 非発火候補は二段推定の一段目（解析推定）の値で比較する（設計された劣化）。
+    // 発火候補は閾値ゲートが安価＆G を取りこぼすと致命的なので常に厳密評価。
+    const degraded = !c.fired && !ctx.endgame && pastDeadline(ctx);
+    if (degraded) markDegraded();
+    const v = degraded ? -c.aTurns : gValue(ctx, c.board, deck, discard);
+    if (LAZY_AUDIT) {
+      auditVals.push(v);
+      if (!c.fired && !ctx.endgame) {
+        const gap = c.aTurns + v; // analytic − 厳密コスト（>Δ なら上界仮定の破れ）
+        if (gap > lazyAuditMaxGap) lazyAuditMaxGap = gap;
+      }
+    }
+    if (v > bestVal || (v === bestVal && c.idx < bestIdx)) {
+      bestVal = v;
+      bestIdx = c.idx;
+      bestColor = c.firstColor;
+      bestSlot = c.slot;
+    }
+  }
+
+  if (LAZY_AUDIT) {
+    // 遅延打ち切りが選んだはずの手を再現し、全評価の選択と突き合わせる。
+    lazyAuditDecisions++;
+    let lv = -Infinity;
+    let lidx = Infinity;
+    let lc: Color | null = colors[0];
+    let ls = 0;
+    for (let i = 0; i < cands.length; i++) {
+      const c = cands[i];
+      if (lv > c.opt) break;
+      const v = auditVals[i];
+      if (v > lv || (v === lv && c.idx < lidx)) {
+        lv = v;
+        lidx = c.idx;
+        lc = c.firstColor;
+        ls = c.slot;
+      }
+    }
+    if (lc !== bestColor || ls !== bestSlot) {
+      lazyAuditMismatches++;
+      console.error(`[lazy-audit] mismatch: lazy=(${lc},${ls}) full=(${bestColor},${bestSlot})`);
+    }
+  }
+
   return { value: bestVal, firstColor: bestColor, slot: bestSlot };
 }
 
@@ -585,19 +915,19 @@ function fieldChannelValue(ctx: Ctx, slots: Color[][], pairColors: Color[], deck
 
 /**
  * 山札ドローの取得チャネル値。山札は「山札・捨札の色分布に従う i.i.d. ランダムな 2 枚」とみなすが、これは
- * `expectedTurnsToG` が積み増し見積りで **既に前提・計算している**ものそのもの。「山札から引いて最適に積み、
+ * `tHat` が積み増し見積りで **既に前提・計算している**ものそのもの。「山札から引いて最適に積み、
  * 以降最適に打つ」価値は、現盤面の期待 G 到達ターン数 T(S) からそのまま導ける:
  *
  *   T(S) = 1 + E_draw[ min_配置 T(S') ]   ⟹   E_draw[ max_配置 gValue(S') ] = 1 − T(S)
  *
  * （T(S) は今ターンのドローを含むので、ドロー後の残り＝T(S)−1。`gValue=−T`）。全色組の列挙も配置探索も不要で、
- * 現盤面の T(S)（`expectedTurnsToG` のメモ/キャッシュ＝前計算）を 1 回使うだけ。サンプリングのノイズも無く、
+ * 現盤面の T(S)（`tHat` のメモ/キャッシュ＝前計算）を 1 回使うだけ。サンプリングのノイズも無く、
  * 積み増し評価と完全に整合する。発火盤面（取得局面では通常起きない）は gValue にフォールバック。
  */
 function deckChannelValue(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCounts): number {
   if (totalCount(deck) + totalCount(discard) < 1) return -Infinity; // 引くカードが無い
   if (fireSlots(slots)) return gValue(ctx, slots, deck, discard); // 念のため（取得局面は非発火のはず）
-  return 1 - expectedTurnsToG(ctx, slots, deck, discard);
+  return 1 - tHat(ctx, slots, deck, discard);
 }
 
 // ---------------------------------------------------------------------------
@@ -625,7 +955,7 @@ function effectiveTarget(state: GameState, me: number, opt: ResolvedOptions): { 
   if (state.endTriggered && state.endTriggerPlayerId !== null && state.endTriggerPlayerId !== me) {
     const need = requiredFinalScore(state, me) - state.players[me].score;
     if (need > 0) {
-      // 追い込み: V=必要追加得点、P 無効化（argmax f）
+      // 追い込み: V=必要追加得点、P 無効化（argmax q）
       return { V: need, P: 0, endgame: true };
     }
     // すでに暫定勝者 → 通常運用に戻す（無理な大連鎖は狙わない、§6.6a）
@@ -700,12 +1030,13 @@ export function decideAction(
     H: options.H ?? DEFAULTS.H,
     K: options.K ?? DEFAULTS.K,
     maxNodes: options.maxNodes ?? DEFAULTS.maxNodes,
+    timeBudgetMs: options.timeBudgetMs ?? Infinity,
   };
   try {
     const a = decideInner(state, playerId, opt);
     if (a) return a;
   } catch {
-    // f の展開上限超過などは握りつぶしてフォールバック（シミュレーション継続を優先）
+    // q の展開上限超過などは握りつぶしてフォールバック（シミュレーション継続を優先）
   }
   return fallbackAction(state, playerId);
 }
@@ -751,12 +1082,42 @@ function decideInner(state: GameState, me: number, opt: ResolvedOptions): Action
           bestAction = action;
         }
       };
-      if (state.field[0])
-        consider({ type: 'DRAW_FROM_FIELD', pairIndex: 0 }, fieldChannelValue(ctx, slots, [state.field[0][0].color, state.field[0][1].color], deck, discard));
-      if (state.field[1])
-        consider({ type: 'DRAW_FROM_FIELD', pairIndex: 1 }, fieldChannelValue(ctx, slots, [state.field[1][0].color, state.field[1][1].color], deck, discard));
+      // チャネル列挙。同色構成の場ペアは値が同一になるはずなので 1 回だけ評価して共有する
+      // （順次評価の予算劣化で同色ペアの値が割れて無駄な再評価に予算を使うのを防ぐ。
+      //   tie は consider の > 比較＝先勝ちのままなので、共有しても選択規約は不変）。
+      const pairVals = new Map<string, number>();
+      const channels: { action: Action; evalFn: () => number }[] = [];
+      for (const pi of [0, 1] as const) {
+        const pair = state.field[pi];
+        if (!pair) continue;
+        const key = [pair[0].color, pair[1].color].sort().join(',');
+        channels.push({
+          action: { type: 'DRAW_FROM_FIELD', pairIndex: pi },
+          evalFn: () => {
+            const hit = pairVals.get(key);
+            if (hit !== undefined) return hit;
+            const v = fieldChannelValue(ctx, slots, [pair[0].color, pair[1].color], deck, discard);
+            pairVals.set(key, v);
+            return v;
+          },
+        });
+      }
       if (totalCount(deck) > 0 || totalCount(discard) > 0) {
-        consider({ type: 'DRAW_FROM_DECK' }, deckChannelValue(ctx, slots, deck, discard));
+        channels.push({ action: { type: 'DRAW_FROM_DECK' }, evalFn: () => deckChannelValue(ctx, slots, deck, discard) });
+      }
+      // 予算のチャネル別チェックポイント（累積 (i+1)/n）。一本の期限だと前段が予算を使い切ったとき
+      // 後段チャネルだけが縮約評価に劣化し、比較が系統的に歪む（同色ペアで値割れを実測）。
+      // 小期限を順に課すことで公平化する（早く終わった分は自然に後段へ繰り越し）。
+      const globalDeadline = ctx.deadline;
+      if (opt.timeBudgetMs !== Infinity && channels.length > 1) {
+        const t0 = Date.now();
+        channels.forEach((ch, i) => {
+          ctx.deadline = Math.min(globalDeadline, t0 + (opt.timeBudgetMs * (i + 1)) / channels.length);
+          consider(ch.action, ch.evalFn());
+        });
+        ctx.deadline = globalDeadline;
+      } else {
+        for (const ch of channels) consider(ch.action, ch.evalFn());
       }
       return bestAction;
     }
@@ -771,7 +1132,7 @@ function decideInner(state: GameState, me: number, opt: ResolvedOptions): Action
     }
 
     case 'awaitingAdditionalActionChoice': {
-      // 連鎖中: f の後退帰納に従う（このターンの P(得点 ≥ V) を最大化）
+      // 連鎖中: q の後退帰納に従う（このターンの P(得点 ≥ V) を最大化）
       const dec = ctx.solver.bestDecision(slots, cc, base, deck, discard);
       if (dec.kind === 'discard') return { type: 'CHOOSE_ADDITIONAL_DISCARD' };
       return { type: 'CHOOSE_ADDITIONAL_DRAW' };
@@ -800,14 +1161,14 @@ function decideInner(state: GameState, me: number, opt: ResolvedOptions): Action
 }
 
 // ---------------------------------------------------------------------------
-// 診断: 人間の手番で、実装した f / GRM 評価をコンソールに出力する（確率検証用）
+// 診断: 人間の手番で、実装した q / GRM 評価をコンソールに出力する（確率検証用）
 // ---------------------------------------------------------------------------
 
 const PAIR = (p: FieldPair): string => (p ? `${p[0].color[0]}${p[1].color[0]}` : '-');
 
 /**
- * 現在の局面（主に人間プレイヤーの手番）を、実装した f / GRM 評価でコンソールに出力する。
- * 連鎖局面では各候補手の「このターン得点 ≥ V となる確率」（＝ f の後退帰納値）を直接表示する。
+ * 現在の局面（主に人間プレイヤーの手番）を、実装した q / GRM 評価でコンソールに出力する。
+ * 連鎖局面では各候補手の「このターン得点 ≥ V となる確率」（＝ q の後退帰納値）を直接表示する。
  * 確率が正しく計算されているかを実プレイで確認するための診断専用（ゲーム進行には影響しない）。
  */
 export function logHumanEvaluation(state: GameState, playerId: number, options: GrmOptions = {}): void {
@@ -817,6 +1178,7 @@ export function logHumanEvaluation(state: GameState, playerId: number, options: 
     H: options.H ?? DEFAULTS.H,
     K: options.K ?? DEFAULTS.K,
     maxNodes: options.maxNodes ?? DEFAULTS.maxNodes,
+    timeBudgetMs: options.timeBudgetMs ?? Infinity,
   };
   const slots = myColors(state, playerId);
   const deck = colorCounts(state.deck);
@@ -833,14 +1195,14 @@ export function logHumanEvaluation(state: GameState, playerId: number, options: 
   );
   lines.push(`自盤面(下→上): ${slots.map((s, i) => `#${i}[${s.map((c) => c[0]).join('') || '·'}]`).join(' ')}`);
 
-  // 現盤面そのものを「いま発火させた場合」の f（V を変えて分布を見る）
+  // 現盤面そのものを「いま発火させた場合」の q（V を変えて分布を見る）
   if (fireSlots(slots)) {
     const fs = [10, 15, 20]
-      .map((V) => `f(≥${V})=${createChainSolver(V, opt.K, opt.maxNodes).resolveValue(slots, 0, 0, deck, discard).toFixed(3)}`)
+      .map((V) => `q(≥${V})=${createChainSolver(V, opt.K, opt.maxNodes).resolveValue(slots, 0, 0, deck, discard).toFixed(3)}`)
       .join('  ');
     lines.push(`現盤面は発火状態 → ${fs}`);
   } else {
-    lines.push('現盤面は非発火（最上段に同色3枚以上なし）→ f は適用外');
+    lines.push('現盤面は非発火（最上段に同色3枚以上なし）→ q は適用外');
   }
 
   // フェーズ別: 各候補手の評価
@@ -870,40 +1232,85 @@ function evaluateMovesForLog(
   const star = (v: number, best: number) => (v >= best - 1e-12 ? ' ←最良' : '');
   // gValue（=−G到達期待ターン数）を人間向けに言い換える。0付近=G到達可、負=期待ターン数。
   const turnsLabel = (v: number): string => {
-    if (ctx.endgame) return `f=${v.toFixed(3)}`;
+    if (ctx.endgame) return `q=${v.toFixed(3)}`;
     if (v >= -1e-3) return 'G到達可(勝負手)';
     if (-v >= EXHAUST_TURNS) return `到達困難(>${EXHAUST_TURNS}ターン)`;
     return `期待約${(-v).toFixed(1)}ターンでG`;
   };
   switch (state.phase) {
     case 'awaitingDraw': {
-      const items: { d: string; v: number }[] = [];
-      if (state.field[0])
-        items.push({ d: `場0(${PAIR(state.field[0])})`, v: fieldChannelValue(ctx, slots, [state.field[0][0].color, state.field[0][1].color], deck, discard) });
-      if (state.field[1])
-        items.push({ d: `場1(${PAIR(state.field[1])})`, v: fieldChannelValue(ctx, slots, [state.field[1][0].color, state.field[1][1].color], deck, discard) });
+      // 表示の注意 2 点: (1) 同色ペアは値が同一になるはずなので 1 回だけ評価して共有する
+      // （順番に評価すると後の方だけ時間予算の劣化を受け、同色なのに値が違って見える）。
+      // (2) 評価開始時点で予算が尽きていたチャネルは縮約評価＝概算なので「（概算）」を付す。
+      const items: { d: string; v: number; approx: boolean }[] = [];
+      const seenPair = new Map<string, number>();
+      const fieldVal = (pair: NonNullable<FieldPair>): { v: number; approx: boolean } => {
+        const key = [pair[0].color, pair[1].color].sort().join(',');
+        const hit = seenPair.get(key);
+        if (hit !== undefined) return { v: hit, approx: false };
+        const approx = pastDeadline(ctx);
+        const v = fieldChannelValue(ctx, slots, [pair[0].color, pair[1].color], deck, discard);
+        seenPair.set(key, v);
+        return { v, approx };
+      };
+      if (state.field[0]) items.push({ d: `場0(${PAIR(state.field[0])})`, ...fieldVal(state.field[0]) });
+      if (state.field[1]) items.push({ d: `場1(${PAIR(state.field[1])})`, ...fieldVal(state.field[1]) });
       if (totalCount(deck) > 0 || totalCount(discard) > 0) {
-        items.push({ d: '山札ドロー', v: deckChannelValue(ctx, slots, deck, discard) });
+        const approx = pastDeadline(ctx);
+        items.push({ d: '山札ドロー', v: deckChannelValue(ctx, slots, deck, discard), approx });
       }
       const best = Math.max(...items.map((i) => i.v));
-      return ['取得チャネル別の見込み（G到達までの期待ターン数。少ないほど良い）:', ...items.map((i) => `${i.d}: ${turnsLabel(i.v)}${star(i.v, best)}`)];
+      return [
+        '取得チャネル別の見込み（G到達までの期待ターン数。少ないほど良い）:',
+        ...items.map((i) => `${i.d}: ${turnsLabel(i.v)}${i.approx ? '（概算: 予算超過で縮約評価）' : ''}${star(i.v, best)}`),
+      ];
     }
     case 'awaitingPlaceDrawn': {
       const pend = state.turn.pendingDraw.map((c) => c.color);
       if (pend.length === 0) return [];
-      // 「先に置く色 × スロット」を全て出す（同一スロットに 2 枚重ねる場合の上下順の違いを反映）。残りは最適配置。
+      // 全角フォントで列幅が崩れないよう、セル値は ASCII のみ（∞ ではなく >50 表記）。
+      const compact = (v: number) => (v >= -1e-3 ? 'G' : -v >= EXHAUST_TURNS ? `>${EXHAUST_TURNS}` : (-v).toFixed(1));
+      // 列ずれ防止: 値は表全体の最大幅へ右寄せし、最良印の 1 文字分は印が付かないセルにも常に確保する。
+      const table = (rows: { label: string; vals: number[] }[]): string[] => {
+        const best = Math.max(...rows.flatMap((r) => r.vals));
+        const w = Math.max(...rows.flatMap((r) => r.vals.map((v) => compact(v).length)));
+        return rows.map(
+          (r) => `${r.label}: ${r.vals.map((v, j) => `#${j}=${compact(v).padStart(w)}${v >= best - 1e-12 ? '*' : ' '}`).join(' ')}`
+        );
+      };
+      if (pend.length === 2) {
+        // 全積み方を列挙: 「1枚目の色@スロット → 2枚目のスロット別」（同一スロット重ねは上下順で別経路。
+        // 同色 2 枚は交換可能なので片順のみ）。各行 5 値 × 最大 10 行 = 50 通りの完全表示。
+        const distinct: Color[] = [];
+        for (const c of pend) if (!distinct.includes(c)) distinct.push(c);
+        const rows: { label: string; vals: number[] }[] = [];
+        for (const c of distinct) {
+          const idx = pend.indexOf(c);
+          const other = pend.slice(0, idx).concat(pend.slice(idx + 1))[0];
+          for (let j = 0; j < slots.length; j++) {
+            const b1 = placeColorOnSlots(slots, j, c, opt.K);
+            rows.push({
+              label: `${c[0]}@#${j}→${other[0]}`,
+              vals: slots.map((_, j2) => gValue(ctx, placeColorOnSlots(b1, j2, other, opt.K), deck, discard)),
+            });
+          }
+        }
+        return [
+          `手札[${pend.map((c) => c[0]).join(',')}] を配置（1枚目@スロット → 2枚目スロット別の G到達期待ターン数。同一スロット重ねは上下順で別経路。G=到達, >${EXHAUST_TURNS}=到達困難, *=全体最良）:`,
+          ...table(rows),
+        ];
+      }
+      // 1 枚（2 枚目の配置決定）: スロット別の値をそのまま表示。
       const distinct: Color[] = [];
       for (const c of pend) if (!distinct.includes(c)) distinct.push(c);
-      const compact = (v: number) => (v >= -1e-3 ? 'G' : -v >= EXHAUST_TURNS ? '∞' : (-v).toFixed(1));
       const rows = distinct.map((c) => {
         const idx = pend.indexOf(c);
         const rest = pend.slice(0, idx).concat(pend.slice(idx + 1));
         return { c, vals: slots.map((_, j) => placeAllValue(ctx, placeColorOnSlots(slots, j, c, opt.K), rest, deck, discard)) };
       });
-      const best = Math.max(...rows.flatMap((r) => r.vals));
       return [
-        `手札[${pend.map((c) => c[0]).join(',')}] を配置（先に置く色 × スロット別の G到達期待ターン数。同一スロット積みの上下順込み。G=到達, ∞=到達困難, * は最良）:`,
-        ...rows.map((r) => `${r.c[0]}先: ${r.vals.map((v, j) => `#${j}=${compact(v)}${v >= best - 1e-12 ? '*' : ''}`).join('  ')}`),
+        `手札[${pend.map((c) => c[0]).join(',')}] を配置（スロット別の G到達期待ターン数。G=到達, >${EXHAUST_TURNS}=到達困難, *=最良）:`,
+        ...table(rows.map((r) => ({ label: r.c[0], vals: r.vals }))),
       ];
     }
     case 'awaitingAdditionalActionChoice': {
@@ -950,6 +1357,7 @@ function evaluateMovesForLog(
 }
 
 function makeCtx(opt: ResolvedOptions, V: number, P: number, endgame: boolean): Ctx {
+  decisionCount++;
   return {
     solver: createChainSolver(V, opt.K, opt.maxNodes),
     V,
@@ -958,14 +1366,35 @@ function makeCtx(opt: ResolvedOptions, V: number, P: number, endgame: boolean): 
     K: opt.K,
     endgame,
     memoT: new Map<string, number>(),
+    deadline: opt.timeBudgetMs === Infinity ? Infinity : Date.now() + opt.timeBudgetMs,
   };
 }
 
+// --- 時間予算の劣化追跡（フォールバックを黙らせない）---
+let decisionCount = 0;
+let degradedDecisionCount = 0;
+let degradedMarker = -1; // 劣化を計上済みの decision 番号（1 決定 1 カウント）
+/** 期限超過の劣化が起きたことを記録する（同一決定内は 1 回だけ数える）。 */
+function markDegraded(): void {
+  if (degradedMarker !== decisionCount) {
+    degradedMarker = decisionCount;
+    degradedDecisionCount++;
+  }
+}
+/** 期限超過か（無制限なら常に false）。 */
+function pastDeadline(ctx: Ctx): boolean {
+  return ctx.deadline !== Infinity && Date.now() >= ctx.deadline;
+}
+/** 時間予算による劣化の発生状況（ベンチ・プローブが読む）。 */
+export function budgetStats(): { decisions: number; degraded: number } {
+  return { decisions: decisionCount, degraded: degradedDecisionCount };
+}
+
 /**
- * ベンチ用: 非発火盤面の「G 到達までの期待ターン数」の見積り（U ヒューリスティック本体）を外部から呼ぶ。
+ * ベンチ用: 非発火盤面の「G 到達までの期待ターン数」の見積り（T̂ ヒューリスティック本体）を外部から呼ぶ。
  * 小盤面で厳密 T* と突き合わせて近似誤差を測るために公開する（§6.1.2 / §8-7）。
  */
-export function estimateTurnsToG(
+export function estimateTHat(
   slots: Color[][],
   deck: ColorCounts,
   discard: ColorCounts,
@@ -977,6 +1406,7 @@ export function estimateTurnsToG(
     H: options.H ?? DEFAULTS.H,
     K: options.K ?? DEFAULTS.K,
     maxNodes: options.maxNodes ?? DEFAULTS.maxNodes,
+    timeBudgetMs: options.timeBudgetMs ?? Infinity,
   };
-  return expectedTurnsToG(makeCtx(opt, opt.V, opt.P, false), slots, deck, discard);
+  return tHat(makeCtx(opt, opt.V, opt.P, false), slots, deck, discard);
 }

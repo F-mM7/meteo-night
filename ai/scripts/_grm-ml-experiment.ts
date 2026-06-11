@@ -1,13 +1,13 @@
 // 教師あり T* 回帰 実験 本体（純 JS リッジ回帰）。
 //
 // 検証する問い:
-//  (Q1) ホールドアウトで、線形/リッジ回帰モデル（直接 or 残差）はヒューリスティック estimateTurnsToG の
+//  (Q1) ホールドアウトで、線形/リッジ回帰モデル（直接 or 残差）はヒューリスティック estimateTHat の
 //       テスト MAE を下回るか。
 //  (Q2) 色数をまたいで汎化するか（2色で学習→3色でテスト、およびその逆）。対称不変特徴を使う。
 //
 // 2 つのモデル:
 //  (a) 直接: T* を予測。
-//  (b) 残差: T* − estimateTurnsToG を予測し、ヒューリスティックに足し戻す。
+//  (b) 残差: T* − estimateTHat を予測し、ヒューリスティックに足し戻す。
 import { performance } from 'node:perf_hooks';
 import type { Color } from '../../src/game/types';
 import {
@@ -25,8 +25,8 @@ import {
   type InstanceSpec,
   type SolvedInstance,
 } from './_grm-ml-lib';
-import { estimateTurnsToG } from '../../src/ai/grmAI';
-import { normalizeCounts } from '../../src/ai/grmReachF';
+import { estimateTHat } from '../../src/ai/grmAI';
+import { normalizeCounts } from '../../src/ai/grmReachQ';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (process.stdout as any).reconfigure?.({ line_buffering: true });
@@ -59,7 +59,7 @@ function buildDataset(name: string, spec: InstanceSpec): Dataset {
   for (const i of sol.trainableIdx) {
     X.push(boardFeatures(sol.boards[i], CFG));
     yTstar.push(sol.T[i]);
-    yHeur.push(estimateTurnsToG(sol.boards[i], DECK, DISC, { V: spec.V, P: spec.P, K: spec.K }));
+    yHeur.push(estimateTHat(sol.boards[i], DECK, DISC, { V: spec.V, P: spec.P, K: spec.K }));
   }
   const dt = ((performance.now() - t0) / 1000).toFixed(1);
   console.log(`[${name}] 構築完了: 状態数=${sol.nStates} 学習対象=${sol.trainableIdx.length} 特徴次元=${X[0].length} (${dt}s)`);

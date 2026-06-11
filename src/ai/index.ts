@@ -1,10 +1,19 @@
-// ブラウザ CPU の既定 AI（Gen-15 採用）。grid 最適化で確証した目的志向ポリシー tempoChainAI
-// （DEFAULT_GENOME=idx340: 5連鎖を狙い、構築中はテンポ評価を半々混合 blend=0.5）。実体 champion だった
-// tempoFast(LA=1) に vs LA=1 300局で 32.7%（CI 27.6-38.2 >25%）・vs LA=0 2seed×1000局で 29.9% と有意勝ち。
-// 発火は cascade.ts の実カスケード評価、nodeLimit=15000 でレイテンシ有界・aiWorker 経由で off-main-thread。
-// 呼び出しは decideAction(state, actorId) の 2 引数（genome=DEFAULT_GENOME を使用）。
-// 旧既定 tempoFastAI(LA=1) は存置。戻す場合は下の export を './tempoFastAI' に変更するだけ。
-export { decideAction } from './tempoChainAI';
+// ブラウザ CPU の既定 AI（2026-06-11 採用）: GRM（目標到達確率最大化法・第3路線、仕様 ai/REACHABILITY.md）。
+// 配信構成 = V=20, P=0.5, K=6, 時間予算 3000ms（tstar v1 移植: 解析推定の多色レース閉形式＋上限つきプローブ）。
+// 事前登録 fresh 決定的テストで旧既定 tempoChain（3席）に 31.1%（CI 28.0-34.4 > 公平25%、両ブロック単独でも
+// 有意。予算チャネル公平化込みの構成）で勝ち越し。レイテンシは 1手 p50 13ms / max ~3.7s（aiWorker 経由
+// off-main-thread で UI 非ブロック。Worker 不可時の同期フォールバックでは最悪 ~4 秒ブロックしうる点に留意）。
+// 旧既定 tempoChainAI（Gen-15）は存置。戻す場合はこの wrapper を `export { decideAction } from './tempoChainAI';`
+// に変更するだけ（さらに旧 tempoFastAI(LA=1) も存置）。
+import type { Action, GameState } from '../game/types';
+import { decideAction as decideGrm, type GrmOptions } from './grmAI';
+
+/** 配信構成（事前登録テストで測定した構成と同一。H は後方互換の受理のみで未使用）。 */
+const GRM_BROWSER_OPTIONS: GrmOptions = { V: 20, P: 0.5, H: 1, K: 6, timeBudgetMs: 3000 };
+
+export function decideAction(state: GameState, playerId: number, seed?: number): Action | null {
+  return decideGrm(state, playerId, seed, GRM_BROWSER_OPTIONS);
+}
 
 /**
  * ニューラルネット AI の動的ロード。

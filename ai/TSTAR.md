@@ -270,12 +270,11 @@ T̂ の設計をこの形に限定する意図はない。
 | 物 | 場所 |
 |---|---|
 | 厳密 T*（値反復）と誤差測定 | `ai/scripts/_tstar-bench.ts` |
-| 連鎖成功確率 q（厳密） | `src/ai/grmReachF.ts`（`createChainSolver`） |
-| q の正しさのオラクルテスト（実ゲームエンジンと突き合わせ） | `src/ai/__tests__/grmReachF.test.ts` |
-| §9.3 の既存近似 | `src/ai/grmAI.ts`（`estimateTurnsToG`） |
+| 連鎖成功確率 q（厳密） | `src/ai/grmReachQ.ts`（`createChainSolver`） |
+| q の正しさのオラクルテスト（実ゲームエンジンと突き合わせ） | `src/ai/__tests__/grmReachQ.test.ts` |
+| §9.3 の既存近似 | `src/ai/grmAI.ts`（`estimateTHat`） |
 | 対局 AI（GRM）への接続 | `ai/REACHABILITY.md` |
 
 注: 参照実装の連鎖確率計算は山札を**有限構成・非復元**（各色同数。ベンチでは 50 枚）で扱う変種であり、
 本書の一様 i.i.d. ドローとは厳密には一致しない（各色の枚数 → ∞ の極限で一致）。§8.1・§9.3 の実測値は
-この変種上のものである。また記号の対応に注意: 本書の q・T̂ は、実装と GRM 文書ではそれぞれ `f`・`U`（Û）と
-表記されている。
+この変種上のものである。また記号は実装・GRM 文書とも本書に統一済み（旧表記: 内側 `f`＝q、外側 `U`（Û）＝T̂）。

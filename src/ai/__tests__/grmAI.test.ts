@@ -13,11 +13,14 @@ function actorOf(state: GameState): number {
 
 /**
  * 全席を GRM にして 1 ゲーム進める（相手由来の停止を排除し、GRM が全フェーズで停滞しないことだけを見る）。
- * K を小さくして f を浅くし高速化（強さでなく堅牢性の確認が目的）。GRM が手番で null や no-op
+ * K を小さくして q を浅くし高速化（強さでなく堅牢性の確認が目的）。GRM が手番で null や no-op
  * （reducer に拒否される非合法手）を返したら stuck を加算。返り値は {steps, stuck}。
  */
 function runAllGrm(seed: number, maxSteps: number): { steps: number; stuck: number } {
-  const opts: GrmOptions = { V: 20, P: 0.5, K: 3 };
+  // timeBudgetMs: 本テストの目的は停滞バグの検出であり強さではない。v1（全色レース）＋v2（ゲート拡大）で
+  // 無予算の 1 手が重くなったため、実運用と同じ予算機構で有界化して回す（劣化経路も含めて合法手を返すこと
+  // 自体が検証対象になる）。
+  const opts: GrmOptions = { V: 20, P: 0.5, K: 3, timeBudgetMs: 1000 };
   let state = setupGame({ seed, playerNames: ['P0', 'P1', 'P2', 'P3'], cpuFlags: [true, true, true, true] });
   let steps = 0;
   let stuck = 0;

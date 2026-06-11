@@ -21,8 +21,8 @@ import {
   type SolvedInstance,
   type Standardizer,
 } from './_grm-ml-lib';
-import { estimateTurnsToG } from '../../src/ai/grmAI';
-import { normalizeCounts } from '../../src/ai/grmReachF';
+import { estimateTHat } from '../../src/ai/grmAI';
+import { normalizeCounts } from '../../src/ai/grmReachQ';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (process.stdout as any).reconfigure?.({ line_buffering: true });
@@ -58,7 +58,7 @@ function buildDataset(name: string, spec: InstanceSpec): Dataset {
   for (const i of sol.trainableIdx) {
     X.push(boardFeatures(sol.boards[i], CFG));
     yTstar.push(sol.T[i]);
-    yHeur.push(estimateTurnsToG(sol.boards[i], DECK, DISC, { V: spec.V, P: spec.P, K: spec.K }));
+    yHeur.push(estimateTHat(sol.boards[i], DECK, DISC, { V: spec.V, P: spec.P, K: spec.K }));
   }
   console.log(`[${name}] 構築: 学習対象=${X.length} (${((performance.now() - t0) / 1000).toFixed(1)}s)`);
   return { name, spec, sol, X, yTstar, yHeur, idx: sol.trainableIdx };

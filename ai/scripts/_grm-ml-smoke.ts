@@ -1,10 +1,10 @@
 // スモークテスト: solveInstance が 2色/3色で動くか、3色の値反復が現実的時間で解けるか、
-// および estimateTurnsToG の import が生きているかを確認する。
+// および estimateTHat の import が生きているかを確認する。
 import { performance } from 'node:perf_hooks';
 import type { Color } from '../../src/game/types';
 import { solveInstance, boardFeatures, featureDim, type InstanceSpec } from './_grm-ml-lib';
-import { estimateTurnsToG } from '../../src/ai/grmAI';
-import { normalizeCounts } from '../../src/ai/grmReachF';
+import { estimateTHat } from '../../src/ai/grmAI';
+import { normalizeCounts } from '../../src/ai/grmReachQ';
 
 process.stdout.write(''); // flush 促進
 // 出力を即時に。
@@ -34,7 +34,7 @@ function report(name: string, spec: InstanceSpec) {
   const DISC = normalizeCounts({});
   let sa = 0;
   for (const i of sol.trainableIdx) {
-    const heur = estimateTurnsToG(sol.boards[i], DECK, DISC, { V: spec.V, P: spec.P, K: spec.K });
+    const heur = estimateTHat(sol.boards[i], DECK, DISC, { V: spec.V, P: spec.P, K: spec.K });
     sa += Math.abs(heur - sol.T[i]);
   }
   console.log(`  ヒューリスティックMAE=${(sa / sol.trainableIdx.length).toFixed(4)}`);

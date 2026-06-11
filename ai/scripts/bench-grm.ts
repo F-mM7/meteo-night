@@ -15,10 +15,15 @@
  * 出力: GRM の勝率（公平基準 25%）、Wilson 95%CI、GRM 平均スコア、baseline 平均スコア、
  *       GRM 順位分布 [1位,2位,3位,4位]、未完了ゲーム数。最終結果は JSON を stdout、進捗・判定は stderr。
  */
+import { pathToFileURL } from 'node:url';
 import { playOneGameWithDeciders, parseIntArg, parseFloatArg, type Decider } from './_runner';
 import { decideAction as decideGrm, type GrmOptions } from '../../src/ai/grmAI';
 import { decideAction as decideTempoFast } from '../../src/ai/tempoFastAI';
+import { decideAction as decideTempoChain } from '../../src/ai/tempoChainAI';
 import { wilsonInterval } from './stats';
+
+/** baseline の種類: fast=tempoFast(LA=1, budget) / chain=現 champion tempoChain(DEFAULT_GENOME)。 */
+export type GrmBaseline = 'fast' | 'chain';
 
 export interface BenchGrmArgs {
   games: number;
@@ -29,6 +34,9 @@ export interface BenchGrmArgs {
   P: number;
   H: number;
   K: number;
+  base: GrmBaseline;
+  /** GRM 側の 1 決定あたり壁時計予算（ms）。0 = 無制限（従来挙動）。 */
+  grmBudget: number;
 }
 
 export const BENCH_GRM_DEFAULTS: BenchGrmArgs = {
@@ -40,6 +48,8 @@ export const BENCH_GRM_DEFAULTS: BenchGrmArgs = {
   P: 0.8,
   H: 1,
   K: 7,
+  base: 'fast',
+  grmBudget: 0,
 };
 
 export function parseBenchGrmArgs(argv: string[]): BenchGrmArgs {
@@ -70,6 +80,15 @@ export function parseBenchGrmArgs(argv: string[]): BenchGrmArgs {
         break;
       case '--K':
         a.K = parseIntArg('--K', argv[++i]);
+        break;
+      case '--base': {
+        const v = argv[++i];
+        if (v !== 'fast' && v !== 'chain') throw new Error('--base requires: fast|chain');
+        a.base = v;
+        break;
+      }
+      case '--grm-budget':
+        a.grmBudget = parseIntArg('--grm-budget', argv[++i]);
         break;
       default:
         throw new Error(`unknown arg: ${k}`);
@@ -103,10 +122,15 @@ export function runGrmMatch(opts: {
   budget: number;
   maxSteps: number;
   grmOptions: GrmOptions;
+  /** 省略時 'fast'（従来互換）。'chain' で現 champion tempoChain(DEFAULT_GENOME) を baseline にする。 */
+  base?: GrmBaseline;
   onProgress?: (done: number, grmWins: number, elapsedSec: number) => void;
 }): GrmMatchResult {
-  const baseline: Decider = (state, pid) =>
-    decideTempoFast(state, pid, undefined, { timeBudgetMs: opts.budget, lookaheadTurns: 1 });
+  const baseline: Decider =
+    (opts.base ?? 'fast') === 'chain'
+      ? (state, pid) => decideTempoChain(state, pid)
+      : (state, pid) =>
+          decideTempoFast(state, pid, undefined, { timeBudgetMs: opts.budget, lookaheadTurns: 1 });
   const candidate: Decider = (state, pid) => decideGrm(state, pid, undefined, opts.grmOptions);
 
   let grmWins = 0;
@@ -150,9 +174,13 @@ export function runGrmMatch(opts: {
 function main(): void {
   const args = parseBenchGrmArgs(process.argv.slice(2));
   const grmOptions: GrmOptions = { V: args.V, P: args.P, H: args.H, K: args.K };
+  if (args.grmBudget > 0) grmOptions.timeBudgetMs = args.grmBudget;
 
+  const baseName =
+    args.base === 'chain' ? 'tempoChain(DEFAULT_GENOME)' : `tempoFast(budget=${args.budget}, LA=1)`;
+  const grmName = `GRM(V=${args.V}, P=${args.P}, H=${args.H}, K=${args.K}${args.grmBudget > 0 ? `, budget=${args.grmBudget}ms` : ''})`;
   console.error(
-    `[bench-grm] GRM(V=${args.V}, P=${args.P}, H=${args.H}, K=${args.K}) vs tempoFast(budget=${args.budget}, LA=1) | games=${args.games} seed=${args.seed} (GRM 1 席 vs baseline 3 席, rotate)`
+    `[bench-grm] ${grmName} vs ${baseName} | games=${args.games} seed=${args.seed} (GRM 1 席 vs baseline 3 席, rotate)`
   );
 
   const res = runGrmMatch({
@@ -161,6 +189,7 @@ function main(): void {
     budget: args.budget,
     maxSteps: args.maxSteps,
     grmOptions,
+    base: args.base,
     onProgress: (done, grmWins, sec) =>
       console.error(`  ${done}/${args.games} done, grmWins=${grmWins}, ${sec.toFixed(0)}s`),
   });
@@ -179,4 +208,8 @@ function main(): void {
   );
 }
 
-main();
+// sweep-grm-p.ts が runGrmMatch を import するため、直接実行されたときのみ main を走らせる
+// （無条件実行だと import 側の argv を解析して `unknown arg` で落ちる）。
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}

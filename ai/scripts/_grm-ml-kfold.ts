@@ -12,8 +12,8 @@ import {
   type InstanceSpec,
   type SolvedInstance,
 } from './_grm-ml-lib';
-import { estimateTurnsToG } from '../../src/ai/grmAI';
-import { normalizeCounts } from '../../src/ai/grmReachF';
+import { estimateTHat } from '../../src/ai/grmAI';
+import { normalizeCounts } from '../../src/ai/grmReachQ';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (process.stdout as any).reconfigure?.({ line_buffering: true });
@@ -39,7 +39,7 @@ function uniqueClasses(spec: InstanceSpec) {
   for (const i of sol.trainableIdx) {
     const f = boardFeatures(sol.boards[i], CFG);
     const key = f.map((v) => v.toFixed(3)).join(',');
-    const h = estimateTurnsToG(sol.boards[i], DECK, DISC, { V: spec.V, P: spec.P, K: spec.K });
+    const h = estimateTHat(sol.boards[i], DECK, DISC, { V: spec.V, P: spec.P, K: spec.K });
     const g = groups.get(key);
     if (g) {
       g.ts.push(sol.T[i]);
