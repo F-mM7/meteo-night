@@ -22,7 +22,7 @@
  */
 import { writeFileSync } from 'node:fs';
 import { playOneGameWithDeciders, parseIntArg, parseFloatArg, type Decider } from './_runner';
-import { decideAction as decideGrm, estimateTHat, h0Turns, type GrmOptions } from '../../src/ai/grmAI';
+import { decideAction as decideGrm, estimateTHat, h0Turns, h0TurnsReal, type GrmOptions } from '../../src/ai/grmAI';
 import { decideAction as decideTempoChain } from '../../src/ai/tempoChainAI';
 import { fireSlots, placeColorOnSlots, colorCounts, type ColorCounts } from '../../src/ai/grmReachQ';
 import type { Color, GameState } from '../../src/game/types';
@@ -124,7 +124,11 @@ async function registerC2(c2Path: string, tstarSrc: string, V: number, P: number
   const inst = { m: COLORS.length, L: 5, K, V, P };
   const fitted = c2.createFitted({ ...artifact, inst });
   const toBoard = (slots: Color[][]): number[][] => slots.map((st) => st.map((c) => COLORS.indexOf(c)));
-  ESTIMATORS[`c2(${c2Path.split('/').pop()})@P${P}`] = (slots) => fitted(toBoard(slots));
+  const name = c2Path.split('/').pop();
+  ESTIMATORS[`c2(${name})@P${P}`] = (slots) => fitted(toBoard(slots));
+  // 実分布ハイブリッド: 一様学習の C2 に「実レート h0 − 一様 h0」の閉形式差分で山札の偏りを注入。
+  ESTIMATORS[`c2hyb(${name})@P${P}`] = (slots, deck, discard) =>
+    Math.max(0, fitted(toBoard(slots)) + h0TurnsReal(slots, deck, discard) - h0Turns(slots));
 }
 
 function percentile(sorted: number[], p: number): number {

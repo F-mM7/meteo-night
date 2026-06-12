@@ -1,0 +1,5001 @@
+{
+ "note": "tstar createFitted（h0 バックボーン）で生成した期待値。移植同値性の基準",
+ "artifact": "c2-real-h0-pvgrid.json",
+ "cases": [
+  {
+   "slots": [
+    [
+     "purple",
+     "green",
+     "blue",
+     "blue",
+     "red",
+     "yellow"
+    ],
+    [
+     "yellow"
+    ],
+    [
+     "red",
+     "green"
+    ],
+    [
+     "red",
+     "red",
+     "purple",
+     "blue",
+     "green"
+    ],
+    [
+     "green",
+     "red",
+     "green",
+     "red",
+     "yellow"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 4.292843124780501
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "yellow",
+     "red",
+     "purple",
+     "blue",
+     "green"
+    ],
+    [
+     "yellow",
+     "purple",
+     "green"
+    ],
+    [
+     "purple",
+     "yellow",
+     "red"
+    ],
+    [],
+    [
+     "yellow",
+     "green",
+     "purple",
+     "yellow",
+     "green",
+     "blue"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 4.695541805374104
+  },
+  {
+   "slots": [
+    [
+     "green"
+    ],
+    [
+     "green",
+     "purple",
+     "green",
+     "red"
+    ],
+    [
+     "yellow",
+     "purple",
+     "green",
+     "purple",
+     "red",
+     "green"
+    ],
+    [
+     "red",
+     "green"
+    ],
+    [
+     "green",
+     "red",
+     "yellow",
+     "yellow",
+     "purple"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 3.6650297119049973
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "green",
+     "green",
+     "blue"
+    ],
+    [
+     "red",
+     "purple",
+     "green",
+     "red",
+     "purple",
+     "purple"
+    ],
+    [
+     "purple",
+     "red",
+     "yellow",
+     "yellow",
+     "purple",
+     "red"
+    ],
+    [
+     "yellow",
+     "green",
+     "yellow",
+     "yellow",
+     "green"
+    ],
+    [
+     "yellow",
+     "purple",
+     "purple"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 3.4304661306327406
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "blue",
+     "green",
+     "blue"
+    ],
+    [
+     "red",
+     "blue",
+     "purple"
+    ],
+    [],
+    [],
+    [
+     "yellow",
+     "purple",
+     "blue",
+     "red"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 7.1179364420532405
+  },
+  {
+   "slots": [
+    [],
+    [
+     "blue",
+     "green",
+     "blue"
+    ],
+    [
+     "red",
+     "red",
+     "yellow"
+    ],
+    [
+     "red"
+    ],
+    []
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 9.295064221726511
+  },
+  {
+   "slots": [
+    [],
+    [],
+    [
+     "yellow",
+     "purple",
+     "blue",
+     "purple"
+    ],
+    [
+     "green",
+     "yellow",
+     "yellow",
+     "yellow",
+     "blue",
+     "red"
+    ],
+    [
+     "green",
+     "green",
+     "blue",
+     "red",
+     "yellow",
+     "blue"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 6.561510086799789
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "blue",
+     "blue"
+    ],
+    [
+     "blue",
+     "yellow",
+     "red",
+     "red",
+     "yellow"
+    ],
+    [],
+    [
+     "purple"
+    ],
+    [
+     "red",
+     "purple",
+     "yellow"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 7.472661785964496
+  },
+  {
+   "slots": [
+    [],
+    [],
+    [],
+    [
+     "red",
+     "yellow",
+     "blue"
+    ],
+    [
+     "purple",
+     "purple",
+     "green",
+     "green",
+     "green",
+     "blue"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 9.125566060348735
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "green",
+     "purple",
+     "yellow"
+    ],
+    [
+     "blue",
+     "green",
+     "purple",
+     "yellow",
+     "yellow",
+     "blue"
+    ],
+    [
+     "red",
+     "purple",
+     "yellow",
+     "green",
+     "blue",
+     "green"
+    ],
+    [
+     "green",
+     "purple",
+     "red",
+     "blue",
+     "yellow",
+     "yellow"
+    ],
+    [
+     "yellow",
+     "green"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 2.4095360277079925
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "yellow"
+    ],
+    [
+     "yellow"
+    ],
+    [
+     "red",
+     "red",
+     "purple",
+     "purple",
+     "green"
+    ],
+    [
+     "blue",
+     "blue",
+     "yellow",
+     "red",
+     "red"
+    ],
+    [
+     "red",
+     "purple",
+     "red",
+     "purple"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 5.965797365377799
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "purple"
+    ],
+    [],
+    [],
+    [
+     "red",
+     "purple"
+    ],
+    [
+     "blue",
+     "yellow",
+     "yellow",
+     "red",
+     "purple"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 8.533729728914365
+  },
+  {
+   "slots": [
+    [],
+    [
+     "blue",
+     "yellow",
+     "blue",
+     "purple"
+    ],
+    [
+     "red",
+     "purple",
+     "red"
+    ],
+    [
+     "green",
+     "yellow",
+     "red",
+     "red",
+     "red"
+    ],
+    [
+     "red",
+     "green",
+     "yellow",
+     "purple",
+     "green"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 5.1854062615989704
+  },
+  {
+   "slots": [
+    [
+     "green",
+     "green",
+     "purple",
+     "purple",
+     "yellow"
+    ],
+    [
+     "green"
+    ],
+    [],
+    [
+     "green",
+     "green",
+     "green",
+     "red"
+    ],
+    []
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 8.73166021868404
+  },
+  {
+   "slots": [
+    [
+     "red"
+    ],
+    [
+     "red",
+     "blue",
+     "green",
+     "blue",
+     "yellow"
+    ],
+    [
+     "red",
+     "green"
+    ],
+    [],
+    [
+     "blue",
+     "purple"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 7.633831097133681
+  },
+  {
+   "slots": [
+    [
+     "blue"
+    ],
+    [
+     "blue",
+     "green"
+    ],
+    [
+     "green",
+     "yellow",
+     "blue",
+     "yellow"
+    ],
+    [
+     "red"
+    ],
+    []
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 8.443428093052525
+  },
+  {
+   "slots": [
+    [],
+    [
+     "blue",
+     "red"
+    ],
+    [
+     "blue",
+     "red",
+     "blue"
+    ],
+    [
+     "purple",
+     "yellow"
+    ],
+    [
+     "purple",
+     "blue",
+     "yellow",
+     "yellow",
+     "blue",
+     "purple"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 6.5625977120877454
+  },
+  {
+   "slots": [
+    [
+     "blue"
+    ],
+    [
+     "yellow",
+     "red",
+     "yellow",
+     "yellow",
+     "yellow"
+    ],
+    [
+     "purple",
+     "green",
+     "green"
+    ],
+    [],
+    []
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 9.118115212832002
+  },
+  {
+   "slots": [
+    [],
+    [
+     "red"
+    ],
+    [
+     "blue",
+     "green",
+     "red",
+     "red"
+    ],
+    [
+     "blue",
+     "blue",
+     "purple",
+     "green",
+     "blue"
+    ],
+    []
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 8.245833366898971
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "red",
+     "blue"
+    ],
+    [
+     "yellow",
+     "green"
+    ],
+    [
+     "yellow",
+     "purple",
+     "green",
+     "yellow",
+     "yellow",
+     "purple"
+    ],
+    [
+     "yellow",
+     "green"
+    ],
+    [
+     "purple"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 6.154839511184278
+  },
+  {
+   "slots": [
+    [
+     "green",
+     "yellow",
+     "purple",
+     "purple"
+    ],
+    [
+     "green",
+     "yellow",
+     "blue",
+     "green"
+    ],
+    [
+     "yellow",
+     "red"
+    ],
+    [
+     "blue",
+     "blue",
+     "green",
+     "red",
+     "purple",
+     "purple"
+    ],
+    [
+     "purple",
+     "yellow",
+     "green",
+     "blue",
+     "blue",
+     "red"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 3.7631811277391503
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "purple",
+     "yellow",
+     "yellow",
+     "purple",
+     "purple"
+    ],
+    [
+     "purple",
+     "blue",
+     "red",
+     "yellow"
+    ],
+    [
+     "green",
+     "green",
+     "purple"
+    ],
+    [],
+    [
+     "purple",
+     "purple",
+     "purple",
+     "yellow",
+     "red",
+     "purple"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 5.171864617164859
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "green",
+     "green"
+    ],
+    [
+     "purple",
+     "red",
+     "purple",
+     "yellow",
+     "green"
+    ],
+    [
+     "red",
+     "green"
+    ],
+    [
+     "green",
+     "purple"
+    ],
+    [
+     "green",
+     "red",
+     "green",
+     "green",
+     "purple",
+     "yellow"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 3.8959825771973122
+  },
+  {
+   "slots": [
+    [
+     "green"
+    ],
+    [
+     "blue",
+     "green",
+     "blue",
+     "yellow",
+     "red"
+    ],
+    [
+     "green",
+     "purple",
+     "blue"
+    ],
+    [
+     "red",
+     "purple"
+    ],
+    [
+     "yellow",
+     "purple",
+     "green"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 5.853354808888943
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "red",
+     "green",
+     "red",
+     "yellow",
+     "yellow"
+    ],
+    [
+     "purple",
+     "purple",
+     "green",
+     "blue",
+     "red"
+    ],
+    [
+     "purple",
+     "red",
+     "yellow"
+    ],
+    [
+     "red",
+     "yellow",
+     "yellow",
+     "purple",
+     "blue"
+    ],
+    [
+     "yellow",
+     "purple",
+     "green",
+     "red",
+     "yellow"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 2.5885683253429455
+  },
+  {
+   "slots": [
+    [
+     "yellow"
+    ],
+    [
+     "red",
+     "blue",
+     "purple"
+    ],
+    [
+     "red",
+     "purple"
+    ],
+    [
+     "blue",
+     "blue"
+    ],
+    [
+     "green",
+     "green",
+     "green",
+     "red",
+     "green"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 7.189289253052985
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "blue",
+     "red",
+     "yellow",
+     "red"
+    ],
+    [
+     "red"
+    ],
+    [
+     "green",
+     "blue",
+     "green",
+     "purple",
+     "yellow",
+     "red"
+    ],
+    [
+     "blue",
+     "blue",
+     "green",
+     "purple"
+    ],
+    [
+     "green",
+     "red",
+     "red"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 5.545622217729967
+  },
+  {
+   "slots": [
+    [
+     "green"
+    ],
+    [
+     "green",
+     "purple",
+     "purple",
+     "red",
+     "yellow",
+     "purple"
+    ],
+    [
+     "yellow",
+     "red",
+     "blue",
+     "yellow"
+    ],
+    [
+     "blue",
+     "yellow",
+     "green",
+     "red"
+    ],
+    [
+     "yellow",
+     "purple",
+     "red",
+     "green"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 4.0647060065379845
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "red"
+    ],
+    [
+     "green",
+     "blue",
+     "green",
+     "red"
+    ],
+    [
+     "red",
+     "purple",
+     "red"
+    ],
+    [
+     "purple"
+    ],
+    [
+     "blue",
+     "blue"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 6.715894406958937
+  },
+  {
+   "slots": [
+    [],
+    [
+     "purple",
+     "blue",
+     "green",
+     "green",
+     "blue"
+    ],
+    [
+     "green",
+     "blue",
+     "red",
+     "green"
+    ],
+    [
+     "blue",
+     "green",
+     "blue",
+     "yellow"
+    ],
+    [
+     "purple",
+     "red",
+     "yellow",
+     "yellow"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 5.019100124396637
+  },
+  {
+   "slots": [
+    [],
+    [],
+    [
+     "purple",
+     "yellow",
+     "blue",
+     "purple",
+     "purple"
+    ],
+    [
+     "red"
+    ],
+    [
+     "green",
+     "purple"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 8.935861460656632
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "purple",
+     "blue"
+    ],
+    [
+     "blue",
+     "purple"
+    ],
+    [
+     "blue",
+     "purple",
+     "red",
+     "yellow"
+    ],
+    [
+     "green",
+     "green",
+     "green",
+     "blue"
+    ],
+    [
+     "purple",
+     "blue",
+     "blue",
+     "green"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 5.098250085454826
+  },
+  {
+   "slots": [
+    [],
+    [
+     "green"
+    ],
+    [
+     "green",
+     "blue",
+     "green",
+     "blue",
+     "red"
+    ],
+    [
+     "yellow",
+     "green"
+    ],
+    [
+     "red",
+     "blue",
+     "red"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 6.846069836840391
+  },
+  {
+   "slots": [
+    [
+     "yellow"
+    ],
+    [
+     "yellow",
+     "green"
+    ],
+    [
+     "blue",
+     "green",
+     "green"
+    ],
+    [],
+    [
+     "red",
+     "purple",
+     "yellow",
+     "purple",
+     "yellow",
+     "blue"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 7.316330061264953
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "purple",
+     "green",
+     "green"
+    ],
+    [],
+    [
+     "green",
+     "green",
+     "yellow"
+    ],
+    [
+     "green"
+    ],
+    []
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 9.008602258952623
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "blue",
+     "green"
+    ],
+    [
+     "green",
+     "purple",
+     "yellow",
+     "purple",
+     "green"
+    ],
+    [
+     "red"
+    ],
+    [],
+    []
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 8.240754096205393
+  },
+  {
+   "slots": [
+    [],
+    [
+     "blue",
+     "green",
+     "red",
+     "red",
+     "red"
+    ],
+    [
+     "purple",
+     "purple"
+    ],
+    [
+     "purple"
+    ],
+    [
+     "red",
+     "blue",
+     "purple",
+     "green",
+     "purple",
+     "yellow"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 7.1350681791677415
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "green",
+     "purple"
+    ],
+    [
+     "yellow",
+     "yellow",
+     "yellow",
+     "red",
+     "purple",
+     "yellow"
+    ],
+    [
+     "red",
+     "blue",
+     "purple",
+     "blue"
+    ],
+    [
+     "purple",
+     "yellow"
+    ],
+    [
+     "green",
+     "green"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 5.632639596211897
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "green",
+     "yellow",
+     "green",
+     "blue",
+     "green"
+    ],
+    [
+     "red",
+     "green",
+     "yellow",
+     "blue",
+     "red"
+    ],
+    [
+     "purple"
+    ],
+    [
+     "red",
+     "green",
+     "blue",
+     "yellow",
+     "green"
+    ],
+    [
+     "yellow",
+     "red",
+     "blue",
+     "green"
+    ]
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 2.8507289996273935
+  },
+  {
+   "slots": [
+    [
+     "green",
+     "red",
+     "purple",
+     "red",
+     "green"
+    ],
+    [],
+    [
+     "red",
+     "purple",
+     "blue",
+     "blue"
+    ],
+    [
+     "purple",
+     "yellow",
+     "yellow",
+     "purple",
+     "red"
+    ],
+    []
+   ],
+   "P": 0.45,
+   "V": 20,
+   "expected": 6.745238765411262
+  },
+  {
+   "slots": [
+    [],
+    [],
+    [
+     "red",
+     "purple",
+     "purple"
+    ],
+    [
+     "red",
+     "blue",
+     "blue",
+     "yellow"
+    ],
+    [
+     "blue",
+     "red",
+     "green",
+     "yellow"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 8.112324606247459
+  },
+  {
+   "slots": [
+    [],
+    [
+     "green"
+    ],
+    [
+     "purple",
+     "purple",
+     "yellow",
+     "blue"
+    ],
+    [],
+    [
+     "red"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 10.022322583094262
+  },
+  {
+   "slots": [
+    [],
+    [
+     "blue",
+     "yellow",
+     "blue",
+     "blue"
+    ],
+    [
+     "purple",
+     "yellow"
+    ],
+    [
+     "red",
+     "green",
+     "blue",
+     "green",
+     "blue"
+    ],
+    [
+     "purple",
+     "purple",
+     "blue",
+     "green",
+     "green"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 5.917984702732852
+  },
+  {
+   "slots": [
+    [],
+    [
+     "purple"
+    ],
+    [
+     "red",
+     "red",
+     "yellow",
+     "blue",
+     "green",
+     "green"
+    ],
+    [
+     "blue",
+     "green",
+     "red",
+     "blue",
+     "red"
+    ],
+    [
+     "blue",
+     "blue",
+     "green",
+     "red"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 6.2540574597546925
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "red",
+     "yellow",
+     "red"
+    ],
+    [
+     "red",
+     "purple"
+    ],
+    [],
+    [
+     "blue",
+     "blue",
+     "green",
+     "red",
+     "green"
+    ],
+    [
+     "yellow",
+     "red",
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 6.183263926382497
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "red",
+     "red",
+     "blue",
+     "purple",
+     "blue"
+    ],
+    [
+     "yellow",
+     "green",
+     "green"
+    ],
+    [
+     "yellow",
+     "red",
+     "yellow",
+     "green"
+    ],
+    [
+     "purple",
+     "yellow",
+     "blue",
+     "green",
+     "red"
+    ],
+    [
+     "green",
+     "blue",
+     "yellow",
+     "blue"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 3.255092351249607
+  },
+  {
+   "slots": [
+    [
+     "green",
+     "red",
+     "blue",
+     "red",
+     "yellow"
+    ],
+    [
+     "green",
+     "purple",
+     "yellow"
+    ],
+    [
+     "blue",
+     "purple",
+     "blue"
+    ],
+    [
+     "yellow",
+     "green",
+     "green",
+     "blue",
+     "red",
+     "green"
+    ],
+    [
+     "red"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 4.673358905522521
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "blue",
+     "blue"
+    ],
+    [
+     "red",
+     "purple",
+     "yellow",
+     "yellow",
+     "purple",
+     "green"
+    ],
+    [
+     "red",
+     "red",
+     "purple",
+     "green",
+     "blue"
+    ],
+    [
+     "yellow",
+     "blue",
+     "yellow",
+     "blue",
+     "red",
+     "purple"
+    ],
+    [
+     "purple",
+     "blue"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 3.8840452122803075
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "yellow",
+     "purple",
+     "purple",
+     "blue"
+    ],
+    [
+     "red",
+     "red",
+     "purple",
+     "red",
+     "red"
+    ],
+    [],
+    [
+     "blue",
+     "red",
+     "red",
+     "green",
+     "blue"
+    ],
+    [
+     "purple",
+     "red",
+     "red",
+     "blue",
+     "green"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 4.833996947415872
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "red",
+     "red",
+     "purple",
+     "yellow"
+    ],
+    [
+     "red"
+    ],
+    [
+     "green",
+     "red",
+     "blue",
+     "yellow",
+     "blue"
+    ],
+    [
+     "yellow"
+    ],
+    [
+     "green",
+     "green",
+     "purple",
+     "blue",
+     "red"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 5.5419170489365355
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "blue",
+     "green"
+    ],
+    [
+     "green",
+     "purple",
+     "yellow"
+    ],
+    [
+     "yellow",
+     "blue"
+    ],
+    [
+     "green",
+     "blue",
+     "yellow",
+     "green",
+     "blue",
+     "blue"
+    ],
+    [
+     "purple",
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 5.852506101681506
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "red",
+     "purple",
+     "yellow"
+    ],
+    [
+     "purple",
+     "blue"
+    ],
+    [
+     "purple",
+     "red"
+    ],
+    [
+     "green",
+     "red",
+     "yellow",
+     "blue",
+     "purple",
+     "purple"
+    ],
+    []
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 6.8107440351233866
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "purple"
+    ],
+    [
+     "green",
+     "blue",
+     "red"
+    ],
+    [
+     "green",
+     "purple",
+     "red"
+    ],
+    [
+     "red"
+    ],
+    [
+     "red",
+     "green",
+     "red",
+     "blue"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 5.9573831319742725
+  },
+  {
+   "slots": [
+    [
+     "green",
+     "purple",
+     "red"
+    ],
+    [
+     "red",
+     "purple",
+     "yellow",
+     "blue",
+     "red",
+     "red"
+    ],
+    [
+     "green",
+     "yellow"
+    ],
+    [
+     "purple",
+     "blue",
+     "green",
+     "blue",
+     "green",
+     "yellow"
+    ],
+    [
+     "green",
+     "purple",
+     "blue",
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 3.7121098285760823
+  },
+  {
+   "slots": [
+    [
+     "blue"
+    ],
+    [
+     "purple",
+     "purple",
+     "red",
+     "purple"
+    ],
+    [
+     "purple",
+     "blue",
+     "purple",
+     "purple",
+     "purple"
+    ],
+    [
+     "purple",
+     "yellow",
+     "yellow",
+     "red"
+    ],
+    [
+     "blue",
+     "purple",
+     "blue"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 4.756252201609201
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "red",
+     "blue",
+     "blue",
+     "red"
+    ],
+    [
+     "blue",
+     "green",
+     "yellow",
+     "blue",
+     "purple"
+    ],
+    [
+     "green"
+    ],
+    [
+     "red",
+     "green",
+     "blue",
+     "yellow"
+    ],
+    [
+     "blue",
+     "yellow",
+     "red"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 4.601188391495566
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "purple",
+     "yellow",
+     "yellow",
+     "red",
+     "green"
+    ],
+    [
+     "green",
+     "purple",
+     "blue",
+     "purple",
+     "green",
+     "blue"
+    ],
+    [
+     "green",
+     "blue"
+    ],
+    [
+     "red",
+     "purple",
+     "red",
+     "purple",
+     "green"
+    ],
+    [
+     "green",
+     "green",
+     "purple",
+     "purple",
+     "yellow"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 2.9106135151938988
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "red",
+     "yellow",
+     "green"
+    ],
+    [
+     "yellow"
+    ],
+    [
+     "blue",
+     "blue",
+     "red"
+    ],
+    [
+     "red",
+     "blue",
+     "yellow",
+     "red"
+    ],
+    [
+     "red"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 6.408298339495634
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "green",
+     "red",
+     "purple",
+     "purple",
+     "yellow"
+    ],
+    [],
+    [
+     "red",
+     "red",
+     "yellow",
+     "green",
+     "green"
+    ],
+    [
+     "blue",
+     "blue",
+     "blue",
+     "green"
+    ],
+    [
+     "red",
+     "red",
+     "red",
+     "red",
+     "red",
+     "green"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 5.343149805110616
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "blue",
+     "yellow"
+    ],
+    [
+     "red",
+     "blue",
+     "red"
+    ],
+    [
+     "yellow",
+     "red",
+     "blue",
+     "purple",
+     "red",
+     "red"
+    ],
+    [
+     "green",
+     "yellow",
+     "green",
+     "green",
+     "green"
+    ],
+    [
+     "purple",
+     "yellow",
+     "green"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 4.614049784638278
+  },
+  {
+   "slots": [
+    [],
+    [
+     "purple"
+    ],
+    [
+     "purple",
+     "yellow",
+     "purple",
+     "red",
+     "red"
+    ],
+    [
+     "blue",
+     "green",
+     "red",
+     "red",
+     "purple",
+     "yellow"
+    ],
+    [
+     "yellow",
+     "purple",
+     "blue",
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 5.860950268776446
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "blue",
+     "red",
+     "yellow",
+     "yellow",
+     "red"
+    ],
+    [
+     "red"
+    ],
+    [
+     "blue",
+     "blue",
+     "yellow",
+     "yellow"
+    ],
+    [],
+    [
+     "blue",
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 7.404561310259019
+  },
+  {
+   "slots": [
+    [
+     "green"
+    ],
+    [
+     "yellow",
+     "purple",
+     "green",
+     "red",
+     "green",
+     "green"
+    ],
+    [
+     "green",
+     "red",
+     "yellow",
+     "blue"
+    ],
+    [],
+    [
+     "blue"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 7.447460089488022
+  },
+  {
+   "slots": [
+    [
+     "green"
+    ],
+    [],
+    [],
+    [
+     "blue",
+     "yellow",
+     "blue"
+    ],
+    [
+     "red",
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 9.755057608314297
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "blue",
+     "purple"
+    ],
+    [
+     "purple"
+    ],
+    [
+     "yellow",
+     "yellow"
+    ],
+    [
+     "yellow",
+     "blue",
+     "purple",
+     "purple",
+     "green",
+     "yellow"
+    ],
+    [
+     "blue"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 7.296528992861047
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "purple",
+     "green",
+     "green",
+     "yellow"
+    ],
+    [],
+    [
+     "yellow",
+     "red",
+     "green"
+    ],
+    [
+     "blue"
+    ],
+    [
+     "red",
+     "blue"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 7.6861727649726115
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "green"
+    ],
+    [
+     "green",
+     "green",
+     "blue",
+     "yellow",
+     "red",
+     "purple"
+    ],
+    [
+     "yellow",
+     "green",
+     "yellow"
+    ],
+    [
+     "blue",
+     "red"
+    ],
+    [
+     "red",
+     "yellow"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 5.77439863708465
+  },
+  {
+   "slots": [
+    [],
+    [],
+    [
+     "purple",
+     "red"
+    ],
+    [
+     "yellow",
+     "blue",
+     "green",
+     "purple",
+     "blue"
+    ],
+    [
+     "purple",
+     "purple",
+     "red",
+     "yellow",
+     "red"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 7.348440664826358
+  },
+  {
+   "slots": [
+    [],
+    [
+     "blue",
+     "purple",
+     "purple"
+    ],
+    [
+     "green"
+    ],
+    [
+     "blue",
+     "blue",
+     "purple",
+     "red"
+    ],
+    [
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 8.713271054853958
+  },
+  {
+   "slots": [
+    [
+     "green",
+     "red",
+     "red",
+     "purple",
+     "purple"
+    ],
+    [
+     "blue"
+    ],
+    [
+     "blue",
+     "purple",
+     "purple",
+     "red",
+     "yellow"
+    ],
+    [
+     "purple",
+     "red",
+     "red",
+     "green"
+    ],
+    [
+     "green",
+     "red",
+     "red"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 5.443920438219632
+  },
+  {
+   "slots": [
+    [
+     "blue"
+    ],
+    [],
+    [
+     "blue",
+     "purple"
+    ],
+    [
+     "blue",
+     "red",
+     "purple"
+    ],
+    []
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 9.583864773093614
+  },
+  {
+   "slots": [
+    [
+     "purple"
+    ],
+    [],
+    [
+     "blue",
+     "purple"
+    ],
+    [
+     "purple",
+     "blue",
+     "purple",
+     "blue",
+     "yellow",
+     "green"
+    ],
+    [
+     "blue",
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 7.275552219502743
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "blue"
+    ],
+    [
+     "green"
+    ],
+    [
+     "purple"
+    ],
+    [
+     "red",
+     "red",
+     "purple"
+    ],
+    [
+     "green",
+     "yellow",
+     "red",
+     "yellow",
+     "red",
+     "red"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 7.324691667308064
+  },
+  {
+   "slots": [
+    [
+     "red"
+    ],
+    [],
+    [
+     "blue",
+     "yellow",
+     "red",
+     "purple",
+     "green"
+    ],
+    [
+     "purple",
+     "purple",
+     "red",
+     "purple",
+     "green",
+     "red"
+    ],
+    [
+     "red",
+     "green"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 6.456861388516273
+  },
+  {
+   "slots": [
+    [],
+    [
+     "green",
+     "yellow",
+     "purple"
+    ],
+    [
+     "red",
+     "red",
+     "green"
+    ],
+    [
+     "yellow",
+     "red"
+    ],
+    [
+     "blue",
+     "yellow",
+     "red"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 7.567515392674068
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "red",
+     "purple",
+     "blue",
+     "blue",
+     "red"
+    ],
+    [
+     "green",
+     "red",
+     "purple",
+     "yellow",
+     "red"
+    ],
+    [
+     "yellow",
+     "yellow",
+     "green",
+     "green",
+     "purple"
+    ],
+    [],
+    [
+     "blue",
+     "blue",
+     "blue",
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 5.235709412566813
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "yellow",
+     "red",
+     "purple"
+    ],
+    [
+     "red",
+     "yellow",
+     "purple",
+     "blue"
+    ],
+    [
+     "purple",
+     "yellow",
+     "blue"
+    ],
+    [
+     "red",
+     "red",
+     "purple",
+     "red"
+    ],
+    [
+     "red",
+     "green",
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 3.520274622681889
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "blue"
+    ],
+    [
+     "red",
+     "red",
+     "blue",
+     "blue",
+     "yellow",
+     "red"
+    ],
+    [
+     "green",
+     "yellow",
+     "yellow",
+     "green"
+    ],
+    [
+     "yellow",
+     "blue",
+     "yellow"
+    ],
+    [
+     "green",
+     "red",
+     "blue"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 4.563167815262167
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "yellow",
+     "purple"
+    ],
+    [
+     "purple",
+     "green",
+     "yellow",
+     "yellow"
+    ],
+    [
+     "red"
+    ],
+    [
+     "yellow",
+     "red",
+     "yellow"
+    ],
+    [
+     "green",
+     "red",
+     "red"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 6.23689371227208
+  },
+  {
+   "slots": [
+    [
+     "yellow"
+    ],
+    [
+     "green",
+     "purple",
+     "red",
+     "red"
+    ],
+    [
+     "blue",
+     "red",
+     "purple",
+     "red",
+     "purple"
+    ],
+    [
+     "red",
+     "yellow",
+     "green",
+     "yellow",
+     "blue",
+     "red"
+    ],
+    [
+     "purple",
+     "blue",
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 20,
+   "expected": 4.18632924342631
+  },
+  {
+   "slots": [
+    [
+     "green",
+     "green",
+     "yellow",
+     "green",
+     "purple"
+    ],
+    [
+     "purple",
+     "red",
+     "yellow",
+     "purple",
+     "purple",
+     "red"
+    ],
+    [
+     "red"
+    ],
+    [
+     "blue",
+     "purple",
+     "red"
+    ],
+    [
+     "blue",
+     "blue",
+     "green",
+     "yellow",
+     "purple"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 5.414931261149202
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "purple",
+     "red",
+     "red"
+    ],
+    [
+     "yellow",
+     "red",
+     "purple",
+     "green",
+     "blue"
+    ],
+    [
+     "blue"
+    ],
+    [
+     "purple",
+     "red",
+     "blue",
+     "green",
+     "red",
+     "purple"
+    ],
+    [
+     "blue",
+     "red"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 5.593538310583963
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "yellow",
+     "yellow",
+     "purple",
+     "purple"
+    ],
+    [
+     "blue",
+     "blue",
+     "green"
+    ],
+    [
+     "red",
+     "purple"
+    ],
+    [
+     "green",
+     "purple",
+     "yellow",
+     "red",
+     "red"
+    ],
+    [
+     "blue",
+     "yellow"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 7.3181693931003196
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "green"
+    ],
+    [
+     "red",
+     "yellow",
+     "blue",
+     "purple",
+     "blue",
+     "purple"
+    ],
+    [
+     "red",
+     "red"
+    ],
+    [
+     "red",
+     "green",
+     "red",
+     "purple"
+    ],
+    []
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 7.3608211834212
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "green",
+     "blue"
+    ],
+    [],
+    [
+     "purple",
+     "blue",
+     "yellow",
+     "purple"
+    ],
+    [],
+    [
+     "yellow",
+     "purple"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 9.369950219390738
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "purple"
+    ],
+    [
+     "blue",
+     "purple",
+     "purple",
+     "yellow",
+     "purple"
+    ],
+    [
+     "green"
+    ],
+    [
+     "red",
+     "red"
+    ],
+    [
+     "purple"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 8.98122536135805
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "purple"
+    ],
+    [
+     "red",
+     "purple",
+     "blue",
+     "red"
+    ],
+    [
+     "red",
+     "blue",
+     "blue",
+     "blue",
+     "green",
+     "purple"
+    ],
+    [
+     "yellow",
+     "yellow",
+     "blue",
+     "yellow",
+     "blue"
+    ],
+    [
+     "yellow"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 5.767373043738683
+  },
+  {
+   "slots": [
+    [],
+    [
+     "yellow",
+     "green",
+     "yellow",
+     "purple",
+     "purple"
+    ],
+    [
+     "green",
+     "red",
+     "yellow"
+    ],
+    [
+     "green",
+     "yellow",
+     "blue",
+     "yellow"
+    ],
+    [
+     "yellow",
+     "green"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 7.173717440041276
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "purple"
+    ],
+    [
+     "yellow",
+     "green",
+     "red",
+     "red",
+     "purple",
+     "green"
+    ],
+    [
+     "green"
+    ],
+    [
+     "purple",
+     "blue",
+     "red",
+     "purple",
+     "yellow"
+    ],
+    [
+     "purple",
+     "yellow",
+     "red",
+     "green",
+     "purple",
+     "purple"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 4.827259162748134
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "red",
+     "purple",
+     "purple",
+     "yellow"
+    ],
+    [
+     "yellow",
+     "red"
+    ],
+    [],
+    [],
+    []
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 10.568227561254826
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "yellow",
+     "blue",
+     "blue"
+    ],
+    [
+     "purple",
+     "yellow",
+     "purple"
+    ],
+    [
+     "red"
+    ],
+    [],
+    [
+     "red"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 9.557995839374675
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "red",
+     "yellow",
+     "purple",
+     "green"
+    ],
+    [
+     "yellow",
+     "green"
+    ],
+    [],
+    [
+     "green",
+     "green",
+     "blue"
+    ],
+    [
+     "yellow",
+     "green",
+     "blue",
+     "red",
+     "green"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 7.033789432157131
+  },
+  {
+   "slots": [
+    [
+     "blue"
+    ],
+    [],
+    [
+     "green",
+     "blue"
+    ],
+    [
+     "blue",
+     "green",
+     "purple",
+     "purple",
+     "green",
+     "yellow"
+    ],
+    [
+     "green",
+     "purple",
+     "green"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 8.126801557528353
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "yellow",
+     "green",
+     "green",
+     "red",
+     "yellow"
+    ],
+    [
+     "purple"
+    ],
+    [
+     "red",
+     "red",
+     "purple"
+    ],
+    [
+     "yellow",
+     "green",
+     "green",
+     "red"
+    ],
+    [
+     "blue"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 7.650000683169617
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "purple",
+     "blue",
+     "blue",
+     "yellow"
+    ],
+    [
+     "red"
+    ],
+    [
+     "purple"
+    ],
+    [
+     "red",
+     "purple",
+     "green",
+     "green"
+    ],
+    []
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 9.028434052299149
+  },
+  {
+   "slots": [
+    [
+     "green",
+     "purple",
+     "purple",
+     "yellow",
+     "purple",
+     "green"
+    ],
+    [
+     "green",
+     "blue",
+     "blue",
+     "yellow",
+     "red",
+     "purple"
+    ],
+    [
+     "red"
+    ],
+    [
+     "purple",
+     "red",
+     "blue"
+    ],
+    []
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 7.298747183405027
+  },
+  {
+   "slots": [
+    [],
+    [
+     "green",
+     "green",
+     "green",
+     "red",
+     "green",
+     "red"
+    ],
+    [
+     "blue"
+    ],
+    [
+     "yellow",
+     "purple",
+     "green",
+     "red",
+     "blue"
+    ],
+    [
+     "blue",
+     "blue",
+     "red",
+     "yellow"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 7.100932300889507
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "blue",
+     "purple",
+     "green"
+    ],
+    [
+     "blue",
+     "red",
+     "red",
+     "green",
+     "red"
+    ],
+    [
+     "yellow",
+     "purple"
+    ],
+    [
+     "blue",
+     "purple",
+     "purple",
+     "purple",
+     "yellow",
+     "green"
+    ],
+    [
+     "purple",
+     "yellow",
+     "green",
+     "red"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 4.658224558251971
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "yellow"
+    ],
+    [
+     "yellow",
+     "green",
+     "blue",
+     "purple"
+    ],
+    [
+     "purple"
+    ],
+    [
+     "blue",
+     "blue",
+     "yellow",
+     "red",
+     "blue"
+    ],
+    [
+     "yellow"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 7.75173593899823
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "purple"
+    ],
+    [
+     "purple"
+    ],
+    [],
+    [
+     "purple",
+     "yellow",
+     "red",
+     "blue"
+    ],
+    [
+     "red",
+     "yellow"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 9.245529571561292
+  },
+  {
+   "slots": [
+    [
+     "red"
+    ],
+    [],
+    [
+     "blue",
+     "yellow"
+    ],
+    [
+     "red",
+     "green"
+    ],
+    []
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 11.208769471040037
+  },
+  {
+   "slots": [
+    [
+     "green",
+     "blue",
+     "blue",
+     "purple",
+     "red"
+    ],
+    [
+     "blue",
+     "blue",
+     "yellow",
+     "purple"
+    ],
+    [
+     "blue",
+     "red",
+     "green",
+     "red",
+     "blue",
+     "purple"
+    ],
+    [
+     "purple",
+     "blue",
+     "purple"
+    ],
+    [
+     "yellow",
+     "blue",
+     "yellow",
+     "green"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 3.790853951884272
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "yellow",
+     "green"
+    ],
+    [
+     "green",
+     "blue",
+     "purple",
+     "yellow",
+     "red"
+    ],
+    [
+     "yellow",
+     "purple",
+     "purple",
+     "green"
+    ],
+    [
+     "blue",
+     "green"
+    ],
+    [
+     "purple",
+     "yellow",
+     "green",
+     "red",
+     "yellow",
+     "red"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 4.580834896870391
+  },
+  {
+   "slots": [
+    [
+     "green",
+     "red",
+     "red"
+    ],
+    [
+     "blue"
+    ],
+    [],
+    [
+     "red",
+     "yellow",
+     "green"
+    ],
+    [
+     "red",
+     "blue",
+     "red",
+     "purple"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 8.543734573228114
+  },
+  {
+   "slots": [
+    [],
+    [
+     "purple",
+     "yellow",
+     "red"
+    ],
+    [
+     "green",
+     "purple"
+    ],
+    [
+     "purple",
+     "yellow",
+     "green",
+     "yellow",
+     "blue",
+     "yellow"
+    ],
+    [
+     "green",
+     "red"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 7.5606358185488425
+  },
+  {
+   "slots": [
+    [
+     "blue"
+    ],
+    [
+     "purple",
+     "red",
+     "green"
+    ],
+    [],
+    [
+     "yellow",
+     "green",
+     "blue",
+     "purple"
+    ],
+    [
+     "yellow",
+     "purple",
+     "purple",
+     "red",
+     "green",
+     "blue"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 7.481867096670773
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "blue",
+     "purple",
+     "yellow"
+    ],
+    [
+     "green",
+     "red",
+     "blue",
+     "blue",
+     "blue",
+     "red"
+    ],
+    [
+     "green",
+     "purple",
+     "yellow",
+     "purple"
+    ],
+    [
+     "yellow",
+     "purple",
+     "yellow"
+    ],
+    [
+     "yellow",
+     "yellow"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 5.4501975195201675
+  },
+  {
+   "slots": [
+    [
+     "yellow"
+    ],
+    [
+     "red",
+     "blue",
+     "yellow",
+     "blue",
+     "purple",
+     "green"
+    ],
+    [
+     "yellow",
+     "yellow",
+     "green",
+     "green"
+    ],
+    [
+     "purple",
+     "green",
+     "green",
+     "yellow",
+     "purple"
+    ],
+    [
+     "purple",
+     "purple",
+     "purple",
+     "red"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 5.716806559958256
+  },
+  {
+   "slots": [
+    [
+     "yellow"
+    ],
+    [
+     "purple",
+     "yellow",
+     "yellow",
+     "blue",
+     "purple"
+    ],
+    [
+     "yellow",
+     "green",
+     "red",
+     "blue"
+    ],
+    [
+     "green",
+     "purple",
+     "red",
+     "blue"
+    ],
+    [
+     "blue",
+     "red",
+     "green",
+     "yellow"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 5.515089121024452
+  },
+  {
+   "slots": [
+    [],
+    [
+     "green",
+     "blue",
+     "green"
+    ],
+    [
+     "red",
+     "green"
+    ],
+    [
+     "blue",
+     "blue",
+     "blue",
+     "green",
+     "yellow",
+     "yellow"
+    ],
+    [
+     "blue",
+     "blue",
+     "yellow"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 8.009807725319178
+  },
+  {
+   "slots": [
+    [],
+    [
+     "blue"
+    ],
+    [
+     "blue",
+     "blue",
+     "purple",
+     "purple",
+     "green"
+    ],
+    [],
+    [
+     "purple"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 10.734673801325146
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "blue",
+     "yellow",
+     "green",
+     "green",
+     "blue"
+    ],
+    [
+     "purple"
+    ],
+    [
+     "blue"
+    ],
+    [
+     "blue",
+     "green",
+     "blue",
+     "blue",
+     "blue",
+     "purple"
+    ],
+    [
+     "purple",
+     "yellow"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 6.972763012438688
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "blue",
+     "red"
+    ],
+    [
+     "green",
+     "red",
+     "red",
+     "green"
+    ],
+    [
+     "green",
+     "blue",
+     "green",
+     "red",
+     "yellow",
+     "green"
+    ],
+    [
+     "red",
+     "green",
+     "red",
+     "green",
+     "red"
+    ],
+    [
+     "green",
+     "green",
+     "purple",
+     "yellow",
+     "green",
+     "red"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 2.1091320108796054
+  },
+  {
+   "slots": [
+    [],
+    [
+     "purple",
+     "green",
+     "green"
+    ],
+    [
+     "red",
+     "green",
+     "red"
+    ],
+    [
+     "blue",
+     "purple",
+     "red",
+     "yellow"
+    ],
+    [
+     "yellow",
+     "purple",
+     "purple"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 7.947455853868805
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "purple",
+     "yellow",
+     "blue"
+    ],
+    [],
+    [
+     "green",
+     "purple"
+    ],
+    [],
+    [
+     "blue",
+     "blue"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 10.299457925955537
+  },
+  {
+   "slots": [
+    [],
+    [
+     "yellow",
+     "purple"
+    ],
+    [
+     "blue",
+     "purple"
+    ],
+    [
+     "purple"
+    ],
+    [
+     "purple",
+     "purple",
+     "blue",
+     "purple",
+     "yellow"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 8.86146913444789
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "green",
+     "blue",
+     "yellow",
+     "green",
+     "blue"
+    ],
+    [
+     "green",
+     "blue"
+    ],
+    [
+     "green",
+     "blue",
+     "yellow"
+    ],
+    [],
+    [
+     "green",
+     "red",
+     "yellow"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 6.606102106994567
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "purple",
+     "red",
+     "yellow",
+     "purple",
+     "blue"
+    ],
+    [],
+    [
+     "blue",
+     "green"
+    ],
+    [
+     "red",
+     "blue"
+    ],
+    [
+     "green",
+     "yellow",
+     "green",
+     "yellow"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 7.135865365010051
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "green",
+     "green"
+    ],
+    [
+     "blue",
+     "red",
+     "blue"
+    ],
+    [
+     "purple",
+     "blue",
+     "red",
+     "green",
+     "purple",
+     "red"
+    ],
+    [
+     "red",
+     "blue",
+     "red",
+     "purple"
+    ],
+    [
+     "green"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 5.584762550590288
+  },
+  {
+   "slots": [
+    [
+     "green",
+     "yellow",
+     "yellow",
+     "green",
+     "purple"
+    ],
+    [
+     "red",
+     "purple",
+     "purple",
+     "green",
+     "blue"
+    ],
+    [
+     "purple",
+     "red"
+    ],
+    [
+     "green"
+    ],
+    [
+     "yellow",
+     "red",
+     "green",
+     "purple",
+     "purple",
+     "yellow"
+    ]
+   ],
+   "P": 0.8,
+   "V": 20,
+   "expected": 5.448924726622718
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "blue",
+     "green"
+    ],
+    [
+     "purple",
+     "red",
+     "blue",
+     "blue",
+     "red",
+     "purple"
+    ],
+    [
+     "green",
+     "yellow",
+     "blue",
+     "green"
+    ],
+    [
+     "red",
+     "purple",
+     "green"
+    ],
+    [
+     "green",
+     "purple",
+     "purple",
+     "blue"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 1.2628896815052688
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "red",
+     "yellow"
+    ],
+    [
+     "green",
+     "purple",
+     "blue"
+    ],
+    [
+     "yellow",
+     "purple"
+    ],
+    [
+     "yellow",
+     "green"
+    ],
+    [
+     "red"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 4.207167550141921
+  },
+  {
+   "slots": [
+    [],
+    [
+     "red",
+     "purple",
+     "green",
+     "yellow",
+     "red"
+    ],
+    [
+     "red",
+     "purple",
+     "purple"
+    ],
+    [
+     "green"
+    ],
+    [
+     "blue",
+     "green",
+     "yellow",
+     "blue",
+     "yellow",
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 3.961795423098444
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "yellow"
+    ],
+    [
+     "red",
+     "yellow",
+     "red",
+     "purple"
+    ],
+    [
+     "green",
+     "red",
+     "purple",
+     "green",
+     "red"
+    ],
+    [
+     "green",
+     "blue",
+     "blue",
+     "red"
+    ],
+    [
+     "red",
+     "purple",
+     "purple",
+     "yellow",
+     "green"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 2.6433242973240567
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "green"
+    ],
+    [
+     "blue",
+     "red",
+     "blue",
+     "yellow"
+    ],
+    [
+     "purple"
+    ],
+    [],
+    [
+     "yellow",
+     "yellow",
+     "yellow",
+     "green"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 4.824561265541917
+  },
+  {
+   "slots": [
+    [],
+    [
+     "red",
+     "green"
+    ],
+    [
+     "red",
+     "green",
+     "red",
+     "blue",
+     "blue"
+    ],
+    [
+     "red",
+     "green",
+     "red",
+     "red"
+    ],
+    [
+     "red"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 4.201820797465525
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "red"
+    ],
+    [
+     "purple"
+    ],
+    [
+     "red",
+     "yellow",
+     "red"
+    ],
+    [
+     "green",
+     "yellow",
+     "red",
+     "purple",
+     "purple"
+    ],
+    [
+     "blue",
+     "green",
+     "green"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 3.827887529793218
+  },
+  {
+   "slots": [
+    [
+     "green",
+     "red",
+     "yellow",
+     "yellow"
+    ],
+    [
+     "blue"
+    ],
+    [
+     "red",
+     "yellow",
+     "blue"
+    ],
+    [
+     "yellow",
+     "yellow",
+     "blue",
+     "purple",
+     "green",
+     "yellow"
+    ],
+    []
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 3.951275068687977
+  },
+  {
+   "slots": [
+    [],
+    [],
+    [
+     "purple",
+     "red",
+     "red",
+     "green"
+    ],
+    [
+     "yellow",
+     "blue"
+    ],
+    [
+     "purple",
+     "yellow",
+     "green",
+     "blue",
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 4.821900249466786
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "red"
+    ],
+    [
+     "blue",
+     "green",
+     "yellow",
+     "green"
+    ],
+    [
+     "blue",
+     "red",
+     "yellow",
+     "green"
+    ],
+    [
+     "blue",
+     "yellow",
+     "green",
+     "red",
+     "red"
+    ],
+    [
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 3.084220425873478
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "yellow",
+     "blue"
+    ],
+    [
+     "yellow",
+     "blue",
+     "blue",
+     "purple"
+    ],
+    [
+     "purple",
+     "blue",
+     "purple"
+    ],
+    [
+     "purple",
+     "green"
+    ],
+    [
+     "purple",
+     "purple",
+     "blue",
+     "yellow",
+     "purple",
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 2.0849531541306128
+  },
+  {
+   "slots": [
+    [
+     "green",
+     "blue",
+     "purple",
+     "green",
+     "green",
+     "red"
+    ],
+    [
+     "purple",
+     "blue",
+     "blue",
+     "red"
+    ],
+    [
+     "purple",
+     "purple"
+    ],
+    [
+     "yellow",
+     "purple",
+     "purple",
+     "red"
+    ],
+    [
+     "yellow",
+     "yellow",
+     "blue"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 2.5118523757327593
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "purple"
+    ],
+    [
+     "red"
+    ],
+    [
+     "green",
+     "purple",
+     "yellow",
+     "yellow",
+     "red",
+     "purple"
+    ],
+    [
+     "purple",
+     "yellow",
+     "yellow",
+     "red",
+     "yellow",
+     "green"
+    ],
+    [
+     "yellow",
+     "blue"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 3.4803407773140616
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "purple",
+     "green",
+     "red",
+     "yellow",
+     "green"
+    ],
+    [
+     "blue",
+     "yellow",
+     "green",
+     "blue",
+     "purple"
+    ],
+    [
+     "yellow",
+     "green",
+     "purple",
+     "green",
+     "yellow",
+     "purple"
+    ],
+    [
+     "red",
+     "yellow"
+    ],
+    [
+     "yellow",
+     "green",
+     "yellow",
+     "purple",
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 1.0162503598840307
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "red"
+    ],
+    [
+     "blue",
+     "red",
+     "purple",
+     "blue",
+     "blue"
+    ],
+    [],
+    [
+     "blue",
+     "yellow",
+     "red",
+     "red"
+    ],
+    [
+     "green",
+     "green"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 4.732823780749817
+  },
+  {
+   "slots": [
+    [],
+    [
+     "red",
+     "yellow",
+     "blue",
+     "green",
+     "green"
+    ],
+    [
+     "purple",
+     "green"
+    ],
+    [
+     "red",
+     "yellow",
+     "blue",
+     "red",
+     "green",
+     "green"
+    ],
+    [
+     "red",
+     "green",
+     "red",
+     "purple",
+     "red",
+     "yellow"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 2.2437318731144638
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "blue"
+    ],
+    [
+     "blue",
+     "green",
+     "red"
+    ],
+    [
+     "green",
+     "green",
+     "yellow",
+     "yellow"
+    ],
+    [],
+    [
+     "blue",
+     "purple",
+     "blue",
+     "blue",
+     "yellow"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 4.117023078999627
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "purple",
+     "purple",
+     "green"
+    ],
+    [
+     "blue",
+     "green",
+     "red",
+     "yellow"
+    ],
+    [
+     "yellow",
+     "yellow"
+    ],
+    [
+     "yellow",
+     "purple",
+     "blue",
+     "blue"
+    ],
+    [
+     "yellow",
+     "red",
+     "green",
+     "green"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 3.1494780389049177
+  },
+  {
+   "slots": [
+    [],
+    [
+     "yellow",
+     "blue",
+     "purple",
+     "purple",
+     "blue"
+    ],
+    [
+     "red",
+     "purple",
+     "purple",
+     "red",
+     "green"
+    ],
+    [
+     "yellow",
+     "blue",
+     "green",
+     "purple"
+    ],
+    [
+     "green"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 3.507324283547274
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "red",
+     "yellow",
+     "purple",
+     "red"
+    ],
+    [
+     "blue",
+     "yellow"
+    ],
+    [],
+    [
+     "purple",
+     "yellow",
+     "green",
+     "yellow",
+     "blue",
+     "purple"
+    ],
+    [
+     "yellow",
+     "green",
+     "red",
+     "purple",
+     "purple",
+     "red"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 2.901829883469221
+  },
+  {
+   "slots": [
+    [
+     "green",
+     "purple"
+    ],
+    [
+     "yellow",
+     "purple",
+     "purple"
+    ],
+    [
+     "green",
+     "purple",
+     "purple",
+     "yellow",
+     "green"
+    ],
+    [
+     "green",
+     "red",
+     "blue",
+     "blue",
+     "purple"
+    ],
+    []
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 3.171017787587662
+  },
+  {
+   "slots": [
+    [],
+    [
+     "green",
+     "green",
+     "red",
+     "blue",
+     "blue",
+     "yellow"
+    ],
+    [
+     "red",
+     "purple",
+     "red",
+     "red",
+     "purple",
+     "red"
+    ],
+    [
+     "yellow",
+     "blue",
+     "purple",
+     "yellow",
+     "blue"
+    ],
+    [
+     "red",
+     "purple",
+     "green"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 3.5597797566913725
+  },
+  {
+   "slots": [
+    [
+     "green",
+     "purple"
+    ],
+    [
+     "purple",
+     "blue",
+     "green",
+     "red",
+     "purple",
+     "purple"
+    ],
+    [
+     "blue",
+     "purple",
+     "blue",
+     "yellow",
+     "blue",
+     "purple"
+    ],
+    [
+     "yellow"
+    ],
+    [
+     "green",
+     "red",
+     "green",
+     "blue",
+     "yellow"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 1.9014193786044755
+  },
+  {
+   "slots": [
+    [
+     "yellow",
+     "green"
+    ],
+    [
+     "red",
+     "blue"
+    ],
+    [
+     "red",
+     "purple",
+     "yellow",
+     "red"
+    ],
+    [],
+    [
+     "purple",
+     "red",
+     "blue"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 4.195821273634471
+  },
+  {
+   "slots": [
+    [
+     "yellow"
+    ],
+    [
+     "yellow",
+     "red",
+     "blue",
+     "purple"
+    ],
+    [
+     "purple",
+     "red",
+     "green",
+     "green",
+     "blue"
+    ],
+    [
+     "red",
+     "green"
+    ],
+    [
+     "blue",
+     "purple",
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 3.8643579027859802
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "green",
+     "purple"
+    ],
+    [],
+    [],
+    [
+     "red",
+     "purple",
+     "red",
+     "blue",
+     "yellow"
+    ],
+    [
+     "blue"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 5.265263359205278
+  },
+  {
+   "slots": [
+    [
+     "green",
+     "green",
+     "yellow"
+    ],
+    [
+     "purple",
+     "yellow",
+     "purple",
+     "yellow",
+     "red",
+     "yellow"
+    ],
+    [
+     "red"
+    ],
+    [
+     "green",
+     "purple",
+     "blue",
+     "blue",
+     "red",
+     "blue"
+    ],
+    [
+     "green",
+     "red"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 3.088954444731953
+  },
+  {
+   "slots": [
+    [],
+    [
+     "blue",
+     "green",
+     "green"
+    ],
+    [],
+    [
+     "blue",
+     "green",
+     "purple",
+     "green"
+    ],
+    [
+     "purple",
+     "blue"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 5.00051362011739
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "red",
+     "yellow",
+     "blue"
+    ],
+    [
+     "green",
+     "purple",
+     "blue",
+     "yellow"
+    ],
+    [
+     "green",
+     "blue",
+     "purple"
+    ],
+    [
+     "purple",
+     "green"
+    ],
+    []
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 3.756120392166794
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "yellow",
+     "green",
+     "blue",
+     "purple",
+     "purple"
+    ],
+    [],
+    [
+     "green",
+     "purple",
+     "yellow",
+     "green",
+     "yellow",
+     "yellow"
+    ],
+    [],
+    [
+     "green",
+     "green"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 5.141250287683171
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "yellow",
+     "green"
+    ],
+    [
+     "green"
+    ],
+    [
+     "yellow",
+     "red",
+     "yellow",
+     "purple",
+     "green",
+     "blue"
+    ],
+    [
+     "yellow",
+     "purple",
+     "red",
+     "yellow",
+     "blue"
+    ],
+    [
+     "blue",
+     "red"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 2.742554959406868
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "red",
+     "yellow",
+     "green"
+    ],
+    [
+     "yellow",
+     "purple"
+    ],
+    [
+     "blue",
+     "red"
+    ],
+    [
+     "red",
+     "blue",
+     "blue",
+     "purple"
+    ],
+    [
+     "red",
+     "green",
+     "purple",
+     "purple",
+     "yellow",
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 2.422358971260421
+  },
+  {
+   "slots": [
+    [
+     "green",
+     "yellow"
+    ],
+    [
+     "purple",
+     "green",
+     "red",
+     "purple",
+     "yellow"
+    ],
+    [],
+    [
+     "red",
+     "blue",
+     "purple"
+    ],
+    [
+     "red",
+     "red",
+     "purple",
+     "blue"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 3.5653614816565398
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "blue",
+     "blue",
+     "yellow"
+    ],
+    [],
+    [
+     "blue",
+     "green",
+     "green"
+    ],
+    [
+     "red",
+     "red",
+     "yellow",
+     "yellow",
+     "purple",
+     "green"
+    ],
+    []
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 5.279226268513609
+  },
+  {
+   "slots": [
+    [
+     "blue",
+     "purple",
+     "green",
+     "blue",
+     "red"
+    ],
+    [
+     "green",
+     "purple",
+     "yellow",
+     "green",
+     "red"
+    ],
+    [
+     "yellow",
+     "green",
+     "yellow",
+     "blue",
+     "red"
+    ],
+    [],
+    [
+     "yellow"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 2.2400924568123974
+  },
+  {
+   "slots": [
+    [],
+    [
+     "purple",
+     "yellow",
+     "purple",
+     "yellow",
+     "yellow",
+     "red"
+    ],
+    [
+     "green",
+     "green",
+     "purple",
+     "blue",
+     "yellow"
+    ],
+    [
+     "purple",
+     "purple",
+     "purple",
+     "purple",
+     "blue",
+     "blue"
+    ],
+    []
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 4.785990139111026
+  },
+  {
+   "slots": [
+    [
+     "red",
+     "red",
+     "red",
+     "red",
+     "green",
+     "green"
+    ],
+    [],
+    [
+     "blue",
+     "blue",
+     "yellow",
+     "yellow"
+    ],
+    [
+     "red",
+     "purple",
+     "red",
+     "blue",
+     "blue"
+    ],
+    [
+     "yellow",
+     "red",
+     "yellow"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 4.300446303097777
+  },
+  {
+   "slots": [
+    [
+     "blue"
+    ],
+    [],
+    [
+     "green",
+     "red",
+     "red",
+     "green",
+     "red"
+    ],
+    [
+     "green",
+     "purple",
+     "red"
+    ],
+    [
+     "blue"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 4.625995516472646
+  },
+  {
+   "slots": [
+    [
+     "purple",
+     "blue",
+     "yellow"
+    ],
+    [
+     "green",
+     "green",
+     "blue"
+    ],
+    [
+     "yellow",
+     "red",
+     "green",
+     "purple"
+    ],
+    [
+     "blue",
+     "yellow",
+     "red",
+     "green",
+     "yellow",
+     "green"
+    ],
+    [
+     "purple",
+     "red",
+     "purple",
+     "purple"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 2.7877965278416337
+  },
+  {
+   "slots": [
+    [
+     "red"
+    ],
+    [
+     "purple",
+     "red",
+     "red"
+    ],
+    [
+     "yellow"
+    ],
+    [
+     "blue",
+     "blue",
+     "yellow",
+     "blue",
+     "blue"
+    ],
+    [
+     "yellow",
+     "red"
+    ]
+   ],
+   "P": 0.5,
+   "V": 10,
+   "expected": 4.24084860052918
+  }
+ ]
+}

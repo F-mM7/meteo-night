@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { h0Turns, expectedRaceTurns, estimateTHat } from '../grmAI';
+import { h0Turns, h0TurnsReal, expectedRaceTurns, estimateTHat } from '../grmAI';
 import { normalizeCounts } from '../grmReachQ';
 import type { Color } from '../../game/types';
 
@@ -70,5 +70,24 @@ describe('h0Turns: 探査不要・盤面のみの最終 tier 推定器', () => {
         `board=${board.map((s) => s.join('') || '·').join('|')} で h0 が解析推定を上回った`
       ).toBeLessThanOrEqual(estimateTHat(board, deck, discard, opts) + 1e-9);
     }
+  });
+});
+
+describe('h0TurnsReal: 実レート版 h0（実分布ハイブリッドの部品）', () => {
+  it('一様山札では h0Turns と一致する', () => {
+    const deck = normalizeCounts({ red: 24, green: 24, purple: 24, yellow: 24, blue: 24 });
+    const none = normalizeCounts({});
+    const boards: Color[][][] = [empty, [[g], [g], [], [], []], [[r], [r], [g], [g], []]];
+    for (const board of boards) {
+      expect(Math.abs(h0TurnsReal(board, deck, none) - h0Turns(board))).toBeLessThan(1e-9);
+    }
+  });
+
+  it('必要色が枯渇するほど遅く・豊富なほど速い（実分布の注入方向）', () => {
+    const board: Color[][] = [[g], [g], [], [], []]; // 緑あと1枚で発火形
+    const richG = normalizeCounts({ green: 24, red: 24, purple: 24, yellow: 24, blue: 24 });
+    const poorG = normalizeCounts({ green: 1, red: 30, purple: 30, yellow: 30, blue: 29 });
+    const none = normalizeCounts({});
+    expect(h0TurnsReal(board, richG, none)).toBeLessThan(h0TurnsReal(board, poorG, none));
   });
 });

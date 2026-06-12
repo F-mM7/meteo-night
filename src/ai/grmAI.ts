@@ -753,6 +753,25 @@ export function h0Turns(slots: Color[][]): number {
 }
 
 /**
+ * h0 の実レート版: 同じ発火形不足枚数レースを、一様でなく**実際の山札+捨札の色レート**で評価する。
+ * 閉形式のみ（探査・q プローブゼロ・O(盤面)）は h0 と同じ。一様 h0 との差分
+ * `h0TurnsReal − h0Turns` は「山札の偏りが G 到達速度に与える補正」を表し、一様 i.i.d. で学習した
+ * h 候補（tstar C2-h0）へ実分布情報を注入するハイブリッド
+ * `h_hybrid = C2h0(盤面) + h0TurnsReal(盤面,山札,捨札) − h0Turns(盤面)` の部品になる
+ * （実分布注入は meteo 側主導、TSTAR-DEPS 2026-06-12）。
+ */
+export function h0TurnsReal(slots: Color[][], deck: ColorCounts, discard: ColorCounts): number {
+  const N = totalCount(deck) + totalCount(discard);
+  if (N < 1) return EXHAUST_TURNS;
+  const cands = COLORS.map((c) => ({
+    p: (deck[c] + discard[c]) / N,
+    needed: Math.max(0, 3 - topCountOnBoard(slots, c)),
+  })).filter((x) => x.p > 0 || x.needed === 0);
+  if (cands.length === 0) return EXHAUST_TURNS;
+  return expectedRaceTurns(cands, Math.max(0, 1 - cands.reduce((s, x) => s + x.p, 0)));
+}
+
+/**
  * 期限超過時の劣化先推定器（A* の h に相当する単一の差し替え点）。期限超過後に T̂ スケールの値を
  * 供給する箇所（`tHat` 入口・`expTurnsRec` 入口・`bestTwoCardCost`/`bestPlaceCost` の打ち切り・
  * `lateBestPlacement`）はすべてここを通る。実体は解析推定（`analyticTurns`）。

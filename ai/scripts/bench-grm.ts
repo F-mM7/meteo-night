@@ -17,7 +17,7 @@
  */
 import { pathToFileURL } from 'node:url';
 import { playOneGameWithDeciders, parseIntArg, parseFloatArg, type Decider } from './_runner';
-import { decideAction as decideGrm, GRM_P_STAR, type GrmOptions } from '../../src/ai/grmAI';
+import { decideAction as decideGrm, GRM_P_STAR, h0Turns, h0TurnsReal, type GrmOptions } from '../../src/ai/grmAI';
 import { decideAction as decideTempoFast } from '../../src/ai/tempoFastAI';
 import { decideAction as decideTempoChain } from '../../src/ai/tempoChainAI';
 import { wilsonInterval } from './stats';
@@ -48,6 +48,8 @@ export interface BenchGrmArgs {
   hSwap: '' | 'degrade' | 'that' | 'la1';
   /** h 候補の成果物 JSON（tstar createFitted 形式）。--h-swap とセットで指定。 */
   c2Artifact: string;
+  /** 実分布ハイブリッド: h = C2(盤面) + h0_実レート − h0_一様（la1 専用。実分布注入は meteo 主導）。 */
+  hHybrid: boolean;
   /** tstar の src ディレクトリ（createFitted の動的 import 元）。 */
   tstarSrc: string;
 }
@@ -66,6 +68,7 @@ export const BENCH_GRM_DEFAULTS: BenchGrmArgs = {
   deck15: false,
   hSwap: '',
   c2Artifact: '',
+  hHybrid: false,
   tstarSrc: '/home/futa/tstar/src',
 };
 
@@ -118,6 +121,9 @@ export function parseBenchGrmArgs(argv: string[]): BenchGrmArgs {
       }
       case '--c2-artifact':
         a.c2Artifact = argv[++i] ?? '';
+        break;
+      case '--h-hybrid':
+        a.hHybrid = true;
         break;
       case '--tstar-src':
         a.tstarSrc = argv[++i] ?? a.tstarSrc;
@@ -220,11 +226,15 @@ async function main(): Promise<void> {
     const artifact = JSON.parse(readFileSync(args.c2Artifact, 'utf8'));
     const inst = { m: COLORS.length, L: 5, K: args.K, V: args.V, P: args.P };
     const fitted = c2.createFitted({ ...artifact, inst });
-    const hFn = (slots: import('../../src/game/types').Color[][]): number =>
+    const raw = (slots: import('../../src/game/types').Color[][]): number =>
       fitted(slots.map((st) => st.map((c) => COLORS.indexOf(c))));
-    if (args.hSwap === 'that') grmOptions.tHatFn = hFn;
-    else if (args.hSwap === 'la1') grmOptions.leafFn = hFn;
-    else grmOptions.degradeFn = hFn;
+    if (args.hHybrid && args.hSwap !== 'la1') throw new Error('--h-hybrid は --h-swap la1 専用（deck/discard が要る）');
+    if (args.hSwap === 'that') grmOptions.tHatFn = raw;
+    else if (args.hSwap === 'la1') {
+      grmOptions.leafFn = args.hHybrid
+        ? (slots, deck, discard) => Math.max(0, raw(slots) + h0TurnsReal(slots, deck, discard) - h0Turns(slots))
+        : raw;
+    } else grmOptions.degradeFn = raw;
   }
 
   const baseName =

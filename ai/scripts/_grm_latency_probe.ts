@@ -8,7 +8,7 @@
  * 例: npx tsx ai/scripts/_grm_latency_probe.ts --games 4 --seed 9001 --P 0.5
  */
 import { playOneGameWithDeciders, parseIntArg, parseFloatArg, type Decider } from './_runner';
-import { decideAction as decideGrm, budgetStats, type GrmOptions } from '../../src/ai/grmAI';
+import { decideAction as decideGrm, budgetStats, h0Turns, h0TurnsReal, type GrmOptions } from '../../src/ai/grmAI';
 import { decideAction as decideTempoChain } from '../../src/ai/tempoChainAI';
 import { COLORS, type Color } from '../../src/game/types';
 
@@ -26,6 +26,7 @@ async function main(): Promise<void> {
   let deck15 = false;
   let hSwap = '';
   let c2Artifact = '';
+  let hHybrid = false;
   let tstarSrc = '/home/futa/tstar/src';
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
@@ -37,6 +38,7 @@ async function main(): Promise<void> {
     else if (k === '--deck15') deck15 = true;
     else if (k === '--h-swap') hSwap = argv[++i] ?? '';
     else if (k === '--c2-artifact') c2Artifact = argv[++i] ?? '';
+    else if (k === '--h-hybrid') hHybrid = true;
     else if (k === '--tstar-src') tstarSrc = argv[++i] ?? tstarSrc;
     else throw new Error(`unknown arg: ${k}`);
   }
@@ -51,10 +53,13 @@ async function main(): Promise<void> {
     const artifact = JSON.parse(readFileSync(c2Artifact, 'utf8'));
     const inst = { m: COLORS.length, L: 5, K: 6, V: 20, P };
     const fitted = c2.createFitted({ ...artifact, inst });
-    const hFn = (slots: Color[][]): number => fitted(slots.map((st) => st.map((c) => COLORS.indexOf(c))));
-    if (hSwap === 'that') grmOptions.tHatFn = hFn;
-    else if (hSwap === 'la1') grmOptions.leafFn = hFn;
-    else grmOptions.degradeFn = hFn;
+    const raw = (slots: Color[][]): number => fitted(slots.map((st) => st.map((c) => COLORS.indexOf(c))));
+    if (hSwap === 'that') grmOptions.tHatFn = raw;
+    else if (hSwap === 'la1') {
+      grmOptions.leafFn = hHybrid
+        ? (slots, deck, discard) => Math.max(0, raw(slots) + h0TurnsReal(slots, deck, discard) - h0Turns(slots))
+        : raw;
+    } else grmOptions.degradeFn = raw;
   }
 
   const latByPhase = new Map<string, number[]>();
