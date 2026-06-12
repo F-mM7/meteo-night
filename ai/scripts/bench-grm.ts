@@ -43,8 +43,9 @@ export interface BenchGrmArgs {
   grmBudget: number;
   /** 山札チャネルの 15 パターン期待値化（SPEED-PLAN 5b）を有効化。 */
   deck15: boolean;
-  /** h 候補の差し込み実験: degrade=劣化先のみ置換（初見盤面） / that=T̂ 本体を完全置換。 */
-  hSwap: '' | 'degrade' | 'that';
+  /** h 候補の差し込み実験: degrade=劣化先のみ置換（初見盤面） / that=T̂ 本体を完全置換 /
+   * la1=深さ 1 の実レート展開＋h 葉（tstar LA1 知見の移植、TSTAR-DEPS §2b）。 */
+  hSwap: '' | 'degrade' | 'that' | 'la1';
   /** h 候補の成果物 JSON（tstar createFitted 形式）。--h-swap とセットで指定。 */
   c2Artifact: string;
   /** tstar の src ディレクトリ（createFitted の動的 import 元）。 */
@@ -111,7 +112,7 @@ export function parseBenchGrmArgs(argv: string[]): BenchGrmArgs {
         break;
       case '--h-swap': {
         const v = argv[++i];
-        if (v !== 'degrade' && v !== 'that') throw new Error('--h-swap requires: degrade|that');
+        if (v !== 'degrade' && v !== 'that' && v !== 'la1') throw new Error('--h-swap requires: degrade|that|la1');
         a.hSwap = v;
         break;
       }
@@ -222,6 +223,7 @@ async function main(): Promise<void> {
     const hFn = (slots: import('../../src/game/types').Color[][]): number =>
       fitted(slots.map((st) => st.map((c) => COLORS.indexOf(c))));
     if (args.hSwap === 'that') grmOptions.tHatFn = hFn;
+    else if (args.hSwap === 'la1') grmOptions.leafFn = hFn;
     else grmOptions.degradeFn = hFn;
   }
 

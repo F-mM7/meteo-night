@@ -9,11 +9,13 @@
 
 > 📖 用語注記 (2026-06-11): GRM の用語を tstar リポジトリ準拠に統一（内側 f→q、外側 U→T̂、`grmReachF.ts`→`grmReachQ.ts`）。過去エントリの旧表記は当時のまま。
 >
-> 📖 用語注記 (2026-06-11): **P\***＝勝率を最大化する目標確率（`P` のフィッティング結果＝最適運用値。`T*` と同じ「最適なもの」の星）。相手構成依存の argmax で現推定 0.5。**配信 CPU の既定 P と人間手番診断ログの P は P\* に固定**（ユーザー決定。コード対応物 `grmAI.GRM_P_STAR`、配信 wrapper と診断オプションが同一定数を参照）。
+> 📖 用語注記 (2026-06-11): **P\***＝勝率を最大化する目標確率（`P` のフィッティング結果＝最適運用値。`T*` と同じ「最適なもの」の星）。相手構成依存の argmax で**現推定 0.45（2026-06-12 更新）**。**配信 CPU の既定 P と人間手番診断ログの P は P\* に固定**（ユーザー決定。コード対応物 `grmAI.GRM_P_STAR`、配信 wrapper と診断オプションが同一定数を参照）。
+>
+> 📖 方針注記 (2026-06-12): **目的＝ゲーム理論的最適（対称 ε-ナッシュ）**・物差しの序列＝L1 厳密性 / L2 self-play 不動点 / L3 家族外挑戦（`ai/OBJECTIVE.md` が正典。人間体感は盲点発見ソース）。
 
 | 種類 | モデル | 強さ指標 | ブラウザ反映 | 由来 |
 |---|---|---|---|---|
-| 確率プランナー（第3路線・**現ブラウザ既定＝測定上の最強系**）| **GRM**（配信構成: V=20, **P=0.5**, K=6, **budget=3000ms**。tstar v1 移植＋予算チャネル公平化済み）| **fresh 事前登録テスト通過 31.1%（CI 28.0-34.4、両ブロック単独でも CI 下限>25%）＝旧既定 tempoChain に有意勝ち**。無予算なら fresh 37.0%（CI 32.5-41.8）。旧々 champion tempoFast LA=1 には全 P 有意勝ち（最大 58%）| **✓ 反映済み（2026-06-11, ユーザー承認）**: `index.ts` が GRM_BROWSER_OPTIONS 固定の wrapper を export。1手 p50 13ms / max ~3.7s（Worker 実行）。全席 GRM のヘッドレス 1 局完走を確認 | `src/ai/grmAI.ts`（仕様 `ai/REACHABILITY.md`）|
+| 確率プランナー（第3路線・**現ブラウザ既定＝測定上の最強系**）| **GRM**（配信構成: V=20, **P\*=0.45**, K=6, **budget=3000ms**。tstar v1 移植・予算チャネル公平化・ゼロ損失×2（memo キー/連鎖直実装）・フォールバック全廃・終盤 V クランプ済み）| **fresh 事前登録テスト 34.13%（CI 30.92-37.48）＝旧既定 tempoChain に有意勝ち**・同条件 P=0.5 対照 28.25% を +5.9pt・**L2 逸脱テストで self-play 不動点も確認**。無予算逸脱者は +6.9pt（=予算の残コスト ~7pt、回収は実分布 C2/LA1 路線）| **✓ 反映済み（P\*=0.45 は 2026-06-12 更新）**: `index.ts` が GRM_BROWSER_OPTIONS（P\*＝`GRM_P_STAR` 参照）の wrapper を export。1手 p50 1ms / p90 1.5s / max ~8.9s（贈与同時最適化の仕掛かり分）・劣化率 7-8%（Worker 実行）。UI に CPU 慎重モード (P=1) トグル | `src/ai/grmAI.ts`（仕様 `ai/REACHABILITY.md`・目的 `ai/OBJECTIVE.md`）|
 | 目的志向 AI（旧ブラウザ既定）| **Gen-15**（tempoChain genome idx340: fire=5・**blend=0.5**・nodeLimit=15000）| **実体champion tempoFast LA=1 に有意勝ち**（32.7%, n=300, CI 27.6-38.2 > 25%）＋ vs LA=0 fresh 2seed×1000局で 29.9%（CI下限>25% 再現）。grid 400候補の勝者 | （GRM に置換。`index.ts` の export を戻せば即復帰）| `src/ai/tempoChainAI.ts` の `DEFAULT_GENOME` |
 | 手書き AI（旧採用版）| **Gen-4-C**（tempoFast + **lookahead=1** + Web Worker）| **現 tempoFast(LA=0) に有意勝ち**（33.0%, n=300, CI 27.9-38.5 > 25%）＝**horizon が葉の天井を破った**。1 手 ~1 秒だが Web Worker で UI 非ブロック | （Gen-15 に置換）| `tempoFastAI.ts`(LA=1) + `aiWorker.ts` + `useGameLogic.ts` |
 | 旧採用版 | Gen-4-B（tempoFast, LA=0）| 現 tempo(Gen-4-A) と同等・最悪 1.0s | （Gen-4-C に置換）| `src/ai/tempoFastAI.ts` |

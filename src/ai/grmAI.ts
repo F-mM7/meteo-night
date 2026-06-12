@@ -72,6 +72,13 @@ export interface GrmOptions {
    * 混在を作らない。
    */
   tHatFn?: (slots: Color[][]) => number;
+  /**
+   * 検証・実験用の注入点（ベンチ専用）: T̂ を「深さ 1 の実レート展開＋葉 leafFn」にする
+   * （tstar LA1 知見の meteo 移植実験、TSTAR-DEPS §2b）。設定時は tHat が解析推定・精緻化ゲートを
+   * 使わず常に深さ 1 後退帰納（既存 expTurnsRec）を回し、深さ上限・行き止まりの葉を leafFn で
+   * 評価する。発火葉の G 判定は従来どおり厳密ゲート（qReachesG）。期限超過の劣化は従来機構のまま。
+   */
+  leafFn?: (slots: Color[][], deck: ColorCounts, discard: ColorCounts) => number;
 }
 
 interface ResolvedOptions {
@@ -84,6 +91,7 @@ interface ResolvedOptions {
   deck15: boolean;
   degradeFn?: (slots: Color[][]) => number;
   tHatFn?: (slots: Color[][]) => number;
+  leafFn?: (slots: Color[][], deck: ColorCounts, discard: ColorCounts) => number;
 }
 
 interface Ctx {
@@ -96,6 +104,7 @@ interface Ctx {
   /** 検証・実験用注入点（GrmOptions 参照。配信では undefined）。 */
   degradeFn?: (slots: Color[][]) => number;
   tHatFn?: (slots: Color[][]) => number;
+  leafFn?: (slots: Color[][], deck: ColorCounts, discard: ColorCounts) => number;
   /** tHat のメモ（同一 (盤面, 山札, 捨札) は同値。配置の合流を畳んで深い展開を実用化）。 */
   memoT: Map<string, number>;
   /** この決定の壁時計期限（エポック ms）。無制限なら Infinity。超過後は精密化を省く（設計された劣化）。 */
@@ -212,6 +221,19 @@ function tHat(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCount
     ctx.memoT.set(key, v);
     return v;
   }
+  // 実験用注入点: LA1＝深さ 1 の実レート展開＋葉 leafFn（tstar LA1 知見の移植実験、TSTAR-DEPS §2b）。
+  // 解析推定と精緻化ゲートを使わず、常に既存の後退帰納（expTurnsRec）を回す。発火葉の G 判定は
+  // 従来どおり厳密ゲート。期限超過時は通常機構（degradeEstimate）に劣化する。
+  if (ctx.leafFn) {
+    const drawColors = COLORS.filter((c) => deck[c] + discard[c] > 0)
+      .map((c) => ({ c, p: (deck[c] + discard[c]) / totalAvail }))
+      .sort((a, b) => b.p - a.p);
+    const cand = drawColors.slice(0, GRM_DRAW_COLORS);
+    const qWaste = Math.max(0, 1 - cand.reduce((s, x) => s + x.p, 0));
+    const result = expTurnsRec(ctx, slots, deck, discard, cand, qWaste, 0, new Map<string, number>());
+    ctx.memoT.set(key, result);
+    return result;
+  }
   // 時間予算の期限超過: 精密化を省き、劣化先推定器（degradeEstimate）で返す。
   // 劣化値は memoT に書かない（純粋な値だけを memo する）。
   if (pastDeadline(ctx)) {
@@ -273,7 +295,9 @@ function expTurnsRec(
   depth: number,
   memo: Map<string, number>
 ): number {
-  if (depth >= GRM_HORIZON) return analyticTurns(ctx, slots, deck, discard);
+  if (depth >= GRM_HORIZON) {
+    return ctx.leafFn ? ctx.leafFn(slots, deck, discard) : analyticTurns(ctx, slots, deck, discard);
+  }
   if (pastDeadline(ctx)) {
     markDegraded();
     return degradeEstimate(ctx, slots, deck, discard);
@@ -282,8 +306,16 @@ function expTurnsRec(
   const cached = memo.get(key);
   if (cached !== undefined) return cached;
   // 再帰中の同一盤面（無駄引きで自己ループ）の暫定値で発散を防ぐ。自己ループは無駄引き（qWaste>0）でしか
-  // 起きないので、その時だけ解析推定を上界として置く（qWaste=0 なら参照されないので EXHAUST_TURNS で十分）。
-  memo.set(key, qWaste > 1e-12 ? analyticTurns(ctx, slots, deck, discard) : EXHAUST_TURNS);
+  // 起きないので、その時だけ解析推定（LA1 実験時は leafFn）を上界として置く（qWaste=0 なら参照されないので
+  // EXHAUST_TURNS で十分）。
+  memo.set(
+    key,
+    qWaste > 1e-12
+      ? ctx.leafFn
+        ? ctx.leafFn(slots, deck, discard)
+        : analyticTurns(ctx, slots, deck, discard)
+      : EXHAUST_TURNS
+  );
 
   // 1 枚を「候補色 c（確率 p_c）」または「無駄引き（確率 qWaste、盤面を進めない）」として展開。
   const draws: { c: Color | null; p: number }[] = cand.map((x) => ({ c: x.c, p: x.p }));
@@ -352,12 +384,16 @@ function bestTwoCardCost(
       }
     }
   }
-  return best >= EXHAUST_TURNS ? analyticTurns(ctx, slots, deck, discard) : best;
+  return best >= EXHAUST_TURNS
+    ? ctx.leafFn
+      ? ctx.leafFn(slots, deck, discard)
+      : analyticTurns(ctx, slots, deck, discard)
+    : best;
 }
 
 /**
  * 1 枚 c を最適配置したときの最小 cost（候補スロットで列挙、配置後ボードは重複除去）。どの配置も採れなければ
- * 解析推定でフォールバック（遅延評価）。
+ * 解析推定（LA1 実験時は leafFn）でフォールバック（遅延評価）。
  */
 function bestPlaceCost(
   ctx: Ctx,
@@ -385,7 +421,11 @@ function bestPlaceCost(
     if (cost < best) best = cost;
     if (best <= 0) return 0;
   }
-  return best >= EXHAUST_TURNS ? analyticTurns(ctx, slots, deck, discard) : best;
+  return best >= EXHAUST_TURNS
+    ? ctx.leafFn
+      ? ctx.leafFn(slots, deck, discard)
+      : analyticTurns(ctx, slots, deck, discard)
+    : best;
 }
 
 /**
@@ -1181,6 +1221,7 @@ export function decideAction(
     deck15: options.deck15 ?? DEFAULTS.deck15,
     degradeFn: options.degradeFn,
     tHatFn: options.tHatFn,
+    leafFn: options.leafFn,
   };
   // 例外（q の展開上限超過等）は握りつぶさず呼び出し元へ投げ切る。かつて try/catch →「最初の合法手」
   // フォールバックがノード予算バグを隠し虚像の勝率測定を生んだため、例外を隠すフォールバックは禁止
@@ -1346,6 +1387,7 @@ export function logHumanEvaluation(state: GameState, playerId: number, options: 
     deck15: options.deck15 ?? DEFAULTS.deck15,
     degradeFn: options.degradeFn,
     tHatFn: options.tHatFn,
+    leafFn: options.leafFn,
   };
   const slots = myColors(state, playerId);
   const deck = colorCounts(state.deck);
@@ -1592,6 +1634,7 @@ function makeCtx(opt: ResolvedOptions, V: number, P: number, endgame: boolean): 
     endgame,
     degradeFn: opt.degradeFn,
     tHatFn: opt.tHatFn,
+    leafFn: opt.leafFn,
     memoT: new Map<string, number>(),
     deadline: opt.timeBudgetMs === Infinity ? Infinity : Date.now() + opt.timeBudgetMs,
   };
@@ -1637,6 +1680,7 @@ export function estimateTHat(
     deck15: options.deck15 ?? DEFAULTS.deck15,
     degradeFn: options.degradeFn,
     tHatFn: options.tHatFn,
+    leafFn: options.leafFn,
   };
   return tHat(makeCtx(opt, opt.V, opt.P, false), slots, deck, discard);
 }
