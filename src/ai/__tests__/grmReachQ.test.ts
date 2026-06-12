@@ -7,8 +7,14 @@ import {
   colorCounts,
   colorCountsFromColors,
   fireSlots,
+  packStack,
+  packSlots,
+  packCounts,
+  normalizeCounts,
+  resolveCombosColors,
   CARDS_PER_COLOR,
 } from '../grmReachQ';
+import { resolveCombosAtBoard } from '../../game/engine';
 import { reducer, stepGame } from '../../game/reducer';
 import { setupGame } from '../../game/setup';
 import { mulberry32 } from '../../game/rng';
@@ -399,5 +405,126 @@ describe('subgameInputFromState / reachQFromState', () => {
     // reachQFromState は subgameInputFromState 経由で同じ結果
     expectClose(reachQFromState(state, 3, 0, { K: 99 }), reachQ(input, 3, { K: 99 }));
     expectClose(reachQFromState(state, 3, 0, { K: 99 }), 0.25);
+  });
+});
+
+describe('memo キーのビットパック（packStack / packSlots / packCounts）の単射性', () => {
+  // 全長 ≤3 のスタック全列挙（1+5+25+125=156 本）で衝突ゼロ＝単射を確認する。
+  it('packStack: 長さ ≤3 の全スタックで衝突しない', () => {
+    const stacks: Color[][] = [[]];
+    for (let len = 1; len <= 3; len++) {
+      const prev = stacks.filter((s) => s.length === len - 1);
+      for (const s of prev) for (const c of COLORS) stacks.push([...s, c]);
+    }
+    const seen = new Map<string, string>();
+    for (const s of stacks) {
+      const key = packStack(s);
+      const readable = s.join(',');
+      expect(seen.has(key), `packStack 衝突: [${seen.get(key)}] vs [${readable}]`).toBe(false);
+      seen.set(key, readable);
+    }
+    expect(seen.size).toBe(156);
+  });
+
+  it('packStack: 実盤面で起こる任意長（K 超含む）を受理し、長さ違い・チャンク境界で衝突しない', () => {
+    // 実ゲームの盤面スタックは K を超えて成長する（初版の固定長パックは実対局で長さ 8 に当たって失敗した）。
+    // チャンク境界（6 枚/文字）前後と「同色のみで長さ違い」を重点的に確認する。
+    const seen = new Map<string, string>();
+    seen.set(packStack([]), 'empty');
+    for (let len = 1; len <= 14; len++) {
+      for (const c of COLORS) {
+        const st: Color[] = Array.from({ length: len }, () => c);
+        const key = packStack(st);
+        const readable = `${c}x${len}`;
+        expect(seen.has(key), `packStack 衝突: ${seen.get(key)} vs ${readable}`).toBe(false);
+        seen.set(key, readable);
+      }
+    }
+  });
+
+  it('packSlots: 乱択 3000 盤面（各スロット ≤10 枚・K 超含む）で衝突しない', () => {
+    const rng = mulberry32(20260611);
+    const seen = new Map<string, string>();
+    for (let n = 0; n < 3000; n++) {
+      const board: Color[][] = Array.from({ length: 5 }, () => {
+        const len = Math.floor(rng() * 11); // 0..10（K=6/7 を跨ぐ）
+        return Array.from({ length: len }, () => COLORS[Math.floor(rng() * 5)]);
+      });
+      const key = packSlots(board);
+      const readable = board.map((s) => s.join(',') || '_').join('|');
+      const prev = seen.get(key);
+      if (prev !== undefined) {
+        expect(prev, `packSlots 衝突: ${prev} vs ${readable}`).toBe(readable); // 同一盤面の再抽選のみ許容
+      } else {
+        seen.set(key, readable);
+      }
+    }
+  });
+
+  it('packCounts: 全色 0..24 の境界・乱択 2000 組で衝突しない', () => {
+    const rng = mulberry32(424242);
+    const samples: number[][] = [];
+    for (let v = 0; v <= 24; v++) for (let i = 0; i < 5; i++) samples.push([0, 0, 0, 0, 0].map((x, j) => (j === i ? v : x)));
+    for (let n = 0; n < 2000; n++) samples.push(Array.from({ length: 5 }, () => Math.floor(rng() * 25)));
+    const seen = new Map<string, string>();
+    for (const s of samples) {
+      const counts = normalizeCounts({ red: s[0], green: s[1], purple: s[2], yellow: s[3], blue: s[4] });
+      const key = packCounts(counts);
+      const readable = s.join(',');
+      const prev = seen.get(key);
+      if (prev !== undefined) {
+        expect(prev, `packCounts 衝突: ${prev} vs ${readable}`).toBe(readable);
+      } else {
+        seen.set(key, readable);
+      }
+    }
+  });
+});
+
+describe('resolveCombosColors: エンジン経路（resolveCombosAtBoard）との同値性（SPEED-PLAN 手法 7）', () => {
+  const toBoard = (slots: Color[][]): PlayerBoard => ({
+    slots: slots.map((st, si) => ({ stack: st.map((c, di) => ({ id: `f${si}-${di}-${c}`, color: c })) })),
+  });
+  const viaEngine = (slots: Color[][]) => {
+    const { newBoard, combos } = resolveCombosAtBoard(toBoard(slots));
+    return {
+      newSlots: newBoard.slots.map((s) => s.stack.map((c) => c.color)),
+      comboCount: combos.length,
+      basePoints: combos.reduce((s, c) => s + c.basePoints, 0),
+    };
+  };
+
+  it('決定的ケース: 多色同時（6 スロット R3+G3）・size4/5・非発火・空盤面', () => {
+    const cases: Color[][][] = [
+      [['red'], ['red'], ['red'], ['green'], ['green'], ['green']],
+      [['blue', 'red'], ['red'], ['red'], ['red'], []], // size4
+      [['red'], ['red'], ['red'], ['red'], ['red']], // size5
+      [['red'], ['red'], ['green'], [], []], // 非発火
+      [[], [], [], [], []],
+    ];
+    for (const slots of cases) {
+      expect(resolveCombosColors(slots)).toEqual(viaEngine(slots));
+    }
+  });
+
+  it('乱択 2000 盤面（5/6 スロット・任意長・1/3 はコンボ形を強制）で完全一致', () => {
+    const rng = mulberry32(7777);
+    for (let n = 0; n < 2000; n++) {
+      const nSlots = n % 2 === 0 ? 5 : 6;
+      const board: Color[][] = Array.from({ length: nSlots }, () => {
+        const len = Math.floor(rng() * 8);
+        return Array.from({ length: len }, () => COLORS[Math.floor(rng() * 5)]);
+      });
+      if (n % 3 === 0) {
+        // コンボ形を強制: ランダム色を 3 スロットの最上段に積む
+        const c = COLORS[Math.floor(rng() * 5)];
+        for (let k = 0; k < 3; k++) board[(n + k) % nSlots] = [...board[(n + k) % nSlots], c];
+      }
+      const got = resolveCombosColors(board);
+      const exp = viaEngine(board);
+      expect(got.newSlots).toEqual(exp.newSlots);
+      expect(got.comboCount).toBe(exp.comboCount);
+      expect(got.basePoints).toBe(exp.basePoints);
+    }
   });
 });

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { EffectDelay } from '../hooks/useGameLogic';
+import { GRM_P_STAR } from '../ai/grmAI';
 
 interface Props {
   effectDelay: EffectDelay;
@@ -8,6 +9,9 @@ interface Props {
   setAutoPilot: (v: boolean) => void;
   logVisible: boolean;
   setLogVisible: (v: boolean) => void;
+  /** CPU の目標確率 P（既定 P*。1.0 で「確実な発火しか狙わない」保守的＝弱めの CPU になる）。 */
+  cpuP: number;
+  setCpuP: (v: number) => void;
   onStartNewGame: () => void;
   recordingEnabled: boolean;
   setRecordingEnabled: (v: boolean) => void;
@@ -25,6 +29,8 @@ export function AppHeader({
   setAutoPilot,
   logVisible,
   setLogVisible,
+  cpuP,
+  setCpuP,
   onStartNewGame,
   recordingEnabled,
   setRecordingEnabled,
@@ -125,6 +131,17 @@ export function AppHeader({
                 onChange={(e) => setAutoPilot(e.target.checked)}
               />
               観戦モード
+            </label>
+            <label
+              className="header-menu-item header-menu-toggle"
+              title="CPU が「確実に目標点を取れる発火」しか狙わなくなる保守的な設定（弱め）。オフ＝最適値 P* で最強"
+            >
+              <input
+                type="checkbox"
+                checked={cpuP === 1}
+                onChange={(e) => setCpuP(e.target.checked ? 1 : GRM_P_STAR)}
+              />
+              CPU 慎重モード (P=1)
             </label>
             <label className="header-menu-item header-menu-toggle">
               <input

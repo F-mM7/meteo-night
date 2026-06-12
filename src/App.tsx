@@ -28,6 +28,8 @@ export default function App() {
     setEffectDelay,
     logVisible,
     setLogVisible,
+    cpuP,
+    setCpuP,
     recording,
   } = useGameLogic();
   const you = 0;
@@ -196,6 +198,8 @@ export default function App() {
         setAutoPilot={setAutoPilot}
         logVisible={logVisible}
         setLogVisible={setLogVisible}
+        cpuP={cpuP}
+        setCpuP={setCpuP}
         onStartNewGame={() => startNewGame()}
         recordingEnabled={recording.enabled}
         setRecordingEnabled={recording.setEnabled}

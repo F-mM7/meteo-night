@@ -7,7 +7,8 @@
  * `ai/REACHABILITY.md` の §1.3（ドロー確率）/ §3（得点）/ §4（サブゲームと q）に準拠。
  *
  * 重要な力学（`reducer.ts: resolveChainStep` と完全一致させる）:
- *  1. 解決: 最上段の同色3枚以上を全色同時に検出・除去（`resolveCombosAtBoard` を再利用）。
+ *  1. 解決: 最上段の同色3枚以上を全色同時に検出・除去（`resolveCombosColors`＝エンジンの
+ *     `resolveCombosAtBoard` と同値の Color[][] 直実装。同値性はファズ＋全着手一致で担保）。
  *  2. コンボが出たら必ず「追加アクション選択」へ進む（自動連鎖はしない）。プレイヤーは
  *     「削除（最上段1枚を捨札へ）」か「ドロー&配置（山札1枚を引いて積む）」のどちらかを取る。
  *  3. 配置/削除後に再び 1. へ。新たな発火が無ければ得点確定（終端）。
@@ -21,10 +22,9 @@
  *  - 決定ノード `decideValue` ＝ `awaitingAdditionalActionChoice`（削除/ドローを選ぶ局面）。
  * これらは `createChainSolver` で公開し、`q` 本体のほか GRM 本体（連鎖中の最適手）でも再利用する。
  */
-import type { Card, Color, GameState, PlayerBoard } from '../game/types';
+import type { Color, GameState } from '../game/types';
 import { COLORS } from '../game/types';
-import { resolveCombosAtBoard } from '../game/engine';
-import { comboCountBonus } from '../game/scoring';
+import { comboCountBonus, basePointsForSize } from '../game/scoring';
 
 /** 色別枚数。全色をキーに持つ（欠損は 0）。 */
 export type ColorCounts = Record<Color, number>;
@@ -56,10 +56,54 @@ const DEFAULT_MAX_NODES = 5_000_000;
 /** §1.3: 各色は 24 枚固定（5 色 × 24 = 120）。`setup.ts: DEFAULT_CARDS_PER_COLOR` と一致。 */
 export const CARDS_PER_COLOR = 24;
 
-const COLOR_IDX: Record<Color, string> = COLORS.reduce((m, c, i) => {
-  m[c] = String(i);
+// ---------------------------------------------------------------------------
+// memo キーのビットパック（SPEED-PLAN 手法 2: キー構築・ハッシュ・メモリの定数倍削減）
+// ---------------------------------------------------------------------------
+// JS 文字列は UTF-16 コード単位の列なので、16bit 整数をそのまま 1 文字に詰められる（Map のキー比較は
+// コード単位一致＝不対サロゲートでも問題ない）。旧キーは色数字 join + 区切りの連結（盤面・山札・捨札で
+// ~45-60 文字・中間配列を多数生成）だったのに対し、パック後は典型 ~16 文字・単一パスで構築する。
+// **実ゲームの盤面スタックは K を超えて任意長になりうる**（K 切り詰めは AI 内部展開の状態表現のみ。
+// 固定長前提の初版パックは実対局 5 局目で長さ 8 に当たり即例外＝可変長へ再設計した経緯あり）。
+
+const COLOR_NUM: Record<Color, number> = COLORS.reduce((m, c, i) => {
+  m[c] = i;
   return m;
-}, {} as Record<Color, string>);
+}, {} as Record<Color, number>);
+
+/**
+ * スタック 1 本を可変長で単射パックする: 先頭 1 文字＝長さ、続いて下から 6 枚ごとに base-5 で
+ * 1 文字（5^6 = 15625 < 2^16）。長さプレフィクスで自己区切りになるため、複数スタックを連結しても
+ * 単射性が保たれる。空きスタックは 1 文字。
+ */
+export function packStack(st: readonly Color[]): string {
+  const codes: number[] = [st.length];
+  for (let i = 0; i < st.length; i += 6) {
+    let v = 0;
+    let mul = 1;
+    const end = Math.min(i + 6, st.length);
+    for (let k = i; k < end; k++) {
+      v += COLOR_NUM[st[k]] * mul;
+      mul *= 5;
+    }
+    codes.push(v);
+  }
+  return String.fromCharCode(...codes);
+}
+
+/** 盤面（スロット列・各スタック任意長）を単射パックする（自己区切りな packStack の連結）。 */
+export function packSlots(slots: readonly (readonly Color[])[]): string {
+  let out = '';
+  for (let j = 0; j < slots.length; j++) out += packStack(slots[j]);
+  return out;
+}
+
+/** 色別枚数（各色 ≤24 ＝ 5bit に収まる、§1.3）を 2 文字に単射パックする。 */
+export function packCounts(c: ColorCounts): string {
+  return String.fromCharCode(
+    (c[COLORS[0]] << 10) | (c[COLORS[1]] << 5) | c[COLORS[2]],
+    (c[COLORS[3]] << 5) | c[COLORS[4]]
+  );
+}
 
 // ---------------------------------------------------------------------------
 // 色別枚数ユーティリティ
@@ -109,17 +153,45 @@ export function colorCountsFromColors(colors: readonly Color[]): ColorCounts {
 // 盤面ユーティリティ
 // ---------------------------------------------------------------------------
 
-/** 色スタックを `PlayerBoard` に変換（エンジンの検出/除去ロジックを再利用するため）。 */
-function colorsToBoard(slots: Color[][]): PlayerBoard {
+/**
+ * 連鎖解決を Color[][] のまま直接行う（`engine.resolveCombosAtBoard` と同値。SPEED-PLAN 手法 7）。
+ * 検出＝最上段の同色 3 枚以上（全色同時）・除去＝該当スロットの最上段 1 枚・基礎点＝`basePointsForSize`。
+ * 旧実装は解決ノードごとに `colorsToBoard`（Card オブジェクト盤面の生成）→ エンジン関数 → 逆変換を
+ * 行っており、P=0.45 病的シャードの生体スタックサンプリングで最内ループの定数倍コストとして顕在化した。
+ * 同値性は engine 経路との全数比較ファズ＋既存の q 厳密値テスト＋全着手一致で担保する。
+ */
+export function resolveCombosColors(slots: Color[][]): {
+  newSlots: Color[][];
+  comboCount: number;
+  basePoints: number;
+} {
+  let comboCount = 0;
+  let basePoints = 0;
+  let fireMask: boolean[] | null = null;
+  const topSlots = new Map<Color, number[]>();
+  for (let j = 0; j < slots.length; j++) {
+    const st = slots[j];
+    const top = st[st.length - 1];
+    if (top === undefined) continue;
+    const arr = topSlots.get(top);
+    if (arr) arr.push(j);
+    else topSlots.set(top, [j]);
+  }
+  for (const idxs of topSlots.values()) {
+    if (idxs.length >= 3) {
+      comboCount += 1;
+      basePoints += basePointsForSize(idxs.length);
+      if (!fireMask) fireMask = new Array<boolean>(slots.length).fill(false);
+      for (const j of idxs) fireMask[j] = true;
+    }
+  }
+  if (!fireMask) return { newSlots: slots, comboCount: 0, basePoints: 0 };
+  const mask = fireMask;
   return {
-    slots: slots.map((stack, si) => ({
-      stack: stack.map((color, di): Card => ({ id: `s${si}d${di}-${color}`, color })),
-    })),
+    newSlots: slots.map((st, j) => (mask[j] ? st.slice(0, -1) : st)),
+    comboCount,
+    basePoints,
   };
-}
-
-function boardToColors(board: PlayerBoard): Color[][] {
-  return board.slots.map((s) => s.stack.map((c) => c.color));
 }
 
 /** スタックを上から K 枚に切り詰める（下層＝先頭側を捨象）。 */
@@ -155,10 +227,9 @@ function makeKey(
   deck: ColorCounts,
   discard: ColorCounts
 ): string {
-  const s = slots.map((st) => st.map((c) => COLOR_IDX[c]).join('')).join('|');
-  const d = COLORS.map((c) => deck[c]).join(',');
-  const dd = COLORS.map((c) => discard[c]).join(',');
-  return `${s}#${comboCount}#${baseSoFar}#${d}#${dd}`;
+  // comboCount は 1 ターンの発火本数（1 解決につき高々 1 コンボ）・baseSoFar は基礎点の累計（≥V で
+  // 短絡するため高々 V+最大コンボ点）でどちらも 16bit に余裕で収まる＝1 文字ずつ。全体 12 文字の単射キー。
+  return packSlots(slots) + packCounts(deck) + packCounts(discard) + String.fromCharCode(comboCount, baseSoFar);
 }
 
 // ---------------------------------------------------------------------------
@@ -260,19 +331,19 @@ export function createChainSolver(V: number, K = DEFAULT_K, maxNodes = DEFAULT_M
     if (cached !== undefined) return cached;
     guard();
 
-    const { newBoard, combos } = resolveCombosAtBoard(colorsToBoard(slots));
-    if (combos.length === 0) {
+    const { newSlots, comboCount, basePoints } = resolveCombosColors(slots);
+    if (comboCount === 0) {
       const res = base + comboCountBonus(cc) >= V ? 1 : 0;
       memo.set(key, res);
       return res;
     }
-    const newCc = cc + combos.length;
-    const newBase = base + combos.reduce((s, c) => s + c.basePoints, 0);
+    const newCc = cc + comboCount;
+    const newBase = base + basePoints;
     if (newBase + comboCountBonus(newCc) >= V) {
       memo.set(key, 1);
       return 1;
     }
-    const res = decideValue(boardToColors(newBoard), newCc, newBase, deck, discard);
+    const res = decideValue(newSlots, newCc, newBase, deck, discard);
     memo.set(key, res);
     return res;
   }
@@ -403,19 +474,19 @@ export function createChainSolver(V: number, K = DEFAULT_K, maxNodes = DEFAULT_M
     if (bm && (bm.lo >= b || bm.hi < a)) return { lo: bm.lo, hi: bm.hi };
     guard();
 
-    const { newBoard, combos } = resolveCombosAtBoard(colorsToBoard(slots));
-    if (combos.length === 0) {
+    const { newSlots, comboCount, basePoints } = resolveCombosColors(slots);
+    if (comboCount === 0) {
       const res = base + comboCountBonus(cc) >= V ? 1 : 0;
       memo.set(key, res);
       return { lo: res, hi: res };
     }
-    const newCc = cc + combos.length;
-    const newBase = base + combos.reduce((s, c) => s + c.basePoints, 0);
+    const newCc = cc + comboCount;
+    const newBase = base + basePoints;
     if (newBase + comboCountBonus(newCc) >= V) {
       memo.set(key, 1);
       return { lo: 1, hi: 1 };
     }
-    const r = bDecide(boardToColors(newBoard), newCc, newBase, deck, discard, a, b);
+    const r = bDecide(newSlots, newCc, newBase, deck, discard, a, b);
     storeBounds(key, r);
     return r;
   }

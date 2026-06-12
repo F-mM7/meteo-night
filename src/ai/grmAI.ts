@@ -19,7 +19,6 @@
  */
 import type { Action, Color, FieldPair, GameState, GiftAssignment, Player } from '../game/types';
 import { COLORS } from '../game/types';
-import { legalActionIds, actionIdToAction } from './actionSpace';
 import {
   createChainSolver,
   fireSlots,
@@ -27,6 +26,9 @@ import {
   totalCount,
   addCount,
   placeColorOnSlots,
+  packSlots,
+  packStack,
+  packCounts,
   type ChainSolver,
   type ColorCounts,
 } from './grmReachQ';
@@ -44,10 +46,19 @@ export interface GrmOptions {
   maxNodes?: number;
   /**
    * 1 決定（decideAction 1 回）の壁時計予算（ms）。省略時は無制限（従来挙動・ベンチ互換）。
-   * 期限超過後は「設計された劣化」＝期待ターン数の精密化（深さ1後退帰納）を省き、二段推定の
-   * 一段目（解析推定）だけで残り候補を順位付けする。劣化の発生は `budgetStats()` で追跡できる。
+   * 期限超過後は「設計された劣化」＝期待ターン数の精密化（深さ1後退帰納）を省き、劣化先推定器
+   * `degradeEstimate`（単一の差し替え点。実体は解析推定）で残り候補を順位付けする。
+   * 劣化の発生は `budgetStats()` で追跡できる。
    */
   timeBudgetMs?: number;
+  /**
+   * 山札チャネルの 15 パターン期待値化（SPEED-PLAN 5b・到達目標アーキテクチャ①。既定 false）。
+   * true で山札ドローを恒等式 1−T̂(S) でなく「2 枚組 15 通り（同色 5＋異色 10）× 超幾何重み ×
+   * 場ペアと同一の明示配置評価」の期待値で評価する＝チャネル間の方法論を完全対称化する。
+   * コストは場ペア 1 本の ~15 倍（重み降順で評価し、予算劣化は低重みペア側に当たる）。
+   * 判断が変わる変更のため、既定で有効化するには事前登録 fresh テストが必要。
+   */
+  deck15?: boolean;
 }
 
 interface ResolvedOptions {
@@ -57,6 +68,7 @@ interface ResolvedOptions {
   K: number;
   maxNodes: number;
   timeBudgetMs: number;
+  deck15: boolean;
 }
 
 interface Ctx {
@@ -72,21 +84,28 @@ interface Ctx {
   deadline: number;
 }
 
-/** 色は先頭1文字が一意（red/green/purple/yellow/blue → r/g/p/y/b）。盤面・色分布を文字列化する。 */
-function serializeBoard(slots: Color[][]): string {
-  return slots.map((s) => s.map((c) => c[0]).join('')).join('|');
-}
-function serializeCounts(counts: ColorCounts): string {
-  return COLORS.map((c) => counts[c]).join(',');
-}
+// memo キーはビットパック（`grmReachQ.packSlots` / `packCounts`、SPEED-PLAN 手法 2）。
+// 旧・可読文字列キー（serializeBoard/serializeCounts: 色文字 join ~40-60 文字）はキー構築・ハッシュ・
+// メモリの定数倍コスト源だったため撤去（値・判断は不変＝全着手一致で検証）。
+
+/**
+ * P*（P の最適運用値）: 勝率を最大化する目標確率のフィッティング結果（`ai/REACHABILITY.md` §7・記号表）。
+ * 相手構成に依存する argmax で、現推定＝0.45（2026-06-12 細粒度再掃引: fresh 34.13% CI 30.92-37.48 が
+ * 同条件の P=0.5 対照 28.25% を +5.9pt 上回り採用。レイテンシゲート通過。旧推定 0.5 は 2026-06-11 掃引）。
+ * 配信 CPU の既定 P（`src/ai/index.ts`）と人間手番診断ログの P（`useGameLogic`）はこの定数に固定する
+ * （ユーザー決定 2026-06-11: CPU の P を UI から切替可能にしても、既定値とログ表示の目線は P* のまま）。
+ * 掃引で推定が更新されたらここを更新する（参照箇所が追従する）。
+ */
+export const GRM_P_STAR = 0.45;
 
 const DEFAULTS: ResolvedOptions = {
   V: 20,
-  P: 0.8,
+  P: 0.8, // 後方互換のベンチ既定（§3 初期値由来）。配信・強さ測定の最適運用値は GRM_P_STAR=0.5。
   H: 0, // 未使用（旧・先読みホライズン。期待ターン数ヒューリスティックへ移行し不要になった）。
   K: 6, // スタック切り詰め（§2.1。上から6枚）。
   maxNodes: 2_000_000,
   timeBudgetMs: Infinity, // 無制限＝従来挙動（ベンチ互換）。ブラウザ等は明示指定する。
+  deck15: false, // 山札チャネルは恒等式 1−T̂（従来）。15 パターン期待値化は fresh テスト通過までオプション。
 };
 
 // ---------------------------------------------------------------------------
@@ -166,14 +185,14 @@ function gValue(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCou
 function tHat(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCounts): number {
   const totalAvail = totalCount(deck) + totalCount(discard);
   if (totalAvail < 1) return EXHAUST_TURNS;
-  const key = `${serializeBoard(slots)}#${serializeCounts(deck)}#${serializeCounts(discard)}`;
+  const key = packSlots(slots) + packCounts(deck) + packCounts(discard);
   const cached = ctx.memoT.get(key);
   if (cached !== undefined) return cached;
-  // 時間予算の期限超過: 精密化（深さ1後退帰納）を省き、二段推定の一段目（解析推定）で返す。
+  // 時間予算の期限超過: 精密化を省き、劣化先推定器（degradeEstimate）で返す。
   // 劣化値は memoT に書かない（純粋な値だけを memo する）。
   if (pastDeadline(ctx)) {
     markDegraded();
-    return analyticTurns(ctx, slots, deck, discard);
+    return degradeEstimate(ctx, slots, deck, discard);
   }
 
   // まず軽量な解析推定で G からの距離を見る。後退帰納は混在連鎖を厳密に拾って値を **下げる** 方向にしか効かず、
@@ -233,9 +252,9 @@ function expTurnsRec(
   if (depth >= GRM_HORIZON) return analyticTurns(ctx, slots, deck, discard);
   if (pastDeadline(ctx)) {
     markDegraded();
-    return analyticTurns(ctx, slots, deck, discard);
+    return degradeEstimate(ctx, slots, deck, discard);
   }
-  const key = serializeBoard(slots);
+  const key = packSlots(slots);
   const cached = memo.get(key);
   if (cached !== undefined) return cached;
   // 再帰中の同一盤面（無駄引きで自己ループ）の暫定値で発散を防ぐ。自己ループは無駄引き（qWaste>0）でしか
@@ -295,12 +314,12 @@ function bestTwoCardCost(
       const b1 = placeColorOnSlots(slots, a, x, ctx.K);
       for (const b of targetSlots(b1, y)) {
         if (pastDeadline(ctx)) {
-          // 期限超過: 評価済みの最良（無ければ解析推定）で打ち切る（設計された劣化）。
+          // 期限超過: 評価済みの最良（無ければ劣化先推定）で打ち切る（設計された劣化）。
           markDegraded();
-          return best >= EXHAUST_TURNS ? analyticTurns(ctx, slots, deck, discard) : best;
+          return best >= EXHAUST_TURNS ? degradeEstimate(ctx, slots, deck, discard) : best;
         }
         const b2 = placeColorOnSlots(b1, b, y, ctx.K);
-        const sig = serializeBoard(b2);
+        const sig = packSlots(b2);
         if (seen.has(sig)) continue;
         seen.add(sig);
         const cost = leafCost(ctx, b2, deck, discard, [x, y], cand, qWaste, depth, memo);
@@ -332,10 +351,10 @@ function bestPlaceCost(
   for (const a of targetSlots(slots, c)) {
     if (pastDeadline(ctx)) {
       markDegraded();
-      return best >= EXHAUST_TURNS ? analyticTurns(ctx, slots, deck, discard) : best;
+      return best >= EXHAUST_TURNS ? degradeEstimate(ctx, slots, deck, discard) : best;
     }
     const b1 = placeColorOnSlots(slots, a, c, ctx.K);
-    const sig = serializeBoard(b1);
+    const sig = packSlots(b1);
     if (seen.has(sig)) continue;
     seen.add(sig);
     const cost = leafCost(ctx, b1, deck, discard, [c], cand, qWaste, depth, memo);
@@ -391,8 +410,16 @@ function qGeqP(ctx: Ctx, board: Color[][], deck: ColorCounts, discard: ColorCoun
     : ctx.solver.reachesAtLeast(board, 0, 0, deck, discard, ctx.P);
 }
 
+/**
+ * (V,P,K)＋盤面＋山札＋捨札の純関数キー（プロセス共有キャッシュ FIRE_G_CACHE / GREEDY_G_CACHE /
+ * ANALYTIC_CACHE が共用する形式。マップ自体は別なので名前空間は分かれる）。
+ */
+function stateKey(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCounts): string {
+  return `${ctx.V},${ctx.P},${ctx.K}|` + packSlots(slots) + packCounts(deck) + packCounts(discard);
+}
+
 function qReachesG(ctx: Ctx, board: Color[][], deckForQ: ColorCounts, discard: ColorCounts): boolean {
-  const key = `${ctx.V},${ctx.P},${ctx.K}#${serializeBoard(board)}#${serializeCounts(deckForQ)}#${serializeCounts(discard)}`;
+  const key = stateKey(ctx, board, deckForQ, discard);
   const cached = FIRE_G_CACHE.get(key);
   if (cached !== undefined) return cached;
   const res = qGeqP(ctx, board, deckForQ, discard);
@@ -421,7 +448,7 @@ function targetSlots(board: Color[][], c: Color): number[] {
   const out: number[] = [];
   const seenStacks = new Set<string>();
   for (const j of idxs) {
-    const stackSig = board[j].map((x) => x[0]).join('');
+    const stackSig = packStack(board[j]);
     if (seenStacks.has(stackSig)) continue;
     seenStacks.add(stackSig);
     out.push(j);
@@ -445,7 +472,7 @@ const GREEDY_G_CACHE = new Map<string, boolean>();
 
 /** greedy 用の G 判定（ノード上限つき・未確定は false 扱い）。 */
 function greedyProbeG(ctx: Ctx, board: Color[][], deckForQ: ColorCounts, discard: ColorCounts): boolean {
-  const key = `${ctx.V},${ctx.P},${ctx.K}#${serializeBoard(board)}#${serializeCounts(deckForQ)}#${serializeCounts(discard)}`;
+  const key = stateKey(ctx, board, deckForQ, discard);
   const cached = GREEDY_G_CACHE.get(key);
   if (cached !== undefined) return cached;
   const res = EXACT_Q_ONLY
@@ -477,7 +504,7 @@ const ANALYTIC_CACHE = new Map<string, number>();
 function analyticTurns(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCounts): number {
   const totalAvail = totalCount(deck) + totalCount(discard);
   if (totalAvail < 1) return EXHAUST_TURNS;
-  const memoKey = `${ctx.V},${ctx.P},${ctx.K}#${serializeBoard(slots)}#${serializeCounts(deck)}#${serializeCounts(discard)}`;
+  const memoKey = stateKey(ctx, slots, deck, discard);
   const cachedA = ANALYTIC_CACHE.get(memoKey);
   if (cachedA !== undefined) return cachedA;
   // v1（tstar 移植, UPSTREAM.md 2026-06-10）: 旧・候補 2 色の簡易和は残りの色のドローを無駄引き扱いし、
@@ -630,6 +657,52 @@ export function expectedRaceTurns(cands: { p: number; needed: number }[], qWaste
   return E;
 }
 
+// ---------------------------------------------------------------------------
+// 期限超過時の劣化先（単一の差し替え点）と最終 tier h0
+// ---------------------------------------------------------------------------
+
+/** h0 のプロセス内共有メモ。一様レートなので値は不足枚数の多重集合だけで決まる（needed∈{0..3}×5色＝高々56通り）。 */
+const H0_CACHE = new Map<string, number>();
+
+/**
+ * 盤面のみの最終 tier 推定器 h0（A* の h に相当）: 探査・q プローブを一切含まない O(盤面) の閉形式。
+ * 一様レート（全 5 色 p_c=1/5・無駄引き 0）のレース閉形式 `expectedRaceTurns` を、発火形までの
+ * 不足枚数 needed_c = max(0, 3 − topCount_c)（最上段が c のスロット数から同色 top 3 つまで）で評価する。
+ * 発火形は G（発火 ∧ q≥P）の必要条件なので、これは G 到達ターン数の楽観下界。山札・捨札を見ないのは
+ * 「山札を状態から外す」一様 i.i.d. 方針（`ai/TSTAR-DEPS.md`）に従う設計選択。
+ *
+ * **配信不採用（2026-06-11）**: `degradeEstimate` の実体として事前登録 fresh テストに掛けた結果
+ * 不通過（23.63%、CHANGELOG 参照）。現在 AI 本体からは未使用。劣化先候補の品質測定ベースライン
+ * （順位保存率の床。tstar/REQUESTS.md R2）および将来の差し替え実験用に、性質テスト付きで存置する。
+ */
+export function h0Turns(slots: Color[][]): number {
+  const needs = COLORS.map((c) => Math.max(0, 3 - topCountOnBoard(slots, c))).sort((a, b) => a - b);
+  const key = needs.join('');
+  const cached = H0_CACHE.get(key);
+  if (cached !== undefined) return cached;
+  const res = expectedRaceTurns(
+    needs.map((needed) => ({ p: 1 / COLORS.length, needed })),
+    0
+  );
+  H0_CACHE.set(key, res);
+  return res;
+}
+
+/**
+ * 期限超過時の劣化先推定器（A* の h に相当する単一の差し替え点）。期限超過後に T̂ スケールの値を
+ * 供給する箇所（`tHat` 入口・`expTurnsRec` 入口・`bestTwoCardCost`/`bestPlaceCost` の打ち切り・
+ * `lateBestPlacement`）はすべてここを通る。実体は解析推定（`analyticTurns`）。
+ *
+ * 「キャッシュ命中の解析値 → 初見盤面は h0」の探査ゼロ実体は事前登録 fresh テストで不通過
+ * （2026-06-11、プール 23.63% CI 20.81-26.69 < 基準 25%）＝**h0 tier は不採用**。h0 の楽観下界が
+ * 期限内の解析値と混在すると初見盤面側が系統的に過大評価され、重い局面の手選択を歪める。
+ * 差し替え候補（tstar C2 等）はこの 1 関数の実体を入れ替え、fresh テストで判定する
+ * （tstar/REQUESTS.md R1-R3。品質軸は順位保存率・ベースラインは h0）。
+ */
+function degradeEstimate(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCounts): number {
+  return analyticTurns(ctx, slots, deck, discard);
+}
+
 /**
  * 遅延精密化のマージン Δ。非発火候補の真の価値 −T は −max(1, analytic − Δ) を上回らない、という
  * 仮定で候補を枝刈りする（T = min(analytic, refined)、refined ≥ 1、解析推定の過大評価は実測 +0.75 が
@@ -669,7 +742,7 @@ const GRM_LATE_TARGET_SLOTS = 1;
 
 /**
  * 期限超過後の配置決定（第 2 段の設計劣化）: targetSlots の選好順で候補を少数に絞り、
- * 発火候補は閾値ゲート（G なら最優先）、非発火候補は解析推定で順位付けする。
+ * 発火候補は閾値ゲート（G なら最優先）、非発火候補は劣化先推定器（degradeEstimate）で順位付けする。
  */
 function lateBestPlacement(
   ctx: Ctx,
@@ -684,7 +757,7 @@ function lateBestPlacement(
   const seen = new Set<string>();
   const tried = new Set<Color>();
   const evalBoard = (board: Color[][], firstColor: Color, slot: number): void => {
-    const sig = serializeBoard(board);
+    const sig = packSlots(board);
     if (seen.has(sig)) return;
     seen.add(sig);
     let v: number;
@@ -697,7 +770,7 @@ function lateBestPlacement(
           ? 1e-3 // G 到達（タイブレークの厳密 q は省略＝劣化）
           : -SMALL_FIRE_TURNS;
     } else {
-      v = ctx.endgame ? 0 : -analyticTurns(ctx, board, deck, discard);
+      v = ctx.endgame ? 0 : -degradeEstimate(ctx, board, deck, discard);
     }
     if (v > bestVal) {
       bestVal = v;
@@ -788,7 +861,7 @@ function bestDrawnPlacement(
     for (let j = 0; j < slots.length; j++) {
       const b1 = placeColorOnSlots(slots, j, color, ctx.K);
       if (rest.length === 0) {
-        const sig = serializeBoard(b1);
+        const sig = packSlots(b1);
         if (!seen.has(sig)) {
           seen.add(sig);
           cands.push({ board: b1, firstColor: color, slot: j, idx, fired: false, aTurns: 0, opt: 0 });
@@ -797,7 +870,7 @@ function bestDrawnPlacement(
       } else {
         for (let j2 = 0; j2 < slots.length; j2++) {
           const b2 = placeColorOnSlots(b1, j2, rest[0], ctx.K);
-          const sig = serializeBoard(b2);
+          const sig = packSlots(b2);
           if (!seen.has(sig)) {
             seen.add(sig);
             cands.push({ board: b2, firstColor: color, slot: j, idx, fired: false, aTurns: 0, opt: 0 });
@@ -817,6 +890,7 @@ function bestDrawnPlacement(
       c.opt = 0; // 終盤モードの非発火は gValue=0 固定（そのまま厳密値）
     } else if (pastDeadline(ctx)) {
       // 期限がこのフェーズ中に来た: 残り候補は解析推定も省いて考慮外に落とす（設計劣化）。
+      // h0（盤面のみの閉形式）で順位付けに残す案は fresh テスト不通過で不採用（degradeEstimate 参照）。
       markDegraded();
       c.aTurns = EXHAUST_TURNS;
       c.opt = -Infinity;
@@ -883,9 +957,16 @@ function bestDrawnPlacement(
   return { value: bestVal, firstColor: bestColor, slot: bestSlot };
 }
 
-/** 残りの `colors` を最適に積んだときの価値（**置く順も含めて全探索**。葉で gValue）。同色は 1 回だけ試す。 */
+/** 残りの `colors` を最適に積んだときの価値（**置く順も含めて全探索**。葉で gValue）。同色は 1 回だけ試す。
+ * 期限超過後は縮約評価（lateBestPlacement）へ劣化する: この全探索は 3 枚以上の贈与バッチで到達し、
+ * 深さ n の全列挙 × 葉の厳密ゲートが予算と無縁に爆発しうる（プローブ実測で 1 決定 70 分の暴走＝
+ * 同時最適化導入時の見落とし。各再帰呼び出しの入口で期限を見ることで予算+仕掛かり分に有界化）。 */
 function placeAllValue(ctx: Ctx, slots: Color[][], colors: Color[], deck: ColorCounts, discard: ColorCounts): number {
   if (colors.length === 0) return gValue(ctx, slots, deck, discard);
+  if (pastDeadline(ctx)) {
+    markDegraded();
+    return lateBestPlacement(ctx, slots, colors, deck, discard).value;
+  }
   let best = -Infinity;
   const tried = new Set<Color>();
   for (let ci = 0; ci < colors.length; ci++) {
@@ -930,6 +1011,55 @@ function deckChannelValue(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard
   return 1 - tHat(ctx, slots, deck, discard);
 }
 
+/**
+ * 山札 2 枚ドローの**順序なし**色組の確率（プール＝山札+捨札からの非復元 2 枚）。
+ *   P({c,c}) = n_c(n_c−1) / N(N−1)、 P({c,d}) = 2 n_c n_d / N(N−1) （c≠d）
+ * 確率 0 の組は除外して返す（Σ = 1）。SPEED-PLAN 5b・到達目標アーキテクチャ① の重み。
+ */
+export function pairWeights(
+  deck: ColorCounts,
+  discard: ColorCounts
+): { colors: [Color, Color]; w: number }[] {
+  const n = {} as Record<Color, number>;
+  let N = 0;
+  for (const c of COLORS) {
+    n[c] = deck[c] + discard[c];
+    N += n[c];
+  }
+  if (N < 2) return [];
+  const denom = N * (N - 1);
+  const out: { colors: [Color, Color]; w: number }[] = [];
+  for (let i = 0; i < COLORS.length; i++) {
+    for (let j = i; j < COLORS.length; j++) {
+      const ci = COLORS[i];
+      const cj = COLORS[j];
+      const w = i === j ? (n[ci] * (n[ci] - 1)) / denom : (2 * n[ci] * n[cj]) / denom;
+      if (w > 0) out.push({ colors: [ci, cj], w });
+    }
+  }
+  return out;
+}
+
+/**
+ * 山札チャネルの 15 パターン期待値評価（SPEED-PLAN 5b、`deck15` オプション時のみ）。
+ * 2 枚組（同色 5＋異色 C(5,2)=10）を超幾何重みで列挙し、各組を**場ペアと同一の明示配置評価**
+ * （`bestDrawnPlacement`）に掛けた期待値を返す＝チャネル間の方法論を完全対称化する。
+ * 恒等式 1−T̂（従来）は T̂ が厳密なら同値だが、T̂ は近似（レースモデル暗黙の単色貪欲）なので
+ * 「場ペア＝明示配置／山札＝暗黙貪欲」という非対称が残っていた（5b の動機）。
+ * 重みの大きい組から評価し、時間予算の劣化（bestDrawnPlacement 内の既存機構）が低重み側に当たる
+ * ようにする。コストは場ペア 1 本の ~15 倍＝チャネル小締切（呼び出し元の累積チェックポイント）の中で動く。
+ */
+function deckChannelValue15(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCounts): number {
+  const pairs = pairWeights(deck, discard);
+  if (pairs.length === 0) return deckChannelValue(ctx, slots, deck, discard); // 残り 1 枚以下は従来評価
+  pairs.sort((a, b) => b.w - a.w);
+  let v = 0;
+  for (const { colors, w } of pairs) {
+    v += w * bestDrawnPlacement(ctx, slots, [colors[0], colors[1]], deck, discard).value;
+  }
+  return v;
+}
+
 // ---------------------------------------------------------------------------
 // 終盤モード（§6.6）
 // ---------------------------------------------------------------------------
@@ -955,8 +1085,12 @@ function effectiveTarget(state: GameState, me: number, opt: ResolvedOptions): { 
   if (state.endTriggered && state.endTriggerPlayerId !== null && state.endTriggerPlayerId !== me) {
     const need = requiredFinalScore(state, me) - state.players[me].score;
     if (need > 0) {
-      // 追い込み: V=必要追加得点、P 無効化（argmax q）
-      return { V: need, P: 0, endgame: true };
+      // 追い込み: V=必要追加得点、P 無効化（argmax q）。
+      // V は設定値（配信 20）でクランプする: 終盤モードは P 閾値が無く厳密 q を解くため、巨大な
+      // need（大差の絶望局面）をそのまま渡すと連鎖サブゲームの展開が止まらずノード上限超過で落ちる
+      // （V=46 で実測。フォールバック撤去前は例外→「最初の合法手」が黙って吸収していた）。
+      // need > V の局面は q がほぼ 0 の絶望局面で、argmax q(V) は「最大の連鎖を狙う」妥当な代理。
+      return { V: Math.min(need, opt.V), P: 0, endgame: true };
     }
     // すでに暫定勝者 → 通常運用に戻す（無理な大連鎖は狙わない、§6.6a）
   }
@@ -994,27 +1128,6 @@ function buildGiftAssignments(state: GameState, me: number): GiftAssignment[] {
 }
 
 // ---------------------------------------------------------------------------
-// フォールバック（例外時にシミュレーションを止めないため）
-// ---------------------------------------------------------------------------
-
-function fallbackAction(state: GameState, me: number): Action | null {
-  if (state.phase === 'awaitingGiftSelection') {
-    if (state.currentPlayerIndex !== me) return null;
-    const queue = state.turn.giftQueue;
-    const opp = state.players.filter((p) => p.id !== me);
-    if (queue.length === 0) return { type: 'CONFIRM_GIFTS', assignments: [] };
-    const targetId = opp.length > 0 ? opp[0].id : me;
-    return {
-      type: 'CONFIRM_GIFTS',
-      assignments: queue.map((combo, comboIndex) => ({ comboIndex, cardId: combo.cards[0].id, targetPlayerId: targetId })),
-    };
-  }
-  const ids = legalActionIds(state, me);
-  if (ids.length === 0) return null;
-  return actionIdToAction(state, me, ids[0]);
-}
-
-// ---------------------------------------------------------------------------
 // メイン
 // ---------------------------------------------------------------------------
 
@@ -1031,14 +1144,12 @@ export function decideAction(
     K: options.K ?? DEFAULTS.K,
     maxNodes: options.maxNodes ?? DEFAULTS.maxNodes,
     timeBudgetMs: options.timeBudgetMs ?? Infinity,
+    deck15: options.deck15 ?? DEFAULTS.deck15,
   };
-  try {
-    const a = decideInner(state, playerId, opt);
-    if (a) return a;
-  } catch {
-    // q の展開上限超過などは握りつぶしてフォールバック（シミュレーション継続を優先）
-  }
-  return fallbackAction(state, playerId);
+  // 例外（q の展開上限超過等）は握りつぶさず呼び出し元へ投げ切る。かつて try/catch →「最初の合法手」
+  // フォールバックがノード予算バグを隠し虚像の勝率測定を生んだため、例外を隠すフォールバックは禁止
+  // （ユーザー方針 2026-06-11）。例外が出る＝直すべきバグの顕在化として扱う。
+  return decideInner(state, playerId, opt);
 }
 
 function decideInner(state: GameState, me: number, opt: ResolvedOptions): Action | null {
@@ -1054,11 +1165,21 @@ function decideInner(state: GameState, me: number, opt: ResolvedOptions): Action
   if (phase === 'awaitingGiftPlacement') {
     const batch = state.turn.pendingGiftBatches[0];
     if (!batch || batch.recipientId !== me) return null;
-    const card = batch.cards[0];
-    if (!card) return null;
+    if (batch.cards.length === 0) return null;
     const ctx = makeCtx(opt, opt.V, opt.P, false);
     const slots = myColors(state, me);
-    const { slot } = bestDrawnPlacement(ctx, slots, [card.color], colorCounts(state.deck), colorCounts(state.discardPile));
+    // バッチ全体（複数枚）を同時最適化する: どのカードを先に・どこへ（同一スロット積みの上下順込み）を
+    // ドロー配置と同じ探索で決める。贈与フェーズは途中発火が無いため「全カードを置き切った最終盤面」の
+    // 評価が厳密に正しい（ドロー時より同時最適化の根拠が強い）。1 枚置くごとに残りで再計画する。
+    // 旧実装は cards[0] を 1 枚ずつ逐次貪欲で置いており、「他色を先に置いて重ねる」型の相互作用を見落としていた。
+    const { firstColor, slot } = bestDrawnPlacement(
+      ctx,
+      slots,
+      batch.cards.map((c) => c.color),
+      colorCounts(state.deck),
+      colorCounts(state.discardPile)
+    );
+    const card = batch.cards.find((c) => c.color === firstColor) ?? batch.cards[0];
     return { type: 'PLACE_GIFT', cardId: card.id, slotIndex: slot };
   }
 
@@ -1103,7 +1224,14 @@ function decideInner(state: GameState, me: number, opt: ResolvedOptions): Action
         });
       }
       if (totalCount(deck) > 0 || totalCount(discard) > 0) {
-        channels.push({ action: { type: 'DRAW_FROM_DECK' }, evalFn: () => deckChannelValue(ctx, slots, deck, discard) });
+        // deck15: 15 パターン期待値（5b・チャネル対称化）／既定: 恒等式 1−T̂。
+        channels.push({
+          action: { type: 'DRAW_FROM_DECK' },
+          evalFn: () =>
+            opt.deck15
+              ? deckChannelValue15(ctx, slots, deck, discard)
+              : deckChannelValue(ctx, slots, deck, discard),
+        });
       }
       // 予算のチャネル別チェックポイント（累積 (i+1)/n）。一本の期限だと前段が予算を使い切ったとき
       // 後段チャネルだけが縮約評価に劣化し、比較が系統的に歪む（同色ペアで値割れを実測）。
@@ -1179,6 +1307,7 @@ export function logHumanEvaluation(state: GameState, playerId: number, options: 
     K: options.K ?? DEFAULTS.K,
     maxNodes: options.maxNodes ?? DEFAULTS.maxNodes,
     timeBudgetMs: options.timeBudgetMs ?? Infinity,
+    deck15: options.deck15 ?? DEFAULTS.deck15,
   };
   const slots = myColors(state, playerId);
   const deck = colorCounts(state.deck);
@@ -1206,7 +1335,7 @@ export function logHumanEvaluation(state: GameState, playerId: number, options: 
   }
 
   // フェーズ別: 各候補手の評価
-  const moveLines = evaluateMovesForLog(ctx, state, slots, deck, discard, opt, cc, base);
+  const moveLines = evaluateMovesForLog(ctx, state, playerId, slots, deck, discard, opt, cc, base);
   lines.push(...moveLines.map((l) => '  ' + l));
 
   // ブラウザ devtools / Node どちらでも見やすいよう装飾付きで1回出力
@@ -1222,6 +1351,7 @@ export function logHumanEvaluation(state: GameState, playerId: number, options: 
 function evaluateMovesForLog(
   ctx: Ctx,
   state: GameState,
+  playerId: number,
   slots: Color[][],
   deck: ColorCounts,
   discard: ColorCounts,
@@ -1268,49 +1398,106 @@ function evaluateMovesForLog(
     case 'awaitingPlaceDrawn': {
       const pend = state.turn.pendingDraw.map((c) => c.color);
       if (pend.length === 0) return [];
-      // 全角フォントで列幅が崩れないよう、セル値は ASCII のみ（∞ ではなく >50 表記）。
-      const compact = (v: number) => (v >= -1e-3 ? 'G' : -v >= EXHAUST_TURNS ? `>${EXHAUST_TURNS}` : (-v).toFixed(1));
-      // 列ずれ防止: 値は表全体の最大幅へ右寄せし、最良印の 1 文字分は印が付かないセルにも常に確保する。
-      const table = (rows: { label: string; vals: number[] }[]): string[] => {
-        const best = Math.max(...rows.flatMap((r) => r.vals));
-        const w = Math.max(...rows.flatMap((r) => r.vals.map((v) => compact(v).length)));
-        return rows.map(
-          (r) => `${r.label}: ${r.vals.map((v, j) => `#${j}=${compact(v).padStart(w)}${v >= best - 1e-12 ? '*' : ' '}`).join(' ')}`
-        );
+      // 全積み方を評価して最良手のみ表示する。表記はスロット順優先: "0g,4r"＝#0にg・#4にr、
+      // "4gr"＝#4にgを置きrを重ねる（左→右が下→上）。同値の最良は全て並べる。
+      let best = -Infinity;
+      let bestMoves: string[] = [];
+      const consider = (label: string, v: number) => {
+        if (v > best + 1e-12) {
+          best = v;
+          bestMoves = [label];
+        } else if (v >= best - 1e-12) {
+          bestMoves.push(label);
+        }
       };
       if (pend.length === 2) {
-        // 全積み方を列挙: 「1枚目の色@スロット → 2枚目のスロット別」（同一スロット重ねは上下順で別経路。
-        // 同色 2 枚は交換可能なので片順のみ）。各行 5 値 × 最大 10 行 = 50 通りの完全表示。
-        const distinct: Color[] = [];
-        for (const c of pend) if (!distinct.includes(c)) distinct.push(c);
-        const rows: { label: string; vals: number[] }[] = [];
-        for (const c of distinct) {
-          const idx = pend.indexOf(c);
-          const other = pend.slice(0, idx).concat(pend.slice(idx + 1))[0];
+        // 異スロットへの 2 枚は置き順で盤面が変わらないため片順のみ評価（鏡像の重複排除）。
+        // 同一スロット重ねのみ上下順が盤面を変えるので両順を評価する。
+        const [c1, c2] = pend;
+        for (let j = 0; j < slots.length; j++) {
+          const b1 = placeColorOnSlots(slots, j, c1, opt.K);
+          for (let j2 = 0; j2 < slots.length; j2++) {
+            if (c1 === c2 && j2 < j) continue; // 同色の異スロットは (j,j2)=(j2,j)
+            const label =
+              j === j2 ? `${j}${c1[0]}${c2[0]}` : j < j2 ? `${j}${c1[0]},${j2}${c2[0]}` : `${j2}${c2[0]},${j}${c1[0]}`;
+            consider(label, gValue(ctx, placeColorOnSlots(b1, j2, c2, opt.K), deck, discard));
+          }
+        }
+        if (c1 !== c2) {
           for (let j = 0; j < slots.length; j++) {
-            const b1 = placeColorOnSlots(slots, j, c, opt.K);
-            rows.push({
-              label: `${c[0]}@#${j}→${other[0]}`,
-              vals: slots.map((_, j2) => gValue(ctx, placeColorOnSlots(b1, j2, other, opt.K), deck, discard)),
-            });
+            const b1 = placeColorOnSlots(slots, j, c2, opt.K);
+            consider(`${j}${c2[0]}${c1[0]}`, gValue(ctx, placeColorOnSlots(b1, j, c1, opt.K), deck, discard));
+          }
+        }
+      } else {
+        // 1 枚（2 枚目の配置決定）: スロット別に評価。
+        const c = pend[0];
+        slots.forEach((_, j) =>
+          consider(`${j}${c[0]}`, placeAllValue(ctx, placeColorOnSlots(slots, j, c, opt.K), pend.slice(1), deck, discard))
+        );
+      }
+      return [`手札[${pend.map((c) => c[0]).join(',')}] の最良手: ${bestMoves.sort().join(' / ')}（${turnsLabel(best)}）`];
+    }
+    case 'awaitingGiftPlacement': {
+      // 贈られたカードの受領配置（§6.4 仕込み）。CPU 実装（decideInner → bestDrawnPlacement バッチ同時
+      // 最適化）と同じ gValue で評価する: 発火形を作る配置は q ゲート（G なら勝負手・q<P は最悪）、
+      // 非発火は −T̂。贈与フェーズは途中発火が無いので「置き切った最終盤面」の評価が厳密に正しい。
+      const batch = state.turn.pendingGiftBatches[0];
+      if (!batch || batch.recipientId !== playerId) return [];
+      const giftColors = batch.cards.map((c) => c.color);
+      if (giftColors.length === 0) return [];
+      if (giftColors.length === 1) {
+        // 1 枚: スロット別の値。小発火形（q<P）は値が「到達困難」と同じ −SMALL_FIRE_TURNS に潰れるため、
+        // 「次の自手番冒頭で意図せず小発火して setup を潰す」ことが読めるよう区別表示する。
+        const color = giftColors[0];
+        const evals = slots.map((_, j) => {
+          const b = placeColorOnSlots(slots, j, color, opt.K);
+          return { v: gValue(ctx, b, deck, discard), fired: fireSlots(b) };
+        });
+        const best = Math.max(...evals.map((e) => e.v));
+        const giftLabel = (e: { v: number; fired: boolean }): string =>
+          !ctx.endgame && e.fired && -e.v >= SMALL_FIRE_TURNS ? '小発火形(q<P)＝次の自手番に強制小発火で最悪' : turnsLabel(e.v);
+        return [
+          `贈られた ${color} の配置先別評価（仕込み: このフェーズでは発火せず、発火形は次の自手番の最初の配置で解決）:`,
+          ...evals.map((e, j) => `#${j}: ${giftLabel(e)}${star(e.v, best)}`),
+        ];
+      }
+      if (giftColors.length === 2) {
+        // 2 枚: バッチ全体の同時最適化（awaitingPlaceDrawn と同じ全積み方列挙・同じ表記）。
+        let best = -Infinity;
+        let bestMoves: string[] = [];
+        const consider = (label: string, v: number) => {
+          if (v > best + 1e-12) {
+            best = v;
+            bestMoves = [label];
+          } else if (v >= best - 1e-12) {
+            bestMoves.push(label);
+          }
+        };
+        const [c1, c2] = giftColors;
+        for (let j = 0; j < slots.length; j++) {
+          const b1 = placeColorOnSlots(slots, j, c1, opt.K);
+          for (let j2 = 0; j2 < slots.length; j2++) {
+            if (c1 === c2 && j2 < j) continue;
+            const label =
+              j === j2 ? `${j}${c1[0]}${c2[0]}` : j < j2 ? `${j}${c1[0]},${j2}${c2[0]}` : `${j2}${c2[0]},${j}${c1[0]}`;
+            consider(label, gValue(ctx, placeColorOnSlots(b1, j2, c2, opt.K), deck, discard));
+          }
+        }
+        if (c1 !== c2) {
+          for (let j = 0; j < slots.length; j++) {
+            const b1 = placeColorOnSlots(slots, j, c2, opt.K);
+            consider(`${j}${c2[0]}${c1[0]}`, gValue(ctx, placeColorOnSlots(b1, j, c1, opt.K), deck, discard));
           }
         }
         return [
-          `手札[${pend.map((c) => c[0]).join(',')}] を配置（1枚目@スロット → 2枚目スロット別の G到達期待ターン数。同一スロット重ねは上下順で別経路。G=到達, >${EXHAUST_TURNS}=到達困難, *=全体最良）:`,
-          ...table(rows),
+          `贈られた[${giftColors.map((c) => c[0]).join(',')}] の最良配置（バッチ同時最適化・途中発火なし）: ${bestMoves.sort().join(' / ')}（${turnsLabel(best)}）`,
         ];
       }
-      // 1 枚（2 枚目の配置決定）: スロット別の値をそのまま表示。
-      const distinct: Color[] = [];
-      for (const c of pend) if (!distinct.includes(c)) distinct.push(c);
-      const rows = distinct.map((c) => {
-        const idx = pend.indexOf(c);
-        const rest = pend.slice(0, idx).concat(pend.slice(idx + 1));
-        return { c, vals: slots.map((_, j) => placeAllValue(ctx, placeColorOnSlots(slots, j, c, opt.K), rest, deck, discard)) };
-      });
+      // 3 枚以上（稀）: 同時最適化の最良の 1 手目のみ表示（残りは配置後に再計画される）。
+      const { value, firstColor, slot } = bestDrawnPlacement(ctx, slots, giftColors, deck, discard);
       return [
-        `手札[${pend.map((c) => c[0]).join(',')}] を配置（スロット別の G到達期待ターン数。G=到達, >${EXHAUST_TURNS}=到達困難, *=最良）:`,
-        ...table(rows.map((r) => ({ label: r.c[0], vals: r.vals }))),
+        `贈られた[${giftColors.map((c) => c[0]).join(',')}]（${giftColors.length}枚）の最良の 1 手目: ${firstColor}→#${slot}（${turnsLabel(value)}。残りは配置後に再計画）`,
       ];
     }
     case 'awaitingAdditionalActionChoice': {
@@ -1407,6 +1594,7 @@ export function estimateTHat(
     K: options.K ?? DEFAULTS.K,
     maxNodes: options.maxNodes ?? DEFAULTS.maxNodes,
     timeBudgetMs: options.timeBudgetMs ?? Infinity,
+    deck15: options.deck15 ?? DEFAULTS.deck15,
   };
   return tHat(makeCtx(opt, opt.V, opt.P, false), slots, deck, discard);
 }

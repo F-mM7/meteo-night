@@ -6,13 +6,25 @@
 // 旧既定 tempoChainAI（Gen-15）は存置。戻す場合はこの wrapper を `export { decideAction } from './tempoChainAI';`
 // に変更するだけ（さらに旧 tempoFastAI(LA=1) も存置）。
 import type { Action, GameState } from '../game/types';
-import { decideAction as decideGrm, type GrmOptions } from './grmAI';
+import { decideAction as decideGrm, GRM_P_STAR, type GrmOptions } from './grmAI';
 
-/** 配信構成（事前登録テストで測定した構成と同一。H は後方互換の受理のみで未使用）。 */
-const GRM_BROWSER_OPTIONS: GrmOptions = { V: 20, P: 0.5, H: 1, K: 6, timeBudgetMs: 3000 };
+/** 配信構成（事前登録テストで測定した構成と同一。H は後方互換の受理のみで未使用）。
+ * 既定の P は P*（勝率最大化のフィッティング結果＝最適運用値、現推定 0.5）に固定する。 */
+const GRM_BROWSER_OPTIONS: GrmOptions = { V: 20, P: GRM_P_STAR, H: 1, K: 6, timeBudgetMs: 3000 };
 
-export function decideAction(state: GameState, playerId: number, seed?: number): Action | null {
-  return decideGrm(state, playerId, seed, GRM_BROWSER_OPTIONS);
+/**
+ * @param pOverride CPU の目標確率 P の上書き（UI の CPU 強さ切替。省略＝既定 P*）。P 以外の配信構成
+ *   （V/K/時間予算）は固定のまま。レイテンシは P と独立に時間予算 3000ms で有界。
+ */
+export function decideAction(
+  state: GameState,
+  playerId: number,
+  seed?: number,
+  pOverride?: number
+): Action | null {
+  const opts =
+    pOverride === undefined ? GRM_BROWSER_OPTIONS : { ...GRM_BROWSER_OPTIONS, P: pOverride };
+  return decideGrm(state, playerId, seed, opts);
 }
 
 /**

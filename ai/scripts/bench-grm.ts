@@ -17,13 +17,17 @@
  */
 import { pathToFileURL } from 'node:url';
 import { playOneGameWithDeciders, parseIntArg, parseFloatArg, type Decider } from './_runner';
-import { decideAction as decideGrm, type GrmOptions } from '../../src/ai/grmAI';
+import { decideAction as decideGrm, GRM_P_STAR, type GrmOptions } from '../../src/ai/grmAI';
 import { decideAction as decideTempoFast } from '../../src/ai/tempoFastAI';
 import { decideAction as decideTempoChain } from '../../src/ai/tempoChainAI';
 import { wilsonInterval } from './stats';
 
-/** baseline の種類: fast=tempoFast(LA=1, budget) / chain=現 champion tempoChain(DEFAULT_GENOME)。 */
-export type GrmBaseline = 'fast' | 'chain';
+/** baseline の種類: fast=tempoFast(LA=1, budget) / chain=旧既定 tempoChain(DEFAULT_GENOME) /
+ * grm=GRM 配信構成（V=20, P=P*, K=6, budget=3000ms）＝L2 逸脱テスト（OBJECTIVE.md）の基準席。 */
+export type GrmBaseline = 'fast' | 'chain' | 'grm';
+
+/** L2 逸脱テスト（self-play 不動点）の基準席構成。配信 wrapper と同一に保つ。 */
+const GRM_BASELINE_OPTIONS: GrmOptions = { V: 20, P: GRM_P_STAR, H: 1, K: 6, timeBudgetMs: 3000 };
 
 export interface BenchGrmArgs {
   games: number;
@@ -37,6 +41,8 @@ export interface BenchGrmArgs {
   base: GrmBaseline;
   /** GRM 側の 1 決定あたり壁時計予算（ms）。0 = 無制限（従来挙動）。 */
   grmBudget: number;
+  /** 山札チャネルの 15 パターン期待値化（SPEED-PLAN 5b）を有効化。 */
+  deck15: boolean;
 }
 
 export const BENCH_GRM_DEFAULTS: BenchGrmArgs = {
@@ -50,6 +56,7 @@ export const BENCH_GRM_DEFAULTS: BenchGrmArgs = {
   K: 7,
   base: 'fast',
   grmBudget: 0,
+  deck15: false,
 };
 
 export function parseBenchGrmArgs(argv: string[]): BenchGrmArgs {
@@ -83,12 +90,15 @@ export function parseBenchGrmArgs(argv: string[]): BenchGrmArgs {
         break;
       case '--base': {
         const v = argv[++i];
-        if (v !== 'fast' && v !== 'chain') throw new Error('--base requires: fast|chain');
+        if (v !== 'fast' && v !== 'chain' && v !== 'grm') throw new Error('--base requires: fast|chain|grm');
         a.base = v;
         break;
       }
       case '--grm-budget':
         a.grmBudget = parseIntArg('--grm-budget', argv[++i]);
+        break;
+      case '--deck15':
+        a.deck15 = true;
         break;
       default:
         throw new Error(`unknown arg: ${k}`);
@@ -126,11 +136,14 @@ export function runGrmMatch(opts: {
   base?: GrmBaseline;
   onProgress?: (done: number, grmWins: number, elapsedSec: number) => void;
 }): GrmMatchResult {
+  const base = opts.base ?? 'fast';
   const baseline: Decider =
-    (opts.base ?? 'fast') === 'chain'
-      ? (state, pid) => decideTempoChain(state, pid)
-      : (state, pid) =>
-          decideTempoFast(state, pid, undefined, { timeBudgetMs: opts.budget, lookaheadTurns: 1 });
+    base === 'grm'
+      ? (state, pid) => decideGrm(state, pid, undefined, GRM_BASELINE_OPTIONS)
+      : base === 'chain'
+        ? (state, pid) => decideTempoChain(state, pid)
+        : (state, pid) =>
+            decideTempoFast(state, pid, undefined, { timeBudgetMs: opts.budget, lookaheadTurns: 1 });
   const candidate: Decider = (state, pid) => decideGrm(state, pid, undefined, opts.grmOptions);
 
   let grmWins = 0;
@@ -175,10 +188,15 @@ function main(): void {
   const args = parseBenchGrmArgs(process.argv.slice(2));
   const grmOptions: GrmOptions = { V: args.V, P: args.P, H: args.H, K: args.K };
   if (args.grmBudget > 0) grmOptions.timeBudgetMs = args.grmBudget;
+  if (args.deck15) grmOptions.deck15 = true;
 
   const baseName =
-    args.base === 'chain' ? 'tempoChain(DEFAULT_GENOME)' : `tempoFast(budget=${args.budget}, LA=1)`;
-  const grmName = `GRM(V=${args.V}, P=${args.P}, H=${args.H}, K=${args.K}${args.grmBudget > 0 ? `, budget=${args.grmBudget}ms` : ''})`;
+    args.base === 'grm'
+      ? `GRM(配信構成 P*=${GRM_P_STAR}, budget=3000ms)`
+      : args.base === 'chain'
+        ? 'tempoChain(DEFAULT_GENOME)'
+        : `tempoFast(budget=${args.budget}, LA=1)`;
+  const grmName = `GRM(V=${args.V}, P=${args.P}, H=${args.H}, K=${args.K}${args.grmBudget > 0 ? `, budget=${args.grmBudget}ms` : ''}${args.deck15 ? ', deck15' : ''})`;
   console.error(
     `[bench-grm] ${grmName} vs ${baseName} | games=${args.games} seed=${args.seed} (GRM 1 席 vs baseline 3 席, rotate)`
   );
