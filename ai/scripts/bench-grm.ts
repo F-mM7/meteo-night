@@ -43,6 +43,12 @@ export interface BenchGrmArgs {
   grmBudget: number;
   /** 山札チャネルの 15 パターン期待値化（SPEED-PLAN 5b）を有効化。 */
   deck15: boolean;
+  /** h 候補の差し込み実験: degrade=劣化先のみ置換（初見盤面） / that=T̂ 本体を完全置換。 */
+  hSwap: '' | 'degrade' | 'that';
+  /** h 候補の成果物 JSON（tstar createFitted 形式）。--h-swap とセットで指定。 */
+  c2Artifact: string;
+  /** tstar の src ディレクトリ（createFitted の動的 import 元）。 */
+  tstarSrc: string;
 }
 
 export const BENCH_GRM_DEFAULTS: BenchGrmArgs = {
@@ -57,6 +63,9 @@ export const BENCH_GRM_DEFAULTS: BenchGrmArgs = {
   base: 'fast',
   grmBudget: 0,
   deck15: false,
+  hSwap: '',
+  c2Artifact: '',
+  tstarSrc: '/home/futa/tstar/src',
 };
 
 export function parseBenchGrmArgs(argv: string[]): BenchGrmArgs {
@@ -99,6 +108,18 @@ export function parseBenchGrmArgs(argv: string[]): BenchGrmArgs {
         break;
       case '--deck15':
         a.deck15 = true;
+        break;
+      case '--h-swap': {
+        const v = argv[++i];
+        if (v !== 'degrade' && v !== 'that') throw new Error('--h-swap requires: degrade|that');
+        a.hSwap = v;
+        break;
+      }
+      case '--c2-artifact':
+        a.c2Artifact = argv[++i] ?? '';
+        break;
+      case '--tstar-src':
+        a.tstarSrc = argv[++i] ?? a.tstarSrc;
         break;
       default:
         throw new Error(`unknown arg: ${k}`);
@@ -184,11 +205,25 @@ export function runGrmMatch(opts: {
   };
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const args = parseBenchGrmArgs(process.argv.slice(2));
   const grmOptions: GrmOptions = { V: args.V, P: args.P, H: args.H, K: args.K };
   if (args.grmBudget > 0) grmOptions.timeBudgetMs = args.grmBudget;
   if (args.deck15) grmOptions.deck15 = true;
+  if (args.hSwap) {
+    // tstar の h 候補（プローブゼロ推論）を候補席へ注入する（基準席には注入しない）。
+    if (!args.c2Artifact) throw new Error('--h-swap には --c2-artifact が必要');
+    const { readFileSync } = await import('node:fs');
+    const c2 = await import(`${args.tstarSrc}/c2.ts`);
+    const { COLORS } = await import('../../src/game/types');
+    const artifact = JSON.parse(readFileSync(args.c2Artifact, 'utf8'));
+    const inst = { m: COLORS.length, L: 5, K: args.K, V: args.V, P: args.P };
+    const fitted = c2.createFitted({ ...artifact, inst });
+    const hFn = (slots: import('../../src/game/types').Color[][]): number =>
+      fitted(slots.map((st) => st.map((c) => COLORS.indexOf(c))));
+    if (args.hSwap === 'that') grmOptions.tHatFn = hFn;
+    else grmOptions.degradeFn = hFn;
+  }
 
   const baseName =
     args.base === 'grm'
@@ -196,7 +231,7 @@ function main(): void {
       : args.base === 'chain'
         ? 'tempoChain(DEFAULT_GENOME)'
         : `tempoFast(budget=${args.budget}, LA=1)`;
-  const grmName = `GRM(V=${args.V}, P=${args.P}, H=${args.H}, K=${args.K}${args.grmBudget > 0 ? `, budget=${args.grmBudget}ms` : ''}${args.deck15 ? ', deck15' : ''})`;
+  const grmName = `GRM(V=${args.V}, P=${args.P}, H=${args.H}, K=${args.K}${args.grmBudget > 0 ? `, budget=${args.grmBudget}ms` : ''}${args.deck15 ? ', deck15' : ''}${args.hSwap ? `, hswap=${args.hSwap}` : ''})`;
   console.error(
     `[bench-grm] ${grmName} vs ${baseName} | games=${args.games} seed=${args.seed} (GRM 1 席 vs baseline 3 席, rotate)`
   );
@@ -229,5 +264,8 @@ function main(): void {
 // sweep-grm-p.ts が runGrmMatch を import するため、直接実行されたときのみ main を走らせる
 // （無条件実行だと import 側の argv を解析して `unknown arg` で落ちる）。
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main();
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
 }

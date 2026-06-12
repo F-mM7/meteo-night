@@ -59,6 +59,19 @@ export interface GrmOptions {
    * 判断が変わる変更のため、既定で有効化するには事前登録 fresh テストが必要。
    */
   deck15?: boolean;
+  /**
+   * 検証・実験用の注入点（ベンチ専用。配信構成では未設定）: 劣化先推定器の実体を差し替える。
+   * `degradeEstimate` のキャッシュ命中チェック後に呼ばれる＝「期限内に計算済みの解析値はそのまま・
+   * 初見盤面のみ置換」（h0 実験と同じ差し込み形。tstar h 候補の対戦評価用）。
+   */
+  degradeFn?: (slots: Color[][]) => number;
+  /**
+   * 検証・実験用の注入点（ベンチ専用）: T̂ 本体を完全置換する（TSTAR-DEPS R3 段階 (2) の対戦評価用）。
+   * 設定時は tHat が常にこの関数を返し、解析推定・精密化・予算劣化は T̂ 経路では走らない
+   * （発火候補の G ゲート・連鎖中の手選択は聖域のまま不変）。degradeEstimate も同関数を使い
+   * 混在を作らない。
+   */
+  tHatFn?: (slots: Color[][]) => number;
 }
 
 interface ResolvedOptions {
@@ -69,6 +82,8 @@ interface ResolvedOptions {
   maxNodes: number;
   timeBudgetMs: number;
   deck15: boolean;
+  degradeFn?: (slots: Color[][]) => number;
+  tHatFn?: (slots: Color[][]) => number;
 }
 
 interface Ctx {
@@ -78,6 +93,9 @@ interface Ctx {
   H: number;
   K: number;
   endgame: boolean;
+  /** 検証・実験用注入点（GrmOptions 参照。配信では undefined）。 */
+  degradeFn?: (slots: Color[][]) => number;
+  tHatFn?: (slots: Color[][]) => number;
   /** tHat のメモ（同一 (盤面, 山札, 捨札) は同値。配置の合流を畳んで深い展開を実用化）。 */
   memoT: Map<string, number>;
   /** この決定の壁時計期限（エポック ms）。無制限なら Infinity。超過後は精密化を省く（設計された劣化）。 */
@@ -188,6 +206,12 @@ function tHat(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCount
   const key = packSlots(slots) + packCounts(deck) + packCounts(discard);
   const cached = ctx.memoT.get(key);
   if (cached !== undefined) return cached;
+  // 実験用注入点: T̂ 本体の完全置換（設定時は解析推定・精密化・予算劣化を一切通らない）。
+  if (ctx.tHatFn) {
+    const v = ctx.tHatFn(slots);
+    ctx.memoT.set(key, v);
+    return v;
+  }
   // 時間予算の期限超過: 精密化を省き、劣化先推定器（degradeEstimate）で返す。
   // 劣化値は memoT に書かない（純粋な値だけを memo する）。
   if (pastDeadline(ctx)) {
@@ -700,6 +724,16 @@ export function h0Turns(slots: Color[][]): number {
  * （tstar/REQUESTS.md R1-R3。品質軸は順位保存率・ベースラインは h0）。
  */
 function degradeEstimate(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCounts): number {
+  // 実験用注入点（ベンチ専用）: T̂ 全置換時は劣化先も同一関数（混在を作らない）。
+  if (ctx.tHatFn) return ctx.tHatFn(slots);
+  // 実験用注入点（ベンチ専用）: 劣化先の実体差し替え。「期限内に計算済みの解析値（キャッシュ命中）は
+  // そのまま・初見盤面のみ差し替え」＝h0 実験と同じ差し込み形。
+  if (ctx.degradeFn) {
+    if (totalCount(deck) + totalCount(discard) < 1) return EXHAUST_TURNS;
+    const cached = ANALYTIC_CACHE.get(stateKey(ctx, slots, deck, discard));
+    if (cached !== undefined) return cached;
+    return ctx.degradeFn(slots);
+  }
   return analyticTurns(ctx, slots, deck, discard);
 }
 
@@ -1145,6 +1179,8 @@ export function decideAction(
     maxNodes: options.maxNodes ?? DEFAULTS.maxNodes,
     timeBudgetMs: options.timeBudgetMs ?? Infinity,
     deck15: options.deck15 ?? DEFAULTS.deck15,
+    degradeFn: options.degradeFn,
+    tHatFn: options.tHatFn,
   };
   // 例外（q の展開上限超過等）は握りつぶさず呼び出し元へ投げ切る。かつて try/catch →「最初の合法手」
   // フォールバックがノード予算バグを隠し虚像の勝率測定を生んだため、例外を隠すフォールバックは禁止
@@ -1308,6 +1344,8 @@ export function logHumanEvaluation(state: GameState, playerId: number, options: 
     maxNodes: options.maxNodes ?? DEFAULTS.maxNodes,
     timeBudgetMs: options.timeBudgetMs ?? Infinity,
     deck15: options.deck15 ?? DEFAULTS.deck15,
+    degradeFn: options.degradeFn,
+    tHatFn: options.tHatFn,
   };
   const slots = myColors(state, playerId);
   const deck = colorCounts(state.deck);
@@ -1552,6 +1590,8 @@ function makeCtx(opt: ResolvedOptions, V: number, P: number, endgame: boolean): 
     H: opt.H,
     K: opt.K,
     endgame,
+    degradeFn: opt.degradeFn,
+    tHatFn: opt.tHatFn,
     memoT: new Map<string, number>(),
     deadline: opt.timeBudgetMs === Infinity ? Infinity : Date.now() + opt.timeBudgetMs,
   };
@@ -1595,6 +1635,8 @@ export function estimateTHat(
     maxNodes: options.maxNodes ?? DEFAULTS.maxNodes,
     timeBudgetMs: options.timeBudgetMs ?? Infinity,
     deck15: options.deck15 ?? DEFAULTS.deck15,
+    degradeFn: options.degradeFn,
+    tHatFn: options.tHatFn,
   };
   return tHat(makeCtx(opt, opt.V, opt.P, false), slots, deck, discard);
 }

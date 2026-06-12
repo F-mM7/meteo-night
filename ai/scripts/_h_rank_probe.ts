@@ -105,18 +105,34 @@ function canonicalPattern(board: Color[][]): string {
   return best!;
 }
 
-// --- h 候補のレジストリ（拡張点: C2 成果物が届いたらここへアダプタを足す） ---
+// --- h 候補のレジストリ（拡張点: C2 成果物は --c2 <artifact.json> で動的登録） ---
 type HFn = (slots: Color[][], deck: ColorCounts, discard: ColorCounts) => number;
 const ESTIMATORS: Record<string, HFn> = {
   h0: (slots) => h0Turns(slots),
 };
+
+/**
+ * tstar の C2 系成果物（プローブゼロ h 候補）をレジストリへ登録する。
+ * 推論は tstar/src/c2.ts の `createFitted`（純 TS。盤面は色インデックスの number[][]、
+ * 特徴量は色置換不変なので色→番号の対応は一貫していれば任意）。tstar が無い環境では
+ * --c2 を渡さなければ依存しない（動的 import）。
+ */
+async function registerC2(c2Path: string, tstarSrc: string, V: number, P: number, K: number): Promise<void> {
+  const { readFileSync } = await import('node:fs');
+  const c2 = await import(`${tstarSrc}/c2.ts`);
+  const artifact = JSON.parse(readFileSync(c2Path, 'utf8'));
+  const inst = { m: COLORS.length, L: 5, K, V, P };
+  const fitted = c2.createFitted({ ...artifact, inst });
+  const toBoard = (slots: Color[][]): number[][] => slots.map((st) => st.map((c) => COLORS.indexOf(c)));
+  ESTIMATORS[`c2(${c2Path.split('/').pop()})@P${P}`] = (slots) => fitted(toBoard(slots));
+}
 
 function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0;
   return sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * p))];
 }
 
-function main(): void {
+async function main(): Promise<void> {
   let games = 8;
   let seed = 4242;
   let V = 20;
@@ -125,6 +141,8 @@ function main(): void {
   let budget = 3000; // GRM 席のプレイは配信構成（決定点の分布を配信実態に合わせる）
   let exportDecisions = '';
   let exportFire = '';
+  const c2Paths: string[] = [];
+  let tstarSrc = '/home/futa/tstar/src';
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -136,8 +154,11 @@ function main(): void {
     else if (k === '--budget') budget = parseIntArg('--budget', argv[++i]);
     else if (k === '--export-decisions') exportDecisions = argv[++i] ?? '';
     else if (k === '--export-fire') exportFire = argv[++i] ?? '';
+    else if (k === '--c2') c2Paths.push(argv[++i] ?? '');
+    else if (k === '--tstar-src') tstarSrc = argv[++i] ?? tstarSrc;
     else throw new Error(`unknown arg: ${k}`);
   }
+  for (const p of c2Paths) await registerC2(p, tstarSrc, V, P, K);
   const grmOptions: GrmOptions = { V, P, H: 1, K, timeBudgetMs: budget };
 
   // --- 1) 実対局から決定点を収集（評価は対局後にまとめて行い、対局へ干渉しない） ---
@@ -273,4 +294,7 @@ function main(): void {
   console.log(JSON.stringify(summary, null, 2));
 }
 
-main();
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
