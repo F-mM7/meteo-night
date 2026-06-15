@@ -17,7 +17,7 @@
  */
 import { pathToFileURL } from 'node:url';
 import { playOneGameWithDeciders, parseIntArg, parseFloatArg, type Decider } from './_runner';
-import { decideAction as decideGrm, GRM_P_STAR, h0Turns, h0TurnsReal, type GrmOptions } from '../../src/ai/grmAI';
+import { decideAction as decideGrm, GRM_P_STAR, h0Turns, h0TurnsReal, raceReadStats, type GrmOptions } from '../../src/ai/grmAI';
 import { decideAction as decideTempoFast } from '../../src/ai/tempoFastAI';
 import { decideAction as decideTempoChain } from '../../src/ai/tempoChainAI';
 import { wilsonInterval } from './stats';
@@ -52,6 +52,12 @@ export interface BenchGrmArgs {
   hHybrid: boolean;
   /** tstar の src ディレクトリ（createFitted の動的 import 元）。 */
   tstarSrc: string;
+  /** 配り方針族の L2 逸脱（OBJECTIVE §6）: 候補席の配りを「首位狙い」（scoreSign=-1）にする。 */
+  giftLeader: boolean;
+  /** q の山札一様化（SPEED-PLAN 手法5）: 候補席の内側 q を一様レートで解く（一様化の強さコスト測定）。 */
+  uniformQ: boolean;
+  /** 読み合い（OBJECTIVE §5-2 先読み拡張）: 候補席に相手進捗を読んだレース緊急度（出遅れ時 P 引き下げ）を付与。 */
+  raceRead: boolean;
 }
 
 export const BENCH_GRM_DEFAULTS: BenchGrmArgs = {
@@ -70,6 +76,9 @@ export const BENCH_GRM_DEFAULTS: BenchGrmArgs = {
   c2Artifact: '',
   hHybrid: false,
   tstarSrc: '/home/futa/tstar/src',
+  giftLeader: false,
+  uniformQ: false,
+  raceRead: false,
 };
 
 export function parseBenchGrmArgs(argv: string[]): BenchGrmArgs {
@@ -112,6 +121,15 @@ export function parseBenchGrmArgs(argv: string[]): BenchGrmArgs {
         break;
       case '--deck15':
         a.deck15 = true;
+        break;
+      case '--gift-leader':
+        a.giftLeader = true;
+        break;
+      case '--uniform-q':
+        a.uniformQ = true;
+        break;
+      case '--race-read':
+        a.raceRead = true;
         break;
       case '--h-swap': {
         const v = argv[++i];
@@ -217,6 +235,9 @@ async function main(): Promise<void> {
   const grmOptions: GrmOptions = { V: args.V, P: args.P, H: args.H, K: args.K };
   if (args.grmBudget > 0) grmOptions.timeBudgetMs = args.grmBudget;
   if (args.deck15) grmOptions.deck15 = true;
+  if (args.giftLeader) grmOptions.giftPolicy = { scoreSign: -1 };
+  if (args.uniformQ) grmOptions.uniformQ = true;
+  if (args.raceRead) grmOptions.raceRead = true;
   if (args.hSwap) {
     // tstar の h 候補（プローブゼロ推論）を候補席へ注入する（基準席には注入しない）。
     if (!args.c2Artifact) throw new Error('--h-swap には --c2-artifact が必要');
@@ -243,7 +264,7 @@ async function main(): Promise<void> {
       : args.base === 'chain'
         ? 'tempoChain(DEFAULT_GENOME)'
         : `tempoFast(budget=${args.budget}, LA=1)`;
-  const grmName = `GRM(V=${args.V}, P=${args.P}, H=${args.H}, K=${args.K}${args.grmBudget > 0 ? `, budget=${args.grmBudget}ms` : ''}${args.deck15 ? ', deck15' : ''}${args.hSwap ? `, hswap=${args.hSwap}` : ''})`;
+  const grmName = `GRM(V=${args.V}, P=${args.P}, H=${args.H}, K=${args.K}${args.grmBudget > 0 ? `, budget=${args.grmBudget}ms` : ''}${args.deck15 ? ', deck15' : ''}${args.giftLeader ? ', gift=leader' : ''}${args.uniformQ ? ', uniformQ' : ''}${args.raceRead ? ', raceRead' : ''}${args.hSwap ? `, hswap=${args.hSwap}` : ''})`;
   console.error(
     `[bench-grm] ${grmName} vs ${baseName} | games=${args.games} seed=${args.seed} (GRM 1 席 vs baseline 3 席, rotate)`
   );
@@ -260,6 +281,12 @@ async function main(): Promise<void> {
   });
 
   console.log(JSON.stringify(res, null, 2));
+
+  if (args.raceRead) {
+    const rr = raceReadStats();
+    const pct = rr.decisions > 0 ? ((rr.urgent / rr.decisions) * 100).toFixed(1) : '0.0';
+    console.error(`[race-read] 出遅れ判定で P を下げた決定: ${rr.urgent}/${rr.decisions} (${pct}%)`);
+  }
 
   const { low, high } = res.winRateCI95;
   const verdict =

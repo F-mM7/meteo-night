@@ -79,6 +79,32 @@ export interface GrmOptions {
    * 評価する。発火葉の G 判定は従来どおり厳密ゲート（qReachesG）。期限超過の劣化は従来機構のまま。
    */
   leafFn?: (slots: Color[][], deck: ColorCounts, discard: ColorCounts) => number;
+  /**
+   * 配り（§6.5）の方針族（L2 逸脱テスト用。既定 undefined＝現行＝弱者狙いの harm 最小化で挙動不変）。
+   * scoreSign: +1 で低スコア（弱い相手）優先＝現行、-1 で高スコア（首位）優先＝キングメーカー狙い。
+   * harmWeight: 連鎖準備度ペナルティの重み（既定 1000＝連鎖被害がスコア選好に絶対優先）。
+   */
+  giftPolicy?: { scoreSign?: 1 | -1; harmWeight?: number };
+  /**
+   * q の山札一様化（SPEED-PLAN 手法5・既定 false で挙動不変）。true で内側 q ソルバのドロー期待値を
+   * 実山札比率でなく「引ける色を一様」に重み付け＝tstar の一様 i.i.d. 仕様の「一様化の強さコスト」を実測する。
+   */
+  uniformQ?: boolean;
+  /**
+   * 読み合い（OBJECTIVE §5-2「終盤モードの多人数性」の先読み拡張・既定 false で挙動不変）。
+   * 現行の終盤モードは誰かが最終ラウンドを引いた**後**にしか発動しない反応的な切替だが、true で
+   * 最終ラウンド突入前でも相手の観測進捗を読み、レースで出遅れていれば目標確率 P を引き下げて
+   * 「good-enough な発火を早く取る」緊急姿勢に切り替える。相手の**手**は読まず（REACHABILITY §6 の
+   * 硬い設計方針）、相手の**観測可能な現盤面**から到達進捗を見るだけ＝配り害最小化（§6.5）と同型。
+   * コストは相手 1 人あたり h0TurnsReal 1 回（探査ゼロ・O(盤面) の閉形式）＝T̂ に対し無視できる
+   * （フル T̂ での相手読みは ~4 倍で予算崩壊するため、安い閉形式で読む）。
+   *
+   * **実験結果（2026-06-15）: 採用見送り**。screening 160 局で 25.0%（CI 18.9-32.2）＝parity・
+   * 発動率 ~1.4%（出遅れ判定が両立する局面が稀）・レイテンシ無影響。安い相手読みは強さを動かさず、
+   * 深い相手読みは予算崩壊＋設計原理（§6「相手の手は読まない」）に反する＝読み合いは GRM の伸びしろでない
+   * （CHANGELOG 2026-06-15）。探索台帳の hook として存置。
+   */
+  raceRead?: boolean;
 }
 
 interface ResolvedOptions {
@@ -92,6 +118,9 @@ interface ResolvedOptions {
   degradeFn?: (slots: Color[][]) => number;
   tHatFn?: (slots: Color[][]) => number;
   leafFn?: (slots: Color[][], deck: ColorCounts, discard: ColorCounts) => number;
+  giftPolicy: { scoreSign: 1 | -1; harmWeight: number };
+  uniformQ: boolean;
+  raceRead: boolean;
 }
 
 interface Ctx {
@@ -133,6 +162,9 @@ const DEFAULTS: ResolvedOptions = {
   maxNodes: 2_000_000,
   timeBudgetMs: Infinity, // 無制限＝従来挙動（ベンチ互換）。ブラウザ等は明示指定する。
   deck15: false, // 山札チャネルは恒等式 1−T̂（従来）。15 パターン期待値化は fresh テスト通過までオプション。
+  giftPolicy: { scoreSign: 1, harmWeight: 1000 }, // 配り＝弱者狙いの harm 最小化（§6.5・現行）。
+  uniformQ: false, // q は実山札比率（従来）。一様化は手法5 の対照実験用オプション。
+  raceRead: false, // 読み合い（§5-2 先読み拡張）は既定 off。配信構成は不変。
 };
 
 // ---------------------------------------------------------------------------
@@ -1172,6 +1204,40 @@ function requiredFinalScore(state: GameState, me: number): number {
   return req;
 }
 
+/** プレイヤーの盤面を色スロット列として取り出す（自他共通）。 */
+function playerColors(player: Player): Color[][] {
+  return player.board.slots.map((s) => s.stack.map((c) => c.color));
+}
+
+// 読み合い（raceRead オプション）の定数。相手の観測進捗を安く読み、レースで出遅れたときだけ P を下げる。
+const RACE_SCORE_FRAC = 0.5; // 競合相手とみなすスコア下限（V×この値以上＝レース後半に入った相手のみ脅威扱い）
+const RACE_MARGIN = 0; // 相手が自分より何ターン早く発火形に届けば「出遅れ」とみなすか（0＝同等以上で出遅れ）
+const RACE_P_URGENT = 0.25; // 出遅れ時に下げる目標確率（P*=0.45 → 0.25。good-enough な発火を早く取る）
+
+/**
+ * 読み合い（OBJECTIVE §5-2 終盤多人数性の先読み拡張）の P 決定: 相手の観測可能な現盤面から到達進捗を
+ * 安く読み（h0TurnsReal＝発火形不足枚数レースの閉形式・探査ゼロ・O(盤面)）、レースで勝ちうる位置の相手
+ * （スコアが V×RACE_SCORE_FRAC 以上）が自分と同等以上に発火形へ近いなら「出遅れ」とみなして P を
+ * RACE_P_URGENT へ引き下げる。相手の手は読まず観測盤面の確率構造だけを使う（§6 設計方針と整合）。
+ */
+function raceUrgentP(state: GameState, me: number, opt: ResolvedOptions): number {
+  raceReadDecisions++;
+  const deck = colorCounts(state.deck);
+  const discard = colorCounts(state.discardPile);
+  const myProx = h0TurnsReal(playerColors(state.players[me]), deck, discard);
+  const scoreGate = opt.V * RACE_SCORE_FRAC;
+  for (const opp of state.players) {
+    if (opp.id === me) continue;
+    if (opp.score < scoreGate) continue; // レースで勝ちうる位置の相手のみ脅威扱い
+    const oppProx = h0TurnsReal(playerColors(opp), deck, discard);
+    if (oppProx + RACE_MARGIN <= myProx) {
+      raceReadUrgent++;
+      return Math.min(opt.P, RACE_P_URGENT); // 出遅れ＝早い発火を許容
+    }
+  }
+  return opt.P;
+}
+
 /** このターンの目標 (V, P, endgame) を決める。 */
 function effectiveTarget(state: GameState, me: number, opt: ResolvedOptions): { V: number; P: number; endgame: boolean } {
   // 他者が引き金で最終ラウンドに突入済みか
@@ -1187,14 +1253,20 @@ function effectiveTarget(state: GameState, me: number, opt: ResolvedOptions): { 
     }
     // すでに暫定勝者 → 通常運用に戻す（無理な大連鎖は狙わない、§6.6a）
   }
-  return { V: opt.V, P: opt.P, endgame: false };
+  // 読み合い（§5-2 先読み拡張・既定 off）: 最終ラウンド突入前でもレースで出遅れていれば P を下げる。
+  const P = opt.raceRead ? raceUrgentP(state, me, opt) : opt.P;
+  return { V: opt.V, P, endgame: false };
 }
 
 // ---------------------------------------------------------------------------
 // 配り（§6.5）
 // ---------------------------------------------------------------------------
 
-function buildGiftAssignments(state: GameState, me: number): GiftAssignment[] {
+function buildGiftAssignments(
+  state: GameState,
+  me: number,
+  policy: { scoreSign: 1 | -1; harmWeight: number }
+): GiftAssignment[] {
   const queue = state.turn.giftQueue;
   const opponents = state.players.filter((p) => p.id !== me);
   if (opponents.length === 0) {
@@ -1208,7 +1280,7 @@ function buildGiftAssignments(state: GameState, me: number): GiftAssignment[] {
     let bestHarm = Infinity;
     for (const card of combo.cards) {
       for (const op of opponents) {
-        const harm = topColorCount(op, card.color) * 1000 + op.score;
+        const harm = topColorCount(op, card.color) * policy.harmWeight + policy.scoreSign * op.score;
         if (harm < bestHarm) {
           bestHarm = harm;
           bestCardId = card.id;
@@ -1241,6 +1313,12 @@ export function decideAction(
     degradeFn: options.degradeFn,
     tHatFn: options.tHatFn,
     leafFn: options.leafFn,
+    giftPolicy: {
+      scoreSign: options.giftPolicy?.scoreSign ?? DEFAULTS.giftPolicy.scoreSign,
+      harmWeight: options.giftPolicy?.harmWeight ?? DEFAULTS.giftPolicy.harmWeight,
+    },
+    uniformQ: options.uniformQ ?? DEFAULTS.uniformQ,
+    raceRead: options.raceRead ?? DEFAULTS.raceRead,
   };
   // 例外（q の展開上限超過等）は握りつぶさず呼び出し元へ投げ切る。かつて try/catch →「最初の合法手」
   // フォールバックがノード予算バグを隠し虚像の勝率測定を生んだため、例外を隠すフォールバックは禁止
@@ -1254,7 +1332,7 @@ function decideInner(state: GameState, me: number, opt: ResolvedOptions): Action
   // --- プレゼント配り（自分のコンボの配り先決定）---
   if (phase === 'awaitingGiftSelection') {
     if (state.currentPlayerIndex !== me) return null;
-    return { type: 'CONFIRM_GIFTS', assignments: buildGiftAssignments(state, me) };
+    return { type: 'CONFIRM_GIFTS', assignments: buildGiftAssignments(state, me, opt.giftPolicy) };
   }
 
   // --- プレゼント受領配置（§6.4。発火しないので「仕込み」として価値最大化）---
@@ -1407,6 +1485,12 @@ export function logHumanEvaluation(state: GameState, playerId: number, options: 
     degradeFn: options.degradeFn,
     tHatFn: options.tHatFn,
     leafFn: options.leafFn,
+    giftPolicy: {
+      scoreSign: options.giftPolicy?.scoreSign ?? DEFAULTS.giftPolicy.scoreSign,
+      harmWeight: options.giftPolicy?.harmWeight ?? DEFAULTS.giftPolicy.harmWeight,
+    },
+    uniformQ: options.uniformQ ?? DEFAULTS.uniformQ,
+    raceRead: options.raceRead ?? DEFAULTS.raceRead,
   };
   const slots = myColors(state, playerId);
   const deck = colorCounts(state.deck);
@@ -1645,7 +1729,7 @@ function evaluateMovesForLog(
 function makeCtx(opt: ResolvedOptions, V: number, P: number, endgame: boolean): Ctx {
   decisionCount++;
   return {
-    solver: createChainSolver(V, opt.K, opt.maxNodes),
+    solver: createChainSolver(V, opt.K, opt.maxNodes, opt.uniformQ),
     V,
     P,
     H: opt.H,
@@ -1679,6 +1763,14 @@ export function budgetStats(): { decisions: number; degraded: number } {
   return { decisions: decisionCount, degraded: degradedDecisionCount };
 }
 
+// --- 読み合い（raceRead）の発動追跡（「未発動」と「発動したが parity」を区別するための診断）---
+let raceReadDecisions = 0;
+let raceReadUrgent = 0;
+/** 読み合いの発動状況（実験プローブ・ベンチが読む）。urgent=出遅れと判定し P を下げた決定数。 */
+export function raceReadStats(): { decisions: number; urgent: number } {
+  return { decisions: raceReadDecisions, urgent: raceReadUrgent };
+}
+
 /**
  * ベンチ用: 非発火盤面の「G 到達までの期待ターン数」の見積り（T̂ ヒューリスティック本体）を外部から呼ぶ。
  * 小盤面で厳密 T* と突き合わせて近似誤差を測るために公開する（§6.1.2 / §8-7）。
@@ -1700,6 +1792,12 @@ export function estimateTHat(
     degradeFn: options.degradeFn,
     tHatFn: options.tHatFn,
     leafFn: options.leafFn,
+    giftPolicy: {
+      scoreSign: options.giftPolicy?.scoreSign ?? DEFAULTS.giftPolicy.scoreSign,
+      harmWeight: options.giftPolicy?.harmWeight ?? DEFAULTS.giftPolicy.harmWeight,
+    },
+    uniformQ: options.uniformQ ?? DEFAULTS.uniformQ,
+    raceRead: options.raceRead ?? DEFAULTS.raceRead,
   };
   return tHat(makeCtx(opt, opt.V, opt.P, false), slots, deck, discard);
 }

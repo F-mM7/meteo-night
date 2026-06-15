@@ -277,7 +277,12 @@ export interface ChainSolver {
  * 目標点 `V` に対する連鎖サブゲームのソルバを作る。内部にメモ化を持つ。
  * 得点は単調非減少なので、累計が V 以上になった時点で確率 1 に短絡する。
  */
-export function createChainSolver(V: number, K = DEFAULT_K, maxNodes = DEFAULT_MAX_NODES): ChainSolver {
+export function createChainSolver(
+  V: number,
+  K = DEFAULT_K,
+  maxNodes = DEFAULT_MAX_NODES,
+  uniformQ = false
+): ChainSolver {
   const memo = new Map<string, number>();
   // 閾値判定（reachesAtLeast）が得た部分情報（真値の区間 [lo, hi]）の memo。厳密値が出た場合は memo 側へ。
   const bmemo = new Map<string, { lo: number; hi: number }>();
@@ -402,17 +407,22 @@ export function createChainSolver(V: number, K = DEFAULT_K, maxNodes = DEFAULT_M
   ): number {
     let sum = 0;
     if (deckTotal > 0) {
+      // uniformQ: 実比率 n/deckTotal でなく「引ける色を一様」に重み付け（一様化の強さコスト測定・SPEED-PLAN 手法5）。
+      const avail = uniformQ ? COLORS.reduce((k, c) => k + (deck[c] > 0 ? 1 : 0), 0) : 0;
       for (const color of COLORS) {
         const n = deck[color];
         if (n <= 0) continue;
-        sum += (n / deckTotal) * placeBest(slots, color, cc, base, addCount(deck, color, -1), discard);
+        const w = uniformQ ? 1 / avail : n / deckTotal;
+        sum += w * placeBest(slots, color, cc, base, addCount(deck, color, -1), discard);
       }
     } else {
       // 山札空 → 捨札が新しい山札になる
+      const avail = uniformQ ? COLORS.reduce((k, c) => k + (discard[c] > 0 ? 1 : 0), 0) : 0;
       for (const color of COLORS) {
         const n = discard[color];
         if (n <= 0) continue;
-        sum += (n / discardTotal) * placeBest(slots, color, cc, base, addCount(discard, color, -1), emptyCounts());
+        const w = uniformQ ? 1 / avail : n / discardTotal;
+        sum += w * placeBest(slots, color, cc, base, addCount(discard, color, -1), emptyCounts());
       }
     }
     return sum;

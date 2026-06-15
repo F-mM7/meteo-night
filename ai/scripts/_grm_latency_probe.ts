@@ -8,7 +8,7 @@
  * 例: npx tsx ai/scripts/_grm_latency_probe.ts --games 4 --seed 9001 --P 0.5
  */
 import { playOneGameWithDeciders, parseIntArg, parseFloatArg, type Decider } from './_runner';
-import { decideAction as decideGrm, budgetStats, h0Turns, h0TurnsReal, type GrmOptions } from '../../src/ai/grmAI';
+import { decideAction as decideGrm, budgetStats, raceReadStats, h0Turns, h0TurnsReal, type GrmOptions } from '../../src/ai/grmAI';
 import { decideAction as decideTempoChain } from '../../src/ai/tempoChainAI';
 import { COLORS, type Color } from '../../src/game/types';
 
@@ -22,8 +22,10 @@ async function main(): Promise<void> {
   let games = 4;
   let seed = 9001;
   let P = 0.5;
+  let K = 6; // スタック切り詰め深さ（既定＝配信構成）
   let budget = 0; // 0 = 無制限
   let deck15 = false;
+  let raceRead = false;
   let hSwap = '';
   let c2Artifact = '';
   let hHybrid = false;
@@ -34,24 +36,27 @@ async function main(): Promise<void> {
     if (k === '--games') games = parseIntArg('--games', argv[++i]);
     else if (k === '--seed') seed = parseIntArg('--seed', argv[++i]);
     else if (k === '--P') P = parseFloatArg('--P', argv[++i]);
+    else if (k === '--K') K = parseIntArg('--K', argv[++i]);
     else if (k === '--budget') budget = parseIntArg('--budget', argv[++i]);
     else if (k === '--deck15') deck15 = true;
+    else if (k === '--race-read') raceRead = true;
     else if (k === '--h-swap') hSwap = argv[++i] ?? '';
     else if (k === '--c2-artifact') c2Artifact = argv[++i] ?? '';
     else if (k === '--h-hybrid') hHybrid = true;
     else if (k === '--tstar-src') tstarSrc = argv[++i] ?? tstarSrc;
     else throw new Error(`unknown arg: ${k}`);
   }
-  const grmOptions: GrmOptions = { V: 20, P, H: 1, K: 6 };
+  const grmOptions: GrmOptions = { V: 20, P, H: 1, K };
   if (budget > 0) grmOptions.timeBudgetMs = budget;
   if (deck15) grmOptions.deck15 = true;
+  if (raceRead) grmOptions.raceRead = true;
   if (hSwap) {
     // bench-grm と同じ注入（h 候補のレイテンシ込み計測用）
     if (!c2Artifact) throw new Error('--h-swap には --c2-artifact が必要');
     const { readFileSync } = await import('node:fs');
     const c2 = await import(`${tstarSrc}/c2.ts`);
     const artifact = JSON.parse(readFileSync(c2Artifact, 'utf8'));
-    const inst = { m: COLORS.length, L: 5, K: 6, V: 20, P };
+    const inst = { m: COLORS.length, L: 5, K, V: 20, P };
     const fitted = c2.createFitted({ ...artifact, inst });
     const raw = (slots: Color[][]): number => fitted(slots.map((st) => st.map((c) => COLORS.indexOf(c))));
     if (hSwap === 'that') grmOptions.tHatFn = raw;
@@ -76,7 +81,7 @@ async function main(): Promise<void> {
   };
   const base: Decider = (s, p) => decideTempoChain(s, p);
 
-  console.error(`[grm-latency] GRM(P=${P}) 1席 vs tempoChain 3席 | games=${games} seed=${seed}`);
+  console.error(`[grm-latency] GRM(P=${P}, K=${K}) 1席 vs tempoChain 3席 | games=${games} seed=${seed}`);
   for (let g = 0; g < games; g++) {
     const grmSeat = g % 4;
     const deciders: Decider[] = [0, 1, 2, 3].map((s) => (s === grmSeat ? grm : base));
@@ -90,6 +95,7 @@ async function main(): Promise<void> {
     games,
     budgetMs: budget > 0 ? budget : null,
     budget: budgetStats(),
+    raceRead: raceRead ? raceReadStats() : null,
     grmMoves: all.length,
     latencyMs: {
       p50: percentile(all, 0.5),
