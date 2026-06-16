@@ -75,8 +75,9 @@ const COLOR_NUM: Record<Color, number> = COLORS.reduce((m, c, i) => {
  * 1 文字（5^6 = 15625 < 2^16）。長さプレフィクスで自己区切りになるため、複数スタックを連結しても
  * 単射性が保たれる。空きスタックは 1 文字。
  */
-export function packStack(st: readonly Color[]): string {
-  const codes: number[] = [st.length];
+/** スタック 1 本の char コードを `codes` に追記する（packStack / makeKey が共有＝単一パス化のための部品）。 */
+function pushStackCodes(codes: number[], st: readonly Color[]): void {
+  codes.push(st.length);
   for (let i = 0; i < st.length; i += 6) {
     let v = 0;
     let mul = 1;
@@ -87,6 +88,11 @@ export function packStack(st: readonly Color[]): string {
     }
     codes.push(v);
   }
+}
+
+export function packStack(st: readonly Color[]): string {
+  const codes: number[] = [];
+  pushStackCodes(codes, st);
   return String.fromCharCode(...codes);
 }
 
@@ -97,12 +103,16 @@ export function packSlots(slots: readonly (readonly Color[])[]): string {
   return out;
 }
 
+/** 色別枚数の char コード（2 文字分）を `codes` に追記する（packCounts / makeKey が共有）。 */
+function pushCountsCodes(codes: number[], c: ColorCounts): void {
+  codes.push((c[COLORS[0]] << 10) | (c[COLORS[1]] << 5) | c[COLORS[2]], (c[COLORS[3]] << 5) | c[COLORS[4]]);
+}
+
 /** 色別枚数（各色 ≤24 ＝ 5bit に収まる、§1.3）を 2 文字に単射パックする。 */
 export function packCounts(c: ColorCounts): string {
-  return String.fromCharCode(
-    (c[COLORS[0]] << 10) | (c[COLORS[1]] << 5) | c[COLORS[2]],
-    (c[COLORS[3]] << 5) | c[COLORS[4]]
-  );
+  const codes: number[] = [];
+  pushCountsCodes(codes, c);
+  return String.fromCharCode(...codes);
 }
 
 // ---------------------------------------------------------------------------
@@ -165,30 +175,31 @@ export function resolveCombosColors(slots: Color[][]): {
   comboCount: number;
   basePoints: number;
 } {
-  let comboCount = 0;
-  let basePoints = 0;
-  let fireMask: boolean[] | null = null;
-  const topSlots = new Map<Color, number[]>();
+  // 最上段の色別スロット数を固定長カウント（Map・per-color 配列の毎ノード生成を撤去＝ゼロ損失の定数倍削減）。
+  // 旧実装は Map<Color,number[]> ＋スロット index 配列を解決ノードごとに生成しており、生体スタック
+  // サンプリングで最内ループのアロケーション源として顕在化していた。出力（newSlots/comboCount/basePoints）は不変。
+  const counts = [0, 0, 0, 0, 0];
   for (let j = 0; j < slots.length; j++) {
     const st = slots[j];
     const top = st[st.length - 1];
-    if (top === undefined) continue;
-    const arr = topSlots.get(top);
-    if (arr) arr.push(j);
-    else topSlots.set(top, [j]);
+    if (top !== undefined) counts[COLOR_NUM[top]] += 1;
   }
-  for (const idxs of topSlots.values()) {
-    if (idxs.length >= 3) {
+  let comboCount = 0;
+  let basePoints = 0;
+  let firedMask = 0; // 発火した色インデックスのビットマスク（同色 3 枚以上）
+  for (let ci = 0; ci < counts.length; ci++) {
+    if (counts[ci] >= 3) {
       comboCount += 1;
-      basePoints += basePointsForSize(idxs.length);
-      if (!fireMask) fireMask = new Array<boolean>(slots.length).fill(false);
-      for (const j of idxs) fireMask[j] = true;
+      basePoints += basePointsForSize(counts[ci]);
+      firedMask |= 1 << ci;
     }
   }
-  if (!fireMask) return { newSlots: slots, comboCount: 0, basePoints: 0 };
-  const mask = fireMask;
+  if (firedMask === 0) return { newSlots: slots, comboCount: 0, basePoints: 0 };
   return {
-    newSlots: slots.map((st, j) => (mask[j] ? st.slice(0, -1) : st)),
+    newSlots: slots.map((st) => {
+      const top = st[st.length - 1];
+      return top !== undefined && firedMask & (1 << COLOR_NUM[top]) ? st.slice(0, -1) : st;
+    }),
     comboCount,
     basePoints,
   };
@@ -221,6 +232,7 @@ export function fireSlots(slots: readonly (readonly Color[])[]): boolean {
 }
 
 function makeKey(
+  kind: number,
   slots: Color[][],
   comboCount: number,
   baseSoFar: number,
@@ -228,8 +240,17 @@ function makeKey(
   discard: ColorCounts
 ): string {
   // comboCount は 1 ターンの発火本数（1 解決につき高々 1 コンボ）・baseSoFar は基礎点の累計（≥V で
-  // 短絡するため高々 V+最大コンボ点）でどちらも 16bit に余裕で収まる＝1 文字ずつ。全体 12 文字の単射キー。
-  return packSlots(slots) + packCounts(deck) + packCounts(discard) + String.fromCharCode(comboCount, baseSoFar);
+  // 短絡するため高々 V+最大コンボ点）でどちらも 16bit に余裕で収まる＝1 文字ずつ。kind（0=解決ノード R /
+  // 1=決定ノード D）も末尾に畳み込む（R/D は別キーのまま＝memo 共有の意味は不変）。
+  // 全 char コードを 1 本の配列に集めて fromCharCode を 1 回だけ呼ぶ＝出力はバイト同一
+  // （packSlots + packCounts×2 + fromCharCode と一致）のまま、中間文字列 4 本と連結 3 回を撤去する
+  // ゼロ損失の定数倍削減。旧実装はノードごとに per-stack の fromCharCode と文字列連結を重ねていた。
+  const codes: number[] = [];
+  for (let j = 0; j < slots.length; j++) pushStackCodes(codes, slots[j]);
+  pushCountsCodes(codes, deck);
+  pushCountsCodes(codes, discard);
+  codes.push(comboCount, baseSoFar, kind);
+  return String.fromCharCode(...codes);
 }
 
 // ---------------------------------------------------------------------------
@@ -331,7 +352,7 @@ export function createChainSolver(
     discard: ColorCounts
   ): number {
     if (base + comboCountBonus(cc) >= V) return 1;
-    const key = `R${makeKey(slots, cc, base, deck, discard)}`;
+    const key = makeKey(0, slots, cc, base, deck, discard);
     const cached = memo.get(key);
     if (cached !== undefined) return cached;
     guard();
@@ -361,7 +382,7 @@ export function createChainSolver(
     discard: ColorCounts
   ): number {
     if (base + comboCountBonus(cc) >= V) return 1;
-    const key = `D${makeKey(slots, cc, base, deck, discard)}`;
+    const key = makeKey(1, slots, cc, base, deck, discard);
     const cached = memo.get(key);
     if (cached !== undefined) return cached;
     guard();
@@ -477,7 +498,7 @@ export function createChainSolver(
 
   function bResolve(slots: Color[][], cc: number, base: number, deck: ColorCounts, discard: ColorCounts, a: number, b: number): Bounds {
     if (base + comboCountBonus(cc) >= V) return { lo: 1, hi: 1 };
-    const key = `R${makeKey(slots, cc, base, deck, discard)}`;
+    const key = makeKey(0, slots, cc, base, deck, discard);
     const ex = memo.get(key);
     if (ex !== undefined) return { lo: ex, hi: ex };
     const bm = bmemo.get(key);
@@ -503,7 +524,7 @@ export function createChainSolver(
 
   function bDecide(slots: Color[][], cc: number, base: number, deck: ColorCounts, discard: ColorCounts, a: number, b: number): Bounds {
     if (base + comboCountBonus(cc) >= V) return { lo: 1, hi: 1 };
-    const key = `D${makeKey(slots, cc, base, deck, discard)}`;
+    const key = makeKey(1, slots, cc, base, deck, discard);
     const ex = memo.get(key);
     if (ex !== undefined) return { lo: ex, hi: ex };
     const bm = bmemo.get(key);

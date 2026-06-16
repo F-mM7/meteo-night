@@ -36,6 +36,20 @@
 
 ---
 
+## ゼロ損失ソルバ高速化: 内側 q（grmReachQ）の memo キー単一パス構築＋resolveCombos の Map 撤去＝**~30-35% 高速化・判断完全不変**（残差の直接攻撃） (2026-06-15)
+
+next-action で策定（残差 ~7pt の回収経路として、支配コスト＝G ゲート偽証明の聖域コストをゼロ損失で削る）。CPU プロファイル（実ゲーム・配信構成 P\*=0.45/budget3000）で内側 q ソルバ（`grmReachQ`）が self-time の **79%** を占め、内訳は bResolve 42%・GC 17%・memo キー構築（makeKey+pack\*）~17%・resolveCombosColors 7% と判明。**判断を一切変えない**範囲で 2 つを最適化:
+
+- **memo キーの単一パス構築**: `R`/`D` プレフィックスの別途テンプレート連結を kind char に畳み込み、全 char コードを 1 配列に集めて `fromCharCode` を 1 回だけ呼ぶ（中間文字列 4 本＋連結 3 回を撤去）。**出力はバイト同一**（packStack/packCounts ロジックは `pushStackCodes`/`pushCountsCodes` に抽出して共有＝重複なし）。
+- **resolveCombosColors の Map 撤去**: 解決ノードごとの `Map<Color,number[]>`＋per-color 配列生成を固定長カウント＋ビットマスクに置換（newSlots/comboCount/basePoints は不変）。
+- **ゼロ損失の証明**: 厳密 q 値の 28 テストがバイト一致のまま pass・閾値整合（reachesAtLeast≡resolveValue≥P）pass・全 87 テスト pass。**q 値が不変＝GRM の全決定が不変**（採用規律4＝判断同一性で再測定省略可）。
+- **効果（CPU プロファイル・同一 2 局 budget3000）**: 総 self-sample **29.3k → 安定 ~18.9k（3 回計測 18.79/18.80/19.24k）＝約 30-35% 減**。GC 17.1%→10.5%・bResolve 絶対 12232→8585（−30%）・キー構築 17%→14%。劣化決定 8→3/66（小標本ゆえ目安）。pre 側は 1 標本なので headline % は概算。
+- **残差への含意**: ゼロ損失で G ゲートが速くなり予算内で候補列挙が full になる頻度↑＝劣化↓方向。ただし残差 ~7pt の本質は**厳密 q-DP の計算コスト自体（聖域）**で、定数倍では大きくは縮まない＝**本格回収は依然 tstar C2 か非ゼロ損失近似が要る**。これは「ゼロ損失の構造的余地は定数倍止まり」の実証でもある。
+- **さらなるゼロ損失余地（未実施・逓減）**: bResolve の `{lo,hi}` Bounds オブジェクト生成（GC の主因）をミュータブル返値化＝相互再帰 4 関数（bResolve/bDecide/bDraw/bPlace）の手術で高リスク。確実・局所的な 2 つに留め、Bounds 化は別イテレーション候補として記録。
+- 実装: `src/ai/grmReachQ.ts`（`makeKey` 単一パス・`pushStackCodes`/`pushCountsCodes` 抽出・`resolveCombosColors` Map 撤去）。配信構成不変・型 clean。
+
+---
+
 ## 読み合い（OBJECTIVE §5-2 終盤多人数性の先読み拡張）: 相手進捗を安く読むレース緊急度＝**parity（160局 25.0%）・採用見送り**。計算量は無コスト（h0TurnsReal 閉形式）だが発動 1.4% で強さ不変 (2026-06-15)
 
 next-action スキルでの策定を受けユーザー裁定で「読み合い」を試行。相手の**手**は読まず（REACHABILITY §6 の硬い設計方針）、相手の**観測可能な現盤面**から到達進捗を安く読む拡張＝配り害最小化（§6.5）と同型。現行の終盤モードは誰かが最終ラウンドを引いた**後**にしか発動しない反応的切替だが、最終ラウンド突入前でも「レースで出遅れていれば目標確率 P を下げて good-enough な発火を早く取る」先読み緊急度を加える。
