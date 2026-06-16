@@ -58,6 +58,8 @@ export interface BenchGrmArgs {
   uniformQ: boolean;
   /** 読み合い（OBJECTIVE §5-2 先読み拡張）: 候補席に相手進捗を読んだレース緊急度（出遅れ時 P 引き下げ）を付与。 */
   raceRead: boolean;
+  /** G ゲート上限化（残差攻撃・非ゼロ損失）: 候補席の q≥P 判定にノード上限（0=無制限＝現挙動）。 */
+  gGateCap: number;
 }
 
 export const BENCH_GRM_DEFAULTS: BenchGrmArgs = {
@@ -79,6 +81,7 @@ export const BENCH_GRM_DEFAULTS: BenchGrmArgs = {
   giftLeader: false,
   uniformQ: false,
   raceRead: false,
+  gGateCap: 0,
 };
 
 export function parseBenchGrmArgs(argv: string[]): BenchGrmArgs {
@@ -130,6 +133,9 @@ export function parseBenchGrmArgs(argv: string[]): BenchGrmArgs {
         break;
       case '--race-read':
         a.raceRead = true;
+        break;
+      case '--g-gate-cap':
+        a.gGateCap = parseIntArg('--g-gate-cap', argv[++i]);
         break;
       case '--h-swap': {
         const v = argv[++i];
@@ -238,6 +244,7 @@ async function main(): Promise<void> {
   if (args.giftLeader) grmOptions.giftPolicy = { scoreSign: -1 };
   if (args.uniformQ) grmOptions.uniformQ = true;
   if (args.raceRead) grmOptions.raceRead = true;
+  if (args.gGateCap > 0) grmOptions.gGateCap = args.gGateCap;
   if (args.hSwap) {
     // tstar の h 候補（プローブゼロ推論）を候補席へ注入する（基準席には注入しない）。
     if (!args.c2Artifact) throw new Error('--h-swap には --c2-artifact が必要');
@@ -264,7 +271,7 @@ async function main(): Promise<void> {
       : args.base === 'chain'
         ? 'tempoChain(DEFAULT_GENOME)'
         : `tempoFast(budget=${args.budget}, LA=1)`;
-  const grmName = `GRM(V=${args.V}, P=${args.P}, H=${args.H}, K=${args.K}${args.grmBudget > 0 ? `, budget=${args.grmBudget}ms` : ''}${args.deck15 ? ', deck15' : ''}${args.giftLeader ? ', gift=leader' : ''}${args.uniformQ ? ', uniformQ' : ''}${args.raceRead ? ', raceRead' : ''}${args.hSwap ? `, hswap=${args.hSwap}` : ''})`;
+  const grmName = `GRM(V=${args.V}, P=${args.P}, H=${args.H}, K=${args.K}${args.grmBudget > 0 ? `, budget=${args.grmBudget}ms` : ''}${args.deck15 ? ', deck15' : ''}${args.giftLeader ? ', gift=leader' : ''}${args.uniformQ ? ', uniformQ' : ''}${args.raceRead ? ', raceRead' : ''}${args.gGateCap > 0 ? `, gcap=${args.gGateCap}` : ''}${args.hSwap ? `, hswap=${args.hSwap}` : ''})`;
   console.error(
     `[bench-grm] ${grmName} vs ${baseName} | games=${args.games} seed=${args.seed} (GRM 1 席 vs baseline 3 席, rotate)`
   );

@@ -105,6 +105,20 @@ export interface GrmOptions {
    * （CHANGELOG 2026-06-15）。探索台帳の hook として存置。
    */
   raceRead?: boolean;
+  /**
+   * G ゲート上限化（残差の直接攻撃・非ゼロ損失・既定 Infinity＝現挙動不変）。発火候補の G 判定
+   * （`q≥P` の聖域・現在は予算無制限で常に厳密）にノード上限を入れ、上限内で確定しなければ保守側
+   * （非 G＝小発火扱い）に倒す。支配コストは偽証明（q<P 確定）の深い展開で、その大半は実際 q<P
+   * （真証明は閾値 B&B が速く上限に当たりにくい）＝多くは正答のまま worst-case レイテンシを有界化し、
+   * 予算超過＝劣化を削って残差 ~7pt を回収する狙い。稀に「上限内で証明しきれない真 G」を取りこぼすため
+   * **判断が変わる＝事前登録 fresh テスト必須**（採用ゲート）。配信は無制限のまま（既定 Infinity）。
+   *
+   * **実験結果（2026-06-16）: 採用見送り**。screening 160 局で cap=100k は parity 25.6%（無便益＝bite せず・
+   * 典型盤面の G ゲートは 100k 未満）、cap=30k は parity 23.1%（点推定 −2.5pt）＋劣化 13.8→12.2%＝微便益だが
+   * 強さが逆方向の不利トレード。**残差は典型盤面では G ゲート律速でなく外側コスト律速**＝上限化では回収できない
+   * （CHANGELOG 2026-06-16）。探索台帳の hook として存置。
+   */
+  gGateCap?: number;
 }
 
 interface ResolvedOptions {
@@ -121,6 +135,7 @@ interface ResolvedOptions {
   giftPolicy: { scoreSign: 1 | -1; harmWeight: number };
   uniformQ: boolean;
   raceRead: boolean;
+  gGateCap: number;
 }
 
 interface Ctx {
@@ -138,6 +153,8 @@ interface Ctx {
   memoT: Map<string, number>;
   /** この決定の壁時計期限（エポック ms）。無制限なら Infinity。超過後は精密化を省く（設計された劣化）。 */
   deadline: number;
+  /** G ゲート（q≥P 判定）のノード上限（実験・非ゼロ損失。Infinity＝現挙動＝聖域で厳密）。 */
+  gGateCap: number;
 }
 
 // memo キーはビットパック（`grmReachQ.packSlots` / `packCounts`、SPEED-PLAN 手法 2）。
@@ -165,6 +182,7 @@ const DEFAULTS: ResolvedOptions = {
   giftPolicy: { scoreSign: 1, harmWeight: 1000 }, // 配り＝弱者狙いの harm 最小化（§6.5・現行）。
   uniformQ: false, // q は実山札比率（従来）。一様化は手法5 の対照実験用オプション。
   raceRead: false, // 読み合い（§5-2 先読み拡張）は既定 off。配信構成は不変。
+  gGateCap: Infinity, // G ゲートは予算無制限で厳密（聖域）。上限化は残差攻撃の対照実験用オプション。
 };
 
 // ---------------------------------------------------------------------------
@@ -501,17 +519,23 @@ const EXACT_Q_ONLY =
 
 /** q ≥ P の真偽（thresholded）。EXACT_Q_ONLY 時は厳密値比較（結果は同一、速度のみ異なる）。 */
 function qGeqP(ctx: Ctx, board: Color[][], deck: ColorCounts, discard: ColorCounts): boolean {
-  return EXACT_Q_ONLY
-    ? ctx.solver.resolveValue(board, 0, 0, deck, discard) >= ctx.P
-    : ctx.solver.reachesAtLeast(board, 0, 0, deck, discard, ctx.P);
+  if (EXACT_Q_ONLY) return ctx.solver.resolveValue(board, 0, 0, deck, discard) >= ctx.P;
+  if (ctx.gGateCap !== Infinity) {
+    // G ゲート上限化（実験・非ゼロ損失）: 偽証明（q<P 確定）の深い展開を上限で打ち切り、未確定は保守側
+    // （非 G）に倒す。打ち切る盤面の大半は実際 q<P（真証明は閾値 B&B が速く上限に届きにくい）＝多くは正答。
+    return ctx.solver.reachesAtLeastBounded(board, 0, 0, deck, discard, ctx.P, ctx.gGateCap) ?? false;
+  }
+  return ctx.solver.reachesAtLeast(board, 0, 0, deck, discard, ctx.P);
 }
 
 /**
- * (V,P,K)＋盤面＋山札＋捨札の純関数キー（プロセス共有キャッシュ FIRE_G_CACHE / GREEDY_G_CACHE /
+ * (V,P,K,gGateCap)＋盤面＋山札＋捨札の純関数キー（プロセス共有キャッシュ FIRE_G_CACHE / GREEDY_G_CACHE /
  * ANALYTIC_CACHE が共用する形式。マップ自体は別なので名前空間は分かれる）。
+ * gGateCap をキーに含めるのは、上限化した G 判定（保守的 false を含む）が、同一プロセスで走る無制限の基準席
+ * （ベンチの 1 席 vs 3 席）と FIRE_G_CACHE を共有して汚染しないため（上限値違いは別キーに分かれる）。
  */
 function stateKey(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCounts): string {
-  return `${ctx.V},${ctx.P},${ctx.K}|` + packSlots(slots) + packCounts(deck) + packCounts(discard);
+  return `${ctx.V},${ctx.P},${ctx.K},${ctx.gGateCap}|` + packSlots(slots) + packCounts(deck) + packCounts(discard);
 }
 
 function qReachesG(ctx: Ctx, board: Color[][], deckForQ: ColorCounts, discard: ColorCounts): boolean {
@@ -1319,6 +1343,7 @@ export function decideAction(
     },
     uniformQ: options.uniformQ ?? DEFAULTS.uniformQ,
     raceRead: options.raceRead ?? DEFAULTS.raceRead,
+    gGateCap: options.gGateCap ?? DEFAULTS.gGateCap,
   };
   // 例外（q の展開上限超過等）は握りつぶさず呼び出し元へ投げ切る。かつて try/catch →「最初の合法手」
   // フォールバックがノード予算バグを隠し虚像の勝率測定を生んだため、例外を隠すフォールバックは禁止
@@ -1491,6 +1516,7 @@ export function logHumanEvaluation(state: GameState, playerId: number, options: 
     },
     uniformQ: options.uniformQ ?? DEFAULTS.uniformQ,
     raceRead: options.raceRead ?? DEFAULTS.raceRead,
+    gGateCap: options.gGateCap ?? DEFAULTS.gGateCap,
   };
   const slots = myColors(state, playerId);
   const deck = colorCounts(state.deck);
@@ -1740,6 +1766,7 @@ function makeCtx(opt: ResolvedOptions, V: number, P: number, endgame: boolean): 
     leafFn: opt.leafFn,
     memoT: new Map<string, number>(),
     deadline: opt.timeBudgetMs === Infinity ? Infinity : Date.now() + opt.timeBudgetMs,
+    gGateCap: opt.gGateCap,
   };
 }
 
@@ -1798,6 +1825,7 @@ export function estimateTHat(
     },
     uniformQ: options.uniformQ ?? DEFAULTS.uniformQ,
     raceRead: options.raceRead ?? DEFAULTS.raceRead,
+    gGateCap: options.gGateCap ?? DEFAULTS.gGateCap,
   };
   return tHat(makeCtx(opt, opt.V, opt.P, false), slots, deck, discard);
 }

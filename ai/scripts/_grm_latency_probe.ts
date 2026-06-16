@@ -26,6 +26,7 @@ async function main(): Promise<void> {
   let budget = 0; // 0 = 無制限
   let deck15 = false;
   let raceRead = false;
+  let gGateCap = 0;
   let hSwap = '';
   let c2Artifact = '';
   let hHybrid = false;
@@ -40,6 +41,7 @@ async function main(): Promise<void> {
     else if (k === '--budget') budget = parseIntArg('--budget', argv[++i]);
     else if (k === '--deck15') deck15 = true;
     else if (k === '--race-read') raceRead = true;
+    else if (k === '--g-gate-cap') gGateCap = parseIntArg('--g-gate-cap', argv[++i]);
     else if (k === '--h-swap') hSwap = argv[++i] ?? '';
     else if (k === '--c2-artifact') c2Artifact = argv[++i] ?? '';
     else if (k === '--h-hybrid') hHybrid = true;
@@ -50,6 +52,7 @@ async function main(): Promise<void> {
   if (budget > 0) grmOptions.timeBudgetMs = budget;
   if (deck15) grmOptions.deck15 = true;
   if (raceRead) grmOptions.raceRead = true;
+  if (gGateCap > 0) grmOptions.gGateCap = gGateCap;
   if (hSwap) {
     // bench-grm と同じ注入（h 候補のレイテンシ込み計測用）
     if (!c2Artifact) throw new Error('--h-swap には --c2-artifact が必要');
