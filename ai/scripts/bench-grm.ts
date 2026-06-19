@@ -17,7 +17,7 @@
  */
 import { pathToFileURL } from 'node:url';
 import { playOneGameWithDeciders, parseIntArg, parseFloatArg, type Decider } from './_runner';
-import { decideAction as decideGrm, GRM_P_STAR, h0Turns, h0TurnsReal, raceReadStats, type GrmOptions } from '../../src/ai/grmAI';
+import { decideAction as decideGrm, GRM_P_STAR, h0Turns, h0TurnsReal, raceReadStats, selectiveLaStats, budgetStats, type GrmOptions } from '../../src/ai/grmAI';
 import { decideAction as decideTempoFast } from '../../src/ai/tempoFastAI';
 import { decideAction as decideTempoChain } from '../../src/ai/tempoChainAI';
 import { wilsonInterval } from './stats';
@@ -58,8 +58,14 @@ export interface BenchGrmArgs {
   uniformQ: boolean;
   /** 読み合い（OBJECTIVE §5-2 先読み拡張）: 候補席に相手進捗を読んだレース緊急度（出遅れ時 P 引き下げ）を付与。 */
   raceRead: boolean;
+  /** 順位期待値目的の配り（OBJECTIVE §5-1・ワークストリーム B）: 候補席の配りを argmin E[rank_self] にする。 */
+  rankGift: boolean;
   /** G ゲート上限化（残差攻撃・非ゼロ損失）: 候補席の q≥P 判定にノード上限（0=無制限＝現挙動）。 */
   gGateCap: number;
+  /** 選択的 LA（ワークストリーム A）: leafFn を利得局面のみに投下する（--h-swap la1 とセット）。 */
+  selectiveLa: boolean;
+  /** 選択的 LA の候補密集度しきい値 τ_spread（ターン。0=既定 1.5）。 */
+  laSpread: number;
 }
 
 export const BENCH_GRM_DEFAULTS: BenchGrmArgs = {
@@ -81,7 +87,10 @@ export const BENCH_GRM_DEFAULTS: BenchGrmArgs = {
   giftLeader: false,
   uniformQ: false,
   raceRead: false,
+  rankGift: false,
   gGateCap: 0,
+  selectiveLa: false,
+  laSpread: 0,
 };
 
 export function parseBenchGrmArgs(argv: string[]): BenchGrmArgs {
@@ -134,8 +143,17 @@ export function parseBenchGrmArgs(argv: string[]): BenchGrmArgs {
       case '--race-read':
         a.raceRead = true;
         break;
+      case '--rank-gift':
+        a.rankGift = true;
+        break;
       case '--g-gate-cap':
         a.gGateCap = parseIntArg('--g-gate-cap', argv[++i]);
+        break;
+      case '--selective-la':
+        a.selectiveLa = true;
+        break;
+      case '--la-spread':
+        a.laSpread = parseFloatArg('--la-spread', argv[++i]);
         break;
       case '--h-swap': {
         const v = argv[++i];
@@ -241,10 +259,15 @@ async function main(): Promise<void> {
   const grmOptions: GrmOptions = { V: args.V, P: args.P, H: args.H, K: args.K };
   if (args.grmBudget > 0) grmOptions.timeBudgetMs = args.grmBudget;
   if (args.deck15) grmOptions.deck15 = true;
-  if (args.giftLeader) grmOptions.giftPolicy = { scoreSign: -1 };
+  if (args.giftLeader) grmOptions.giftPolicy = { ...grmOptions.giftPolicy, scoreSign: -1 };
+  if (args.rankGift) grmOptions.giftPolicy = { ...grmOptions.giftPolicy, rankObjective: true };
   if (args.uniformQ) grmOptions.uniformQ = true;
   if (args.raceRead) grmOptions.raceRead = true;
   if (args.gGateCap > 0) grmOptions.gGateCap = args.gGateCap;
+  if (args.selectiveLa) grmOptions.selectiveLa = true;
+  if (args.laSpread > 0) grmOptions.laSpread = args.laSpread;
+  if (args.selectiveLa && args.hSwap !== 'la1')
+    throw new Error('--selective-la は --h-swap la1 とセットで使う（leafFn が必要）');
   if (args.hSwap) {
     // tstar の h 候補（プローブゼロ推論）を候補席へ注入する（基準席には注入しない）。
     if (!args.c2Artifact) throw new Error('--h-swap には --c2-artifact が必要');
@@ -271,7 +294,7 @@ async function main(): Promise<void> {
       : args.base === 'chain'
         ? 'tempoChain(DEFAULT_GENOME)'
         : `tempoFast(budget=${args.budget}, LA=1)`;
-  const grmName = `GRM(V=${args.V}, P=${args.P}, H=${args.H}, K=${args.K}${args.grmBudget > 0 ? `, budget=${args.grmBudget}ms` : ''}${args.deck15 ? ', deck15' : ''}${args.giftLeader ? ', gift=leader' : ''}${args.uniformQ ? ', uniformQ' : ''}${args.raceRead ? ', raceRead' : ''}${args.gGateCap > 0 ? `, gcap=${args.gGateCap}` : ''}${args.hSwap ? `, hswap=${args.hSwap}` : ''})`;
+  const grmName = `GRM(V=${args.V}, P=${args.P}, H=${args.H}, K=${args.K}${args.grmBudget > 0 ? `, budget=${args.grmBudget}ms` : ''}${args.deck15 ? ', deck15' : ''}${args.giftLeader ? ', gift=leader' : ''}${args.uniformQ ? ', uniformQ' : ''}${args.raceRead ? ', raceRead' : ''}${args.rankGift ? ', rankGift' : ''}${args.gGateCap > 0 ? `, gcap=${args.gGateCap}` : ''}${args.hSwap ? `, hswap=${args.hSwap}` : ''}${args.selectiveLa ? `, selLA(τ=${args.laSpread > 0 ? args.laSpread : 1.5})` : ''})`;
   console.error(
     `[bench-grm] ${grmName} vs ${baseName} | games=${args.games} seed=${args.seed} (GRM 1 席 vs baseline 3 席, rotate)`
   );
@@ -293,6 +316,15 @@ async function main(): Promise<void> {
     const rr = raceReadStats();
     const pct = rr.decisions > 0 ? ((rr.urgent / rr.decisions) * 100).toFixed(1) : '0.0';
     console.error(`[race-read] 出遅れ判定で P を下げた決定: ${rr.urgent}/${rr.decisions} (${pct}%)`);
+  }
+  if (args.selectiveLa) {
+    const sl = selectiveLaStats();
+    const bs = budgetStats();
+    const slPct = sl.decisions > 0 ? ((sl.activations / sl.decisions) * 100).toFixed(1) : '0.0';
+    const degPct = bs.decisions > 0 ? ((bs.degraded / bs.decisions) * 100).toFixed(1) : '0.0';
+    console.error(
+      `[selective-la] 配置ゲート発動: ${sl.activations}/${sl.decisions} (${slPct}%) | 劣化率: ${bs.degraded}/${bs.decisions} (${degPct}%)`
+    );
   }
 
   const { low, high } = res.winRateCI95;

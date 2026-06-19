@@ -31,6 +31,8 @@ async function main(): Promise<void> {
   let c2Artifact = '';
   let hHybrid = false;
   let tstarSrc = '/home/futa/tstar/src';
+  let selectiveLa = false;
+  let laSpread = 0;
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -46,6 +48,8 @@ async function main(): Promise<void> {
     else if (k === '--c2-artifact') c2Artifact = argv[++i] ?? '';
     else if (k === '--h-hybrid') hHybrid = true;
     else if (k === '--tstar-src') tstarSrc = argv[++i] ?? tstarSrc;
+    else if (k === '--selective-la') selectiveLa = true;
+    else if (k === '--la-spread') laSpread = parseFloatArg('--la-spread', argv[++i]);
     else throw new Error(`unknown arg: ${k}`);
   }
   const grmOptions: GrmOptions = { V: 20, P, H: 1, K };
@@ -53,6 +57,8 @@ async function main(): Promise<void> {
   if (deck15) grmOptions.deck15 = true;
   if (raceRead) grmOptions.raceRead = true;
   if (gGateCap > 0) grmOptions.gGateCap = gGateCap;
+  if (selectiveLa) grmOptions.selectiveLa = true;
+  if (laSpread > 0) grmOptions.laSpread = laSpread;
   if (hSwap) {
     // bench-grm と同じ注入（h 候補のレイテンシ込み計測用）
     if (!c2Artifact) throw new Error('--h-swap には --c2-artifact が必要');

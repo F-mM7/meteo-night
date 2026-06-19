@@ -80,11 +80,33 @@ export interface GrmOptions {
    */
   leafFn?: (slots: Color[][], deck: ColorCounts, discard: ColorCounts) => number;
   /**
+   * 選択的 LA（ワークストリーム A・既定 false で挙動不変）。`leafFn` とセットで使う。
+   * true で LA1（深さ 1 展開＋葉 leafFn）を**全決定点でなく利得局面のみ**に投下する（一律 LA1 とも
+   * lookahead=2 一律とも別構成＝dead-end 回避）。発動ゲート（診断 2026-06-19 由来）:
+   *   (G1) 取得チャネル選択（deckChannelValue=1−T̂ の文脈）は無条件 LA（着手変化 39% の本丸）。
+   *        配置（placeDrawn）は候補密集度 high のみ。
+   *   (G2) endgame==false（終盤は厳密 q が主役・LA 利得 0%）。
+   *   (G3) 上位候補の解析推定スプレッド ≤ laSpread（τ_spread。僅差候補の分離＝変化率 33.9% の層）。
+   * 発動しない決定点は従来の解析/精緻化のまま＝無利得局面のコスト（劣化率悪化）を削る。
+   * `selectiveLa` false（既定）では `leafFn` は従来どおり常時発動（一律 LA1 ベンチ互換）。
+   */
+  selectiveLa?: boolean;
+  /** 選択的 LA の候補密集度しきい値 τ_spread（ターン。既定 1.5。上位候補の解析推定の幅がこれ以下なら LA 発動）。 */
+  laSpread?: number;
+  /**
    * 配り（§6.5）の方針族（L2 逸脱テスト用。既定 undefined＝現行＝弱者狙いの harm 最小化で挙動不変）。
    * scoreSign: +1 で低スコア（弱い相手）優先＝現行、-1 で高スコア（首位）優先＝キングメーカー狙い。
    * harmWeight: 連鎖準備度ペナルティの重み（既定 1000＝連鎖被害がスコア選好に絶対優先）。
+   * rankObjective: true で配り選好を「self の最終順位期待値の最小化（argmin E[rank_self]）」に切り替える
+   *   （ワークストリーム B・OBJECTIVE §5-1「ギフト配り＝相互作用の本丸」の新ライン・既定 false で挙動不変）。
+   *   既定の harm 代理指標が「相手の連鎖準備度を上げない」を間接的に最適化するのに対し、こちらは終盤の
+   *   多人数性（他者間の競り合いで self の順位が動く §5-2）を直接の目的にする。相手の**手**は読まず、
+   *   相手の**観測盤面**の到達進捗（h0TurnsReal＝発火形不足枚数レースの閉形式・探査ゼロ・O(盤面)）から
+   *   「その相手が self を抜く脅威」を安く読むだけ＝§6 設計方針（相手の手は読まない）と整合。読み合い否決
+   *   (2026-06-15) が触った self タイミング（P 値）・V 更新には一切触れない＝別決定点（配り手の目的関数）。
+   *   判定: screening 26.87%＝28% 基準未達・parity（活性だが中立＝キングメーカー中立性、2026-06-19）。既定 off。
    */
-  giftPolicy?: { scoreSign?: 1 | -1; harmWeight?: number };
+  giftPolicy?: { scoreSign?: 1 | -1; harmWeight?: number; rankObjective?: boolean };
   /**
    * q の山札一様化（SPEED-PLAN 手法5・既定 false で挙動不変）。true で内側 q ソルバのドロー期待値を
    * 実山札比率でなく「引ける色を一様」に重み付け＝tstar の一様 i.i.d. 仕様の「一様化の強さコスト」を実測する。
@@ -132,7 +154,9 @@ interface ResolvedOptions {
   degradeFn?: (slots: Color[][]) => number;
   tHatFn?: (slots: Color[][]) => number;
   leafFn?: (slots: Color[][], deck: ColorCounts, discard: ColorCounts) => number;
-  giftPolicy: { scoreSign: 1 | -1; harmWeight: number };
+  selectiveLa: boolean;
+  laSpread: number;
+  giftPolicy: { scoreSign: 1 | -1; harmWeight: number; rankObjective: boolean };
   uniformQ: boolean;
   raceRead: boolean;
   gGateCap: number;
@@ -149,6 +173,16 @@ interface Ctx {
   degradeFn?: (slots: Color[][]) => number;
   tHatFn?: (slots: Color[][]) => number;
   leafFn?: (slots: Color[][], deck: ColorCounts, discard: ColorCounts) => number;
+  /** 選択的 LA（GrmOptions 参照。配信では false）。true で leafFn を `laActive` の決定点のみに投下する。 */
+  selectiveLa: boolean;
+  /** 選択的 LA の候補密集度しきい値 τ_spread（ターン）。 */
+  laSpread: number;
+  /**
+   * 選択的 LA の発動トグル（過渡状態）。`selectiveLa` true のとき tHat の leaf 経路はこれが true の決定点でのみ
+   * 発動する。発動条件（取得チャネル＝無条件・配置＝候補密集度 high）を満たす呼び出し元が一時的に立てる。
+   * `selectiveLa` false（既定）では参照されず leafFn は従来どおり常時発動（一律 LA1 ベンチ互換）。
+   */
+  laActive: boolean;
   /** tHat のメモ（同一 (盤面, 山札, 捨札) は同値。配置の合流を畳んで深い展開を実用化）。 */
   memoT: Map<string, number>;
   /** この決定の壁時計期限（エポック ms）。無制限なら Infinity。超過後は精密化を省く（設計された劣化）。 */
@@ -179,7 +213,9 @@ const DEFAULTS: ResolvedOptions = {
   maxNodes: 2_000_000,
   timeBudgetMs: Infinity, // 無制限＝従来挙動（ベンチ互換）。ブラウザ等は明示指定する。
   deck15: false, // 山札チャネルは恒等式 1−T̂（従来）。15 パターン期待値化は fresh テスト通過までオプション。
-  giftPolicy: { scoreSign: 1, harmWeight: 1000 }, // 配り＝弱者狙いの harm 最小化（§6.5・現行）。
+  selectiveLa: false, // 選択的 LA は既定 off（leafFn があれば従来どおり常時発動＝一律 LA1 互換）。
+  laSpread: 1.5, // τ_spread 既定（ターン）。診断 2026-06-19 で僅差層（≤1T）の変化率が最大だった帯の上限寄り。
+  giftPolicy: { scoreSign: 1, harmWeight: 1000, rankObjective: false }, // 配り＝弱者狙いの harm 最小化（§6.5・現行）。rankObjective off＝挙動不変。
   uniformQ: false, // q は実山札比率（従来）。一様化は手法5 の対照実験用オプション。
   raceRead: false, // 読み合い（§5-2 先読み拡張）は既定 off。配信構成は不変。
   gGateCap: Infinity, // G ゲートは予算無制限で厳密（聖域）。上限化は残差攻撃の対照実験用オプション。
@@ -195,6 +231,18 @@ function myColors(state: GameState, me: number): Color[][] {
 
 function sumBasePoints(state: GameState): number {
   return state.turn.combosThisTurn.reduce((s, c) => s + c.basePoints, 0);
+}
+
+/**
+ * この決定点で LA1 の葉 leafFn を使うか。`leafFn` 未設定なら常に false。
+ * `selectiveLa` off（既定・一律 LA1 ベンチ）は leafFn があれば常に true（従来挙動）。
+ * `selectiveLa` on（ワークストリーム A）は発動ゲートを通った決定点（`laActive` ∧ 非 endgame）のみ true。
+ * tHat 入口・expTurnsRec の葉/フォールバックの全 leaf 参照がこれを通る（非 LA 決定点へ leaf が漏れないため）。
+ */
+function useLeaf(ctx: Ctx): boolean {
+  if (!ctx.leafFn) return false;
+  if (!ctx.selectiveLa) return true;
+  return ctx.laActive && !ctx.endgame;
 }
 
 /** プレイヤーの最上段が `color` であるスロット数（相手の連鎖準備度の簡易指標、§6.5）。 */
@@ -274,7 +322,10 @@ function tHat(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCount
   // 実験用注入点: LA1＝深さ 1 の実レート展開＋葉 leafFn（tstar LA1 知見の移植実験、TSTAR-DEPS §2b）。
   // 解析推定と精緻化ゲートを使わず、常に既存の後退帰納（expTurnsRec）を回す。発火葉の G 判定は
   // 従来どおり厳密ゲート。期限超過時は通常機構（degradeEstimate）に劣化する。
-  if (ctx.leafFn) {
+  // 選択的 LA（ワークストリーム A）: selectiveLa on のときは、この決定点が発動ゲートを通った（laActive）
+  // ときだけ LA1 を回す。endgame は LA 利得 0%（診断）なので常に従来路。発動しない決定点は下の解析/
+  // 精緻化にフォールスルーする＝無利得局面のコストを削る。
+  if (useLeaf(ctx)) {
     const drawColors = COLORS.filter((c) => deck[c] + discard[c] > 0)
       .map((c) => ({ c, p: (deck[c] + discard[c]) / totalAvail }))
       .sort((a, b) => b.p - a.p);
@@ -346,7 +397,7 @@ function expTurnsRec(
   memo: Map<string, number>
 ): number {
   if (depth >= GRM_HORIZON) {
-    return ctx.leafFn ? ctx.leafFn(slots, deck, discard) : analyticTurns(ctx, slots, deck, discard);
+    return useLeaf(ctx) ? ctx.leafFn!(slots, deck, discard) : analyticTurns(ctx, slots, deck, discard);
   }
   if (pastDeadline(ctx)) {
     markDegraded();
@@ -361,8 +412,8 @@ function expTurnsRec(
   memo.set(
     key,
     qWaste > 1e-12
-      ? ctx.leafFn
-        ? ctx.leafFn(slots, deck, discard)
+      ? useLeaf(ctx)
+        ? ctx.leafFn!(slots, deck, discard)
         : analyticTurns(ctx, slots, deck, discard)
       : EXHAUST_TURNS
   );
@@ -435,8 +486,8 @@ function bestTwoCardCost(
     }
   }
   return best >= EXHAUST_TURNS
-    ? ctx.leafFn
-      ? ctx.leafFn(slots, deck, discard)
+    ? useLeaf(ctx)
+      ? ctx.leafFn!(slots, deck, discard)
       : analyticTurns(ctx, slots, deck, discard)
     : best;
 }
@@ -472,8 +523,8 @@ function bestPlaceCost(
     if (best <= 0) return 0;
   }
   return best >= EXHAUST_TURNS
-    ? ctx.leafFn
-      ? ctx.leafFn(slots, deck, discard)
+    ? useLeaf(ctx)
+      ? ctx.leafFn!(slots, deck, discard)
       : analyticTurns(ctx, slots, deck, discard)
     : best;
 }
@@ -871,6 +922,16 @@ export function lazyAuditStats(): { decisions: number; mismatches: number; maxGa
   return { decisions: lazyAuditDecisions, mismatches: lazyAuditMismatches, maxGap: lazyAuditMaxGap };
 }
 
+// 選択的 LA の発動ゲート G3（配置フェーズ）で見る上位候補数（解析推定の小さい順＝有望側の幅で密集度を測る）。
+const GRM_LA_TOP_CANDS = 4;
+// 選択的 LA の発動追跡（配置フェーズの G3 ゲートのみ計数。取得チャネルの G1 は無条件発動なので除外）。
+let laGateDecisions = 0;
+let laGateActivations = 0;
+/** 選択的 LA の配置ゲート発動状況（ベンチ・プローブが読む）。activations=スプレッド条件を満たし LA を回した決定数。 */
+export function selectiveLaStats(): { decisions: number; activations: number } {
+  return { decisions: laGateDecisions, activations: laGateActivations };
+}
+
 interface PlacementCand {
   board: Color[][];
   firstColor: Color;
@@ -1050,6 +1111,21 @@ function bestDrawnPlacement(
   }
   cands.sort((a, b) => (a.opt === b.opt ? a.idx - b.idx : b.opt - a.opt));
 
+  // 選択的 LA・発動ゲート G2/G3（配置フェーズ）: 非 endgame ∧ 上位非発火候補の解析推定スプレッド ≤ τ_spread
+  // のときだけ、この決定点の厳密評価で leaf（LA1）を発動する。診断 2026-06-19 の「僅差候補ほど着手が反転」
+  // （解析推定 ≤1T で変化率 33.9%）に基づく＝解析で分離できない僅差の候補を 1 段展開＋葉で分ける局面に絞る。
+  // スプレッドは aTurns（pure analytic・leaf 不参照）で測る。selectiveLa off では laActive は使われない。
+  const prevLa = ctx.laActive;
+  if (ctx.selectiveLa && ctx.leafFn && !ctx.endgame && !pastDeadline(ctx)) {
+    const aT = cands.filter((c) => !c.fired).map((c) => c.aTurns).sort((a, b) => a - b);
+    // 上位 GRM_LA_TOP_CANDS 候補（解析推定の小さい順＝有望側）の幅で密集度を測る。
+    const top = aT.slice(0, GRM_LA_TOP_CANDS);
+    const spread = top.length >= 2 ? top[top.length - 1] - top[0] : 0;
+    ctx.laActive = top.length >= 2 && spread <= ctx.laSpread;
+    if (ctx.laActive) laGateActivations++;
+    laGateDecisions++;
+  }
+
   // --- 上界の降順に厳密評価し、確定 best が残りの上界を厳密に上回ったら打ち切る ---
   let bestVal = -Infinity;
   let bestIdx = Infinity;
@@ -1103,6 +1179,7 @@ function bestDrawnPlacement(
     }
   }
 
+  ctx.laActive = prevLa; // 選択的 LA の発動トグルを呼び出し前へ復帰
   return { value: bestVal, firstColor: bestColor, slot: bestSlot };
 }
 
@@ -1157,7 +1234,13 @@ function fieldChannelValue(ctx: Ctx, slots: Color[][], pairColors: Color[], deck
 function deckChannelValue(ctx: Ctx, slots: Color[][], deck: ColorCounts, discard: ColorCounts): number {
   if (totalCount(deck) + totalCount(discard) < 1) return -Infinity; // 引くカードが無い
   if (fireSlots(slots)) return gValue(ctx, slots, deck, discard); // 念のため（取得局面は非発火のはず）
-  return 1 - tHat(ctx, slots, deck, discard);
+  // 選択的 LA・発動ゲート G1: 取得チャネル選択は LA 利得の本丸（着手変化 39%）なので無条件で LA を発動する
+  // （selectiveLa off では laActive は参照されず従来挙動）。評価後に元のトグルへ復帰する。
+  const prevLa = ctx.laActive;
+  if (ctx.selectiveLa) ctx.laActive = true;
+  const v = 1 - tHat(ctx, slots, deck, discard);
+  ctx.laActive = prevLa;
+  return v;
 }
 
 /**
@@ -1238,6 +1321,9 @@ const RACE_SCORE_FRAC = 0.5; // 競合相手とみなすスコア下限（V×こ
 const RACE_MARGIN = 0; // 相手が自分より何ターン早く発火形に届けば「出遅れ」とみなすか（0＝同等以上で出遅れ）
 const RACE_P_URGENT = 0.25; // 出遅れ時に下げる目標確率（P*=0.45 → 0.25。good-enough な発火を早く取る）
 
+// 順位期待値目的の配り（rankObjective オプション・ワークストリーム B）の定数。
+const RANK_SCORE_FRAC = 0.5; // 順位脅威に数える相手のスコア下限（V×この値以上＝レース圏内のみ）
+
 /**
  * 読み合い（OBJECTIVE §5-2 終盤多人数性の先読み拡張）の P 決定: 相手の観測可能な現盤面から到達進捗を
  * 安く読み（h0TurnsReal＝発火形不足枚数レースの閉形式・探査ゼロ・O(盤面)）、レースで勝ちうる位置の相手
@@ -1289,7 +1375,7 @@ function effectiveTarget(state: GameState, me: number, opt: ResolvedOptions): { 
 function buildGiftAssignments(
   state: GameState,
   me: number,
-  policy: { scoreSign: 1 | -1; harmWeight: number }
+  policy: { scoreSign: 1 | -1; harmWeight: number; rankObjective: boolean }
 ): GiftAssignment[] {
   const queue = state.turn.giftQueue;
   const opponents = state.players.filter((p) => p.id !== me);
@@ -1298,7 +1384,7 @@ function buildGiftAssignments(
     return queue.map((combo, comboIndex) => ({ comboIndex, cardId: combo.cards[0].id, targetPlayerId: me }));
   }
   return queue.map((combo, comboIndex) => {
-    // 相手の連鎖準備度を最も上げない (card, target) を選ぶ。同等なら弱い相手（低スコア）へ。
+    // 既定（harm 代理）: 相手の連鎖準備度を最も上げない (card, target) を選ぶ。同等なら弱い相手（低スコア）へ。
     let bestCardId = combo.cards[0].id;
     let bestTarget = opponents[0].id;
     let bestHarm = Infinity;
@@ -1312,8 +1398,83 @@ function buildGiftAssignments(
         }
       }
     }
-    return { comboIndex, cardId: bestCardId, targetPlayerId: bestTarget };
+    if (!policy.rankObjective) return { comboIndex, cardId: bestCardId, targetPlayerId: bestTarget };
+
+    // 順位期待値目的（ワークストリーム B・§5-1/§5-2）: 配り (card, target) ごとに「配った後の盤面で各相手が
+    // self を抜く脅威の総和」を E[rank_self] の代理として最小化する。相手の手は読まず、観測盤面の到達進捗
+    // （h0TurnsReal）だけを使う。harm 経路の選択と異なる結果になった回数を発動率として計測する。
+    rankGiftDecisions++;
+    const deck = colorCounts(state.deck);
+    const discard = colorCounts(state.discardPile);
+    let bestRankCardId = combo.cards[0].id;
+    let bestRankTarget = opponents[0].id;
+    let bestRankCost = Infinity;
+    for (const card of combo.cards) {
+      for (const op of opponents) {
+        // この op にこの色を 1 枚配った後の op 盤面の到達進捗を読む（最上段にその色を 1 枚積む近似）。
+        const cost = expectedSelfRankAfterGift(state, me, op.id, card.color, deck, discard);
+        // 同点タイブレークは harm（既定方針）で決める＝順位中立な配りでは現行と一致しやすくする。
+        const harm = topColorCount(op, card.color) * policy.harmWeight + policy.scoreSign * op.score;
+        const key = cost * 1e6 + harm; // cost 主・harm 従の辞書順
+        if (key < bestRankCost) {
+          bestRankCost = key;
+          bestRankCardId = card.id;
+          bestRankTarget = op.id;
+        }
+      }
+    }
+    if (bestRankCardId !== bestCardId || bestRankTarget !== bestTarget) rankGiftDiverged++;
+    return { comboIndex, cardId: bestRankCardId, targetPlayerId: bestRankTarget };
   });
+}
+
+/**
+ * 順位期待値目的（rankObjective）の代理コスト: 指定の (相手 op, 色) を 1 枚配った後の盤面で、
+ * 「self を抜きうる相手の脅威の総和」を返す（小さいほど self の順位期待値が良い）。
+ * 脅威 = レース圏内（score ≥ V×RANK_SCORE_FRAC）の相手 j について、j の発火形までの距離 h0TurnsReal が
+ * 近いほど大、かつ j のスコアが self に近い／上回るほど大。配った相手 op だけは色 1 枚を最上段に積んだ
+ * 想定盤面で評価する（他の相手は現盤面）。相手の手は読まず観測盤面の確率構造のみ（§6 設計方針）。
+ */
+function expectedSelfRankAfterGift(
+  state: GameState,
+  me: number,
+  giftTarget: number,
+  giftColor: Color,
+  deck: ColorCounts,
+  discard: ColorCounts
+): number {
+  const myScore = state.players[me].score;
+  const scoreGate = DEFAULTS.V * RANK_SCORE_FRAC;
+  let threat = 0;
+  for (const opp of state.players) {
+    if (opp.id === me) continue;
+    if (opp.score < scoreGate) continue; // レース圏外の相手は順位脅威に数えない
+    let cols = playerColors(opp);
+    if (opp.id === giftTarget) {
+      // 配った色 1 枚を最上段の任意スロットに積む近似（最も準備度が上がる置き方＝相手最善側に保守的）。
+      cols = cols.map((s) => s.slice());
+      // 既に同色の最上段があるスロットへ重ねるのが最も発火に近い＝そこへ 1 枚足す。なければ空きへ。
+      let placed = false;
+      for (const s of cols) {
+        if (s.length > 0 && s[s.length - 1] === giftColor) {
+          s.push(giftColor);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        const empty = cols.find((s) => s.length === 0);
+        if (empty) empty.push(giftColor);
+        else cols[0].push(giftColor);
+      }
+    }
+    const dist = h0TurnsReal(cols, deck, discard); // 小さいほど発火形に近い＝脅威大
+    const proximity = 1 / (1 + dist); // (0,1]・単調減少
+    const scoreLead = opp.score - myScore; // 正なら相手が先行
+    const scoreFactor = 1 / (1 + Math.exp(-(scoreLead) / 4)); // ロジスティック・先行ほど 1 に近い
+    threat += proximity * scoreFactor;
+  }
+  return threat;
 }
 
 // ---------------------------------------------------------------------------
@@ -1337,9 +1498,12 @@ export function decideAction(
     degradeFn: options.degradeFn,
     tHatFn: options.tHatFn,
     leafFn: options.leafFn,
+    selectiveLa: options.selectiveLa ?? DEFAULTS.selectiveLa,
+    laSpread: options.laSpread ?? DEFAULTS.laSpread,
     giftPolicy: {
       scoreSign: options.giftPolicy?.scoreSign ?? DEFAULTS.giftPolicy.scoreSign,
       harmWeight: options.giftPolicy?.harmWeight ?? DEFAULTS.giftPolicy.harmWeight,
+      rankObjective: options.giftPolicy?.rankObjective ?? DEFAULTS.giftPolicy.rankObjective,
     },
     uniformQ: options.uniformQ ?? DEFAULTS.uniformQ,
     raceRead: options.raceRead ?? DEFAULTS.raceRead,
@@ -1510,9 +1674,12 @@ export function logHumanEvaluation(state: GameState, playerId: number, options: 
     degradeFn: options.degradeFn,
     tHatFn: options.tHatFn,
     leafFn: options.leafFn,
+    selectiveLa: options.selectiveLa ?? DEFAULTS.selectiveLa,
+    laSpread: options.laSpread ?? DEFAULTS.laSpread,
     giftPolicy: {
       scoreSign: options.giftPolicy?.scoreSign ?? DEFAULTS.giftPolicy.scoreSign,
       harmWeight: options.giftPolicy?.harmWeight ?? DEFAULTS.giftPolicy.harmWeight,
+      rankObjective: options.giftPolicy?.rankObjective ?? DEFAULTS.giftPolicy.rankObjective,
     },
     uniformQ: options.uniformQ ?? DEFAULTS.uniformQ,
     raceRead: options.raceRead ?? DEFAULTS.raceRead,
@@ -1764,6 +1931,11 @@ function makeCtx(opt: ResolvedOptions, V: number, P: number, endgame: boolean): 
     degradeFn: opt.degradeFn,
     tHatFn: opt.tHatFn,
     leafFn: opt.leafFn,
+    selectiveLa: opt.selectiveLa,
+    laSpread: opt.laSpread,
+    // 選択的 LA off（既定）では leaf は常時発動なので laActive=true から始める（従来挙動）。
+    // on のときは false から始め、発動ゲート（取得チャネル G1・配置 G3）を通った決定点だけ true に立てる。
+    laActive: !opt.selectiveLa,
     memoT: new Map<string, number>(),
     deadline: opt.timeBudgetMs === Infinity ? Infinity : Date.now() + opt.timeBudgetMs,
     gGateCap: opt.gGateCap,
@@ -1798,6 +1970,21 @@ export function raceReadStats(): { decisions: number; urgent: number } {
   return { decisions: raceReadDecisions, urgent: raceReadUrgent };
 }
 
+// --- 順位期待値目的の配り（rankObjective）の発動追跡（ワークストリーム B の早期撤退ゲート）---
+// decisions = rankObjective 経路を通ったコンボ配り決定数、diverged = 順位目的が既定 harm 経路と
+// 異なる (card, target) を選んだ決定数。発動率 = diverged / decisions。
+let rankGiftDecisions = 0;
+let rankGiftDiverged = 0;
+/** 順位目的の配りの発動状況（実験プローブが読む）。diverged=順位目的が harm 既定と別の配りを選んだ決定数。 */
+export function rankGiftStats(): { decisions: number; diverged: number } {
+  return { decisions: rankGiftDecisions, diverged: rankGiftDiverged };
+}
+/** プローブ用: 連局でカウンタを跨がせないためのリセット。 */
+export function resetRankGiftStats(): void {
+  rankGiftDecisions = 0;
+  rankGiftDiverged = 0;
+}
+
 /**
  * ベンチ用: 非発火盤面の「G 到達までの期待ターン数」の見積り（T̂ ヒューリスティック本体）を外部から呼ぶ。
  * 小盤面で厳密 T* と突き合わせて近似誤差を測るために公開する（§6.1.2 / §8-7）。
@@ -1819,9 +2006,12 @@ export function estimateTHat(
     degradeFn: options.degradeFn,
     tHatFn: options.tHatFn,
     leafFn: options.leafFn,
+    selectiveLa: options.selectiveLa ?? DEFAULTS.selectiveLa,
+    laSpread: options.laSpread ?? DEFAULTS.laSpread,
     giftPolicy: {
       scoreSign: options.giftPolicy?.scoreSign ?? DEFAULTS.giftPolicy.scoreSign,
       harmWeight: options.giftPolicy?.harmWeight ?? DEFAULTS.giftPolicy.harmWeight,
+      rankObjective: options.giftPolicy?.rankObjective ?? DEFAULTS.giftPolicy.rankObjective,
     },
     uniformQ: options.uniformQ ?? DEFAULTS.uniformQ,
     raceRead: options.raceRead ?? DEFAULTS.raceRead,
